@@ -1,0 +1,6 @@
+.vscode/
+MDK-ARM/
+SerialTimestampSender/obj/
+SerialTimestampSender/bin/
+SerialTimestampSender/.vs/
+.vs/
