@@ -36,7 +36,8 @@
 #include <stdarg.h>
 #include <math.h>
 #include <string.h>
-#include "gu20x8_301.h"
+// #include "gu20x8_301.h"
+#include "mn11236.h"
 #include "stm32_dsp.h"
 #include "table_fft.h"
 #include "stm32_rx8900.h"
@@ -84,29 +85,28 @@ int time_xDelta = 0;
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
-  .name = "defaultTask",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
+    .name = "defaultTask",
+    .stack_size = 128 * 4,
+    .priority = (osPriority_t)osPriorityNormal,
 };
 /* Definitions for displayTask */
 osThreadId_t displayTaskHandle;
 const osThreadAttr_t displayTask_attributes = {
-  .name = "displayTask",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityLow,
+    .name = "displayTask",
+    .stack_size = 128 * 4,
+    .priority = (osPriority_t)osPriorityLow,
 };
-/* Definitions for usbTask */
-osThreadId_t usbTaskHandle;
-const osThreadAttr_t usbTask_attributes = {
-  .name = "usbTask",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityLow,
+/* Definitions for flushTask */
+osThreadId_t flushTaskHandle;
+const osThreadAttr_t flushTask_attributes = {
+    .name = "flushTask",
+    .stack_size = 128 * 4,
+    .priority = (osPriority_t)osPriorityRealtime,
 };
 /* Definitions for myMutex01 */
 osMutexId_t myMutex01Handle;
 const osMutexAttr_t myMutex01_attributes = {
-  .name = "myMutex01"
-};
+    .name = "myMutex01"};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -164,38 +164,39 @@ void FFT_Pro(void)
 
 UserInfo_t userInfo;
 
-const ClockTheme_t clockTheme[4] = {
-    {Red, WhiteWithCyan, 0},
-    {Cyan, WhiteWithRed, 0},
-    {Red, WhiteWithCyan, 1},
-    {Cyan, WhiteWithRed, 1}};
+// const ClockTheme_t clockTheme[4] = {
+//     {Red, WhiteWithCyan, 0},
+//     {Cyan, WhiteWithRed, 0},
+//     {Red, WhiteWithCyan, 1},
+//     {Cyan, WhiteWithRed, 1}};
 
-const MusicTheme_t musicTheme[8] = {
-    {Cyan, Red},
-    {Cyan, White},
-    {Red, White},
-    {White, Red},
-    {CyanWithCyan, RedWithRed},
-    {CyanWithCyan, WhiteWithWhite},
-    {RedWithRed, WhiteWithWhite},
-    {WhiteWithWhite, RedWithRed},
-};
+// const MusicTheme_t musicTheme[8] = {
+//     {Cyan, Red},
+//     {Cyan, White},
+//     {Red, White},
+//     {White, Red},
+//     {CyanWithCyan, RedWithRed},
+//     {CyanWithCyan, WhiteWithWhite},
+//     {RedWithRed, WhiteWithWhite},
+//     {WhiteWithWhite, RedWithRed},
+// };
 
 /* USER CODE END FunctionPrototypes */
 
 void StartDefaultTask(void *argument);
 void StartdisplayTask(void *argument);
-void StartusbTask(void *argument);
+void StartflushTask(void *argument);
 
 extern void MX_USB_DEVICE_Init(void);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
 /**
-  * @brief  FreeRTOS initialization
-  * @param  None
-  * @retval None
-  */
-void MX_FREERTOS_Init(void) {
+ * @brief  FreeRTOS initialization
+ * @param  None
+ * @retval None
+ */
+void MX_FREERTOS_Init(void)
+{
   /* USER CODE BEGIN Init */
 
   /* USER CODE END Init */
@@ -227,18 +228,17 @@ void MX_FREERTOS_Init(void) {
   /* creation of displayTask */
   displayTaskHandle = osThreadNew(StartdisplayTask, NULL, &displayTask_attributes);
 
-  /* creation of usbTask */
-  usbTaskHandle = osThreadNew(StartusbTask, NULL, &usbTask_attributes);
+  /* creation of flushTask */
+  flushTaskHandle = osThreadNew(StartflushTask, NULL, &flushTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
-  clockTaskHandle = osThreadNew(StartClockTask, NULL, &clockTask_attributes);
+  //  clockTaskHandle = osThreadNew(StartClockTask, NULL, &clockTask_attributes);
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
   /* add events, ... */
   /* USER CODE END RTOS_EVENTS */
-
 }
 
 /* USER CODE BEGIN Header_StartDefaultTask */
@@ -280,6 +280,7 @@ __weak void StartdisplayTask(void *argument)
   const char *weekDays[7] = {
       "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
   static char tempstr[32] = {0};
+#if false
   vfd_init();
   beginSnake();
   //  for (size_t i = 0; i < MAX_X; i++)
@@ -458,10 +459,17 @@ __weak void StartdisplayTask(void *argument)
 
     osDelay(30);
   }
+#else
+  for (;;)
+  {
+		mn11236_development_test();
+    osDelay(1000);
+  }
+#endif
   /* USER CODE END StartdisplayTask */
 }
 
-/* USER CODE BEGIN Header_StartusbTask */
+/* USER CODE BEGIN StartClockTask */
 __weak void StartClockTask(void *argument)
 {
   static char tempstr[32] = {0};
@@ -500,13 +508,13 @@ __weak void StartClockTask(void *argument)
       else
         snprintf(timeStr, sizeof timeStr, "%02d %02d", tm_local.tm_hour, tm_local.tm_min);
       snprintf(hourMinute, sizeof hourMinute, "%02d%02d", tm_local.tm_hour, tm_local.tm_min);
-      if (userInfo.sysmode == Time && count++ > 60)
-      {
-        count = 0;
-        time_xDelta--;
-        snprintf(tempstr, sizeof tempstr, "20%02d-%02d-%02d %s", tm_local.tm_year, tm_local.tm_mon + 1, tm_local.tm_mday, weekDays[tm_local.tm_wday % 7]);
-        draw_long_str(tempstr, clockTheme[userInfo.clocktheme].font, 0);
-      }
+//      if (userInfo.sysmode == Time && count++ > 60)
+//      {
+//        count = 0;
+//        time_xDelta--;
+//        snprintf(tempstr, sizeof tempstr, "20%02d-%02d-%02d %s", tm_local.tm_year, tm_local.tm_mon + 1, tm_local.tm_mday, weekDays[tm_local.tm_wday % 7]);
+//        draw_long_str(tempstr, clockTheme[userInfo.clocktheme].font, 0);
+//      }
     }
     osDelay(500);
   }
@@ -516,29 +524,16 @@ __weak void StartClockTask(void *argument)
  * @param argument: Not used
  * @retval None
  */
-/* USER CODE END Header_StartusbTask */
-__weak void StartusbTask(void *argument)
+/* USER CODE END StartClockTask */
+void StartflushTask(void *argument)
 {
-  /* USER CODE BEGIN StartusbTask */
-  //  osStatus_t status;
-  //  uint8_t usbData[DEBUG_BUF_SIZE];
-  //  uint8_t result;
+  /* USER CODE BEGIN StartflushTask */
   /* Infinite loop */
   for (;;)
   {
-    //    status = osMessageQueueGet(usbQueueHandle, usbData, NULL, osWaitForever);
-    //    if (status == osOK)
-    //    {
-    //      result = CDC_Transmit_FS(&usbData[1], usbData[0]);
-    //      if (result != USBD_OK)
-    //      {
-    //        osDelay(5);
-    //        result = CDC_Transmit_FS(&usbData[1], usbData[0]);
-    //      }
-    //    }
-    osDelay(1000);
+    osDelay(2);
   }
-  /* USER CODE END StartusbTask */
+  /* USER CODE END StartflushTask */
 }
 
 /* Private application code --------------------------------------------------*/
@@ -552,4 +547,3 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 }
 
 /* USER CODE END Application */
-

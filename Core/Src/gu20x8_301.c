@@ -256,23 +256,23 @@ const uint8_t hex_codes[CHAR_COUNT][5] = {
 
 void write_data(uint8_t dat)
 {
-	HAL_GPIO_WritePin(VFD_D0_GPIO_Port, VFD_D0_Pin, (GPIO_PinState)(dat & 1));
-	HAL_GPIO_WritePin(VFD_D1_GPIO_Port, VFD_D1_Pin, (GPIO_PinState)(dat & 2));
-	HAL_GPIO_WritePin(VFD_D2_GPIO_Port, VFD_D2_Pin, (GPIO_PinState)(dat & 4));
-	HAL_GPIO_WritePin(VFD_D3_GPIO_Port, VFD_D3_Pin, (GPIO_PinState)(dat & 8));
-	HAL_GPIO_WritePin(VFD_D4_GPIO_Port, VFD_D4_Pin, (GPIO_PinState)(dat & 0x10));
-	HAL_GPIO_WritePin(VFD_D5_GPIO_Port, VFD_D5_Pin, (GPIO_PinState)(dat & 0x20));
-	HAL_GPIO_WritePin(VFD_D6_GPIO_Port, VFD_D6_Pin, (GPIO_PinState)(dat & 0x40));
-	HAL_GPIO_WritePin(VFD_D7_GPIO_Port, VFD_D7_Pin, (GPIO_PinState)(dat & 0x80));
+//	HAL_GPIO_WritePin(VFD_D0_GPIO_Port, VFD_D0_Pin, (GPIO_PinState)(dat & 1));
+//	HAL_GPIO_WritePin(VFD_D1_GPIO_Port, VFD_D1_Pin, (GPIO_PinState)(dat & 2));
+//	HAL_GPIO_WritePin(VFD_D2_GPIO_Port, VFD_D2_Pin, (GPIO_PinState)(dat & 4));
+//	HAL_GPIO_WritePin(VFD_D3_GPIO_Port, VFD_D3_Pin, (GPIO_PinState)(dat & 8));
+//	HAL_GPIO_WritePin(VFD_D4_GPIO_Port, VFD_D4_Pin, (GPIO_PinState)(dat & 0x10));
+//	HAL_GPIO_WritePin(VFD_D5_GPIO_Port, VFD_D5_Pin, (GPIO_PinState)(dat & 0x20));
+//	HAL_GPIO_WritePin(VFD_D6_GPIO_Port, VFD_D6_Pin, (GPIO_PinState)(dat & 0x40));
+//	HAL_GPIO_WritePin(VFD_D7_GPIO_Port, VFD_D7_Pin, (GPIO_PinState)(dat & 0x80));
 }
 
 void write_addr(uint8_t addr)
 {
-	HAL_GPIO_WritePin(VFD_A0_GPIO_Port, VFD_A0_Pin, (GPIO_PinState)(addr & 1));
-	HAL_GPIO_WritePin(VFD_A1_GPIO_Port, VFD_A1_Pin, (GPIO_PinState)(addr & 2));
-	HAL_GPIO_WritePin(VFD_A2_GPIO_Port, VFD_A2_Pin, (GPIO_PinState)(addr & 4));
-	HAL_GPIO_WritePin(VFD_A3_GPIO_Port, VFD_A3_Pin, (GPIO_PinState)(addr & 8));
-	HAL_GPIO_WritePin(VFD_A4_GPIO_Port, VFD_A4_Pin, (GPIO_PinState)(addr & 0x10));
+//	HAL_GPIO_WritePin(VFD_A0_GPIO_Port, VFD_A0_Pin, (GPIO_PinState)(addr & 1));
+//	HAL_GPIO_WritePin(VFD_A1_GPIO_Port, VFD_A1_Pin, (GPIO_PinState)(addr & 2));
+//	HAL_GPIO_WritePin(VFD_A2_GPIO_Port, VFD_A2_Pin, (GPIO_PinState)(addr & 4));
+//	HAL_GPIO_WritePin(VFD_A3_GPIO_Port, VFD_A3_Pin, (GPIO_PinState)(addr & 8));
+//	HAL_GPIO_WritePin(VFD_A4_GPIO_Port, VFD_A4_Pin, (GPIO_PinState)(addr & 0x10));
 }
 
 void write_page(uint8_t page)
@@ -289,43 +289,43 @@ void select_page(uint8_t page)
 
 static void set_brightness(uint8_t dimm)
 {
-	HAL_GPIO_WritePin(VFD_DIMM_GPIO_Port, VFD_DIMM_Pin, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(VFD_Write_GPIO_Port, VFD_Write_Pin, GPIO_PIN_SET);
-	write_data(dimm);
-	HAL_GPIO_WritePin(VFD_Write_GPIO_Port, VFD_Write_Pin, GPIO_PIN_RESET);
-	//	HAL_Delay(1);
-	while (HAL_GPIO_ReadPin(VFD_Busy_GPIO_Port, VFD_Busy_Pin))
-		;
-	HAL_GPIO_WritePin(VFD_DIMM_GPIO_Port, VFD_DIMM_Pin, GPIO_PIN_SET);
+//	HAL_GPIO_WritePin(VFD_DIMM_GPIO_Port, VFD_DIMM_Pin, GPIO_PIN_RESET);
+//	HAL_GPIO_WritePin(VFD_Write_GPIO_Port, VFD_Write_Pin, GPIO_PIN_SET);
+//	write_data(dimm);
+//	HAL_GPIO_WritePin(VFD_Write_GPIO_Port, VFD_Write_Pin, GPIO_PIN_RESET);
+//	//	HAL_Delay(1);
+//	while (HAL_GPIO_ReadPin(VFD_Busy_GPIO_Port, VFD_Busy_Pin))
+//		;
+//	HAL_GPIO_WritePin(VFD_DIMM_GPIO_Port, VFD_DIMM_Pin, GPIO_PIN_SET);
 }
 
 void clear_page()
 {
-	HAL_GPIO_WritePin(VFD_Clear_GPIO_Port, VFD_Clear_Pin, GPIO_PIN_RESET);
-	//	HAL_Delay(1);
-	while (HAL_GPIO_ReadPin(VFD_Busy_GPIO_Port, VFD_Busy_Pin))
-		;
-	HAL_GPIO_WritePin(VFD_Clear_GPIO_Port, VFD_Clear_Pin, GPIO_PIN_SET);
+//	HAL_GPIO_WritePin(VFD_Clear_GPIO_Port, VFD_Clear_Pin, GPIO_PIN_RESET);
+//	//	HAL_Delay(1);
+//	while (HAL_GPIO_ReadPin(VFD_Busy_GPIO_Port, VFD_Busy_Pin))
+//		;
+//	HAL_GPIO_WritePin(VFD_Clear_GPIO_Port, VFD_Clear_Pin, GPIO_PIN_SET);
 }
 
 void draw_lay(int color, uint8_t *gram)
 {
-	int i = 0;
+//	int i = 0;
 	//	HAL_Delay(1);
-	while (HAL_GPIO_ReadPin(VFD_Busy_GPIO_Port, VFD_Busy_Pin))
-		;
-	//	HAL_GPIO_WritePin(VFD_Blank_GPIO_Port, VFD_Blank_Pin, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(VFD_Color_GPIO_Port, VFD_Color_Pin, (GPIO_PinState)color);
-	for (i = 0; i < MAX_X; i++)
-	{
-		HAL_GPIO_WritePin(VFD_Write_GPIO_Port, VFD_Write_Pin, GPIO_PIN_SET);
-		write_addr(i);
-		write_data(gram[i]);
-		//		HAL_Delay(1);
-		HAL_GPIO_WritePin(VFD_Write_GPIO_Port, VFD_Write_Pin, GPIO_PIN_RESET);
-		while (HAL_GPIO_ReadPin(VFD_Busy_GPIO_Port, VFD_Busy_Pin))
-			;
-	}
+//	while (HAL_GPIO_ReadPin(VFD_Busy_GPIO_Port, VFD_Busy_Pin))
+//		;
+//	//	HAL_GPIO_WritePin(VFD_Blank_GPIO_Port, VFD_Blank_Pin, GPIO_PIN_RESET);
+//	HAL_GPIO_WritePin(VFD_Color_GPIO_Port, VFD_Color_Pin, (GPIO_PinState)color);
+//	for (i = 0; i < MAX_X; i++)
+//	{
+//		HAL_GPIO_WritePin(VFD_Write_GPIO_Port, VFD_Write_Pin, GPIO_PIN_SET);
+//		write_addr(i);
+//		write_data(gram[i]);
+//		//		HAL_Delay(1);
+//		HAL_GPIO_WritePin(VFD_Write_GPIO_Port, VFD_Write_Pin, GPIO_PIN_RESET);
+//		while (HAL_GPIO_ReadPin(VFD_Busy_GPIO_Port, VFD_Busy_Pin))
+//			;
+//	}
 	//	HAL_GPIO_WritePin(VFD_Blank_GPIO_Port, VFD_Blank_Pin, GPIO_PIN_SET);
 }
 
