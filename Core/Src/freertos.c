@@ -460,6 +460,7 @@ __weak void StartdisplayTask(void *argument)
     osDelay(30);
   }
 #else
+	mn11236_init();
   for (;;)
   {
 		mn11236_development_test();

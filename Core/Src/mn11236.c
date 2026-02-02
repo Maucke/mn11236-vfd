@@ -112,11 +112,12 @@ void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
         return;
 
     // BLK 高 → LAT → BLK 低
-    HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_SET);__NOP(); __NOP(); __NOP();
+    HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_SET);__NOP(); __NOP(); __NOP();__NOP(); __NOP(); __NOP();
     HAL_GPIO_WritePin(VFD_LAT_GPIO_Port, VFD_LAT_Pin, GPIO_PIN_SET);__NOP(); __NOP(); __NOP();
     HAL_GPIO_WritePin(VFD_LAT_GPIO_Port, VFD_LAT_Pin, GPIO_PIN_RESET);__NOP(); __NOP(); __NOP();
-    HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_RESET);__NOP(); __NOP(); __NOP();
-
+		   
+    HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_RESET);
+		
     current_grid = (current_grid + 1) % VFD_FRAMES;
 
     HAL_SPI_Transmit_DMA(
@@ -249,7 +250,7 @@ void mn11236_development_test(void)
             mn11236_draw_pixel(x, y, MN11236_COLOR_BLUE);
         }
         mn11236_send_buffer();
-        osDelay(20);
+        HAL_Delay(20);
     }
 
     // 动画2: 水平扫描线从上到下（红色）
@@ -261,7 +262,7 @@ void mn11236_development_test(void)
             mn11236_draw_pixel(x, y, MN11236_COLOR_RED);
         }
         mn11236_send_buffer();
-        osDelay(50);
+        HAL_Delay(50);
     }
 
     // 动画3: 逐行填充（蓝色从上往下填满）
@@ -273,10 +274,10 @@ void mn11236_development_test(void)
             mn11236_draw_pixel(x, y, MN11236_COLOR_BLUE);
         }
         mn11236_send_buffer();
-        osDelay(80);
+        HAL_Delay(80);
     }
 
-    osDelay(500);
+    HAL_Delay(500);
 
     // 动画4: 逐行清除（从上往下清除）
     for (y = 0; y < VFD_HEIGHT; y++)
@@ -287,7 +288,7 @@ void mn11236_development_test(void)
             reset_bit(display_buffer[y][MN11236_COLOR_BLUE], x);
         }
         mn11236_send_buffer();
-        osDelay(80);
+        HAL_Delay(80);
     }
 
     // 动画5: 扩展矩形（从中心向外扩展）
@@ -315,10 +316,10 @@ void mn11236_development_test(void)
             }
         }
         mn11236_send_buffer();
-        osDelay(50);
+        HAL_Delay(50);
     }
 
-    osDelay(1000);
+    HAL_Delay(1000);
 
     mn11236_set_brightness(10);
 
@@ -335,7 +336,7 @@ void mn11236_development_test(void)
                 if (x % 4 == 0)
                 {
                     mn11236_send_buffer();
-                    osDelay(5);
+                    HAL_Delay(5);
                 }
             }
         }
@@ -348,14 +349,14 @@ void mn11236_development_test(void)
                 if (rx % 4 == 0)
                 {
                     mn11236_send_buffer();
-                    osDelay(5);
+                    HAL_Delay(5);
                 }
             }
         }
     }
     mn11236_send_buffer();
 
-    osDelay(2000);
+    HAL_Delay(2000);
 
     // 清屏结束
     mn11236_clear_buffers();

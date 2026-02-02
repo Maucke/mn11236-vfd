@@ -63,6 +63,8 @@ void Error_Handler(void);
 #define IIC_SDA_GPIO_Port GPIOC
 #define IIC_SCL_Pin GPIO_PIN_15
 #define IIC_SCL_GPIO_Port GPIOC
+#define VFD_EN_Pin GPIO_PIN_3
+#define VFD_EN_GPIO_Port GPIOA
 #define VFD_BK_Pin GPIO_PIN_12
 #define VFD_BK_GPIO_Port GPIOB
 #define VFD_LAT_Pin GPIO_PIN_14

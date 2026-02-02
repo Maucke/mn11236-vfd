@@ -31,6 +31,7 @@
 /* USER CODE BEGIN Includes */
 #include "stmflash.h"
 #include "usbd_nex_link.h"
+#include "mn11236.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -87,6 +88,7 @@ int main(void)
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+
   HAL_Init();
 
   /* USER CODE BEGIN Init */
@@ -126,14 +128,21 @@ int main(void)
   userInfo.dimming %= 4;
   userInfo.clocktheme %= 4;
   userInfo.musictheme %= 8;
+	
+	mn11236_init();
+  for (;;)
+  {
+		mn11236_development_test();
+    HAL_Delay(1000);
+  }
   /* USER CODE END 2 */
 
   /* Init scheduler */
-  osKernelInitialize();  /* Call init function for freertos objects (in freertos.c) */
-  MX_FREERTOS_Init();
+//  osKernelInitialize();  /* Call init function for freertos objects (in freertos.c) */
+//  MX_FREERTOS_Init();
 
-  /* Start scheduler */
-  osKernelStart();
+//  /* Start scheduler */
+//  osKernelStart();
 
   /* We should never get here as control is now taken by the scheduler */
   /* Infinite loop */
