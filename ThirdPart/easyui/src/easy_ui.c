@@ -1267,52 +1267,6 @@ void update_filter(Filter* filter)
   }
 }
 
-
-bool IsConnect()
-{
-    return true;
-}
-
-void EasyUIDrawStatusBar(EasyUIPage_t* page)
-{
-  static char tempstr[64];
-  static struct tm time_user;
-  static long last_update_time = 0;
-  static bool tick = 0;
-  int screen_delta = 10;
-  long now_tick = HAL_GetTick();
-	
-	if(page->font.type!=GUI_DEFAULT_DISPLAY_FONT)
-		return;
-	
-  if(now_tick - last_update_time > 500)
-  {
-    tick = 1 - tick;
-
-    RX8900_GetTime(&time_user);
-//    BMP280_GetData(&pressure, &temperature, &humidity, &asl);
-//		fltaltitude.target_value = BMP280_PressureToAltitude(&pressure);
-//		update_filter(&fltaltitude);
-    last_update_time = HAL_GetTick();
-  }
-  // GUI_8X16_OCRB
-  EasyUISetFont(GUI_8X16_OCRB);
-  screen_delta += 64;
-//	snprintf(tempstr, sizeof tempstr, "%02ds", remindsec/2);
-//	if(remindsec != HOLDTIME)
-//		GUI_ShowStr(screen_delta, 1, tempstr);
-  screen_delta += 32;
-  if(tick)
-    snprintf(tempstr, sizeof tempstr, "%02d:%02d:%02d", time_user.tm_hour, time_user.tm_min, time_user.tm_sec);
-  else
-    snprintf(tempstr, sizeof tempstr, "%02d %02d %02d", time_user.tm_hour, time_user.tm_min, time_user.tm_sec);
-
-  GUI_ShowStr(screen_delta, 1, tempstr);
-  screen_delta += 68 + 12;
-  EasyUISetFont(GUI_12X16_OCR);
-}
-
-void EventMotion(void);
 /*!
  * @brief   Main function of EasyUI
  *
@@ -1450,10 +1404,6 @@ void EasyUIEvent(uint8_t timer)
     return;
   }
 	// -------------------------------------------------------------------------------------------
-	// Status bar---------------------------------------------------------------------------------
-	EasyUIDrawStatusBar(page);
-	
-  // -------------------------------------------------------------------------------------------
   // List page----------------------------------------------------------------------------------
   for(EasyUIItem_t* item = page->itemHead; item != NULL; item = item->next)
   {
