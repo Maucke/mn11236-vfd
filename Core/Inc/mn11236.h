@@ -28,18 +28,23 @@ void mn11236_init(void);
 /**
  * 清空全部缓冲区
  */
-void mn11236_clear_buffers();
+void mn11236_clear_buffers(void);
 
 /**
  * 发送缓冲区数据到屏幕
  */
-void mn11236_send_buffer();
+void mn11236_send_buffer(void);
 
 /**
  * 画一个点,起点从0,0开始
  */
 void mn11236_draw_pixel(uint8_t x, uint8_t y, mn11236_color_t color);
 
+/**
+ * 清一个点,起点从0,0开始
+ */
+void mn11236_clear_pixel(uint8_t x, uint8_t y, mn11236_color_t color);
+	
 /**
  * 亮度调整0~255级
  */

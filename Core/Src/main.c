@@ -31,7 +31,6 @@
 /* USER CODE BEGIN Includes */
 #include "stmflash.h"
 #include "usbd_nex_link.h"
-#include "mn11236.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -129,20 +128,16 @@ int main(void)
   userInfo.clocktheme %= 4;
   userInfo.musictheme %= 8;
 	
-	mn11236_init();
-  for (;;)
-  {
-		mn11236_development_test();
-    HAL_Delay(1000);
-  }
+  HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 0, 0); //让扫描中断不被打断
+  HAL_NVIC_EnableIRQ(DMA1_Stream4_IRQn);
   /* USER CODE END 2 */
 
   /* Init scheduler */
-//  osKernelInitialize();  /* Call init function for freertos objects (in freertos.c) */
-//  MX_FREERTOS_Init();
+  osKernelInitialize();  /* Call init function for freertos objects (in freertos.c) */
+  MX_FREERTOS_Init();
 
-//  /* Start scheduler */
-//  osKernelStart();
+  /* Start scheduler */
+  osKernelStart();
 
   /* We should never get here as control is now taken by the scheduler */
   /* Infinite loop */
@@ -153,8 +148,6 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 		
-		//逻辑代码在freertos.c中，对时网上搜索一下时间戳，复制到串口助手中
-    // 例如：timestamp:1747645077，即表示16:59:23 2025-04-19 1
   }
   /* USER CODE END 3 */
 }

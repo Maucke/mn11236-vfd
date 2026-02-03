@@ -32,7 +32,7 @@
 #include "usart.h"
 #include "usb_device.h"
 #include "gpio.h"
-
+#include "clockui.h"
 #include <stdarg.h>
 #include <math.h>
 #include <string.h>
@@ -164,22 +164,22 @@ void FFT_Pro(void)
 
 UserInfo_t userInfo;
 
-// const ClockTheme_t clockTheme[4] = {
-//     {Red, WhiteWithCyan, 0},
-//     {Cyan, WhiteWithRed, 0},
-//     {Red, WhiteWithCyan, 1},
-//     {Cyan, WhiteWithRed, 1}};
+ const ClockTheme_t clockTheme[4] = {
+     {Red, WhiteWithCyan, 0},
+     {Cyan, WhiteWithRed, 0},
+     {Red, WhiteWithCyan, 1},
+     {Cyan, WhiteWithRed, 1}};
 
-// const MusicTheme_t musicTheme[8] = {
-//     {Cyan, Red},
-//     {Cyan, White},
-//     {Red, White},
-//     {White, Red},
-//     {CyanWithCyan, RedWithRed},
-//     {CyanWithCyan, WhiteWithWhite},
-//     {RedWithRed, WhiteWithWhite},
-//     {WhiteWithWhite, RedWithRed},
-// };
+ const MusicTheme_t musicTheme[8] = {
+     {Cyan, Red},
+     {Cyan, White},
+     {Red, White},
+     {White, Red},
+     {CyanWithCyan, RedWithRed},
+     {CyanWithCyan, WhiteWithWhite},
+     {RedWithRed, WhiteWithWhite},
+     {WhiteWithWhite, RedWithRed},
+ };
 
 /* USER CODE END FunctionPrototypes */
 
@@ -280,8 +280,8 @@ __weak void StartdisplayTask(void *argument)
   const char *weekDays[7] = {
       "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
   static char tempstr[32] = {0};
-#if false
-  vfd_init();
+#if true
+  clock_init();
   beginSnake();
   //  for (size_t i = 0; i < MAX_X; i++)
   //    for (size_t j = 0; j < MAX_Y; j++)
@@ -298,165 +298,162 @@ __weak void StartdisplayTask(void *argument)
   /* Infinite loop */
   for (;;)
   {
-    set_dimming(userInfo.dimming);
     clear_gram(White);
 
-    if (userInfo.sysmode == Music)
-    {
-      clear_all_long_str();
-      draw_fft(lBufMagArray, NPT / 2, 20, musicTheme[userInfo.musictheme].bar, musicTheme[userInfo.musictheme].dot);
-    }
-    else if (userInfo.sysmode == Time)
-    {
-      if (clockTheme[userInfo.clocktheme].type == 0)
-      {
-        for (int i = 0 + time_xDelta; i < MAX_X + time_xDelta; i++)
-        {
-          draw_point(i, 0, clockTheme[userInfo.clocktheme].border);
-          draw_point(i, MAX_Y - 1, clockTheme[userInfo.clocktheme].border);
-        }
-        for (int j = 0; j < MAX_Y; j++)
-        {
-          draw_point(0 + time_xDelta, j, clockTheme[userInfo.clocktheme].border);
-          draw_point(MAX_X - 1 + time_xDelta, j, clockTheme[userInfo.clocktheme].border);
-        }
-        draw_str_3x5(1 + time_xDelta, 1, timeStr, clockTheme[userInfo.clocktheme].font);
-      }
-      else
-      {
-        draw_num_str(time_xDelta, 0, hourMinute, 8, clockTheme[userInfo.clocktheme].font);
-      }
+//    if (userInfo.sysmode == Music)
+//    {
+//      clear_all_long_str();
+//      draw_fft(lBufMagArray, NPT / 2, 20, musicTheme[userInfo.musictheme].bar, musicTheme[userInfo.musictheme].dot);
+//    }
+//    else if (userInfo.sysmode == Time)
+//    {
+//      if (clockTheme[userInfo.clocktheme].type == 0)
+//      {
+//        for (int i = 0 + time_xDelta; i < MAX_X + time_xDelta; i++)
+//        {
+//          draw_point(i, 0, clockTheme[userInfo.clocktheme].border);
+//          draw_point(i, MAX_Y - 1, clockTheme[userInfo.clocktheme].border);
+//        }
+//        for (int j = 0; j < MAX_Y; j++)
+//        {
+//          draw_point(0 + time_xDelta, j, clockTheme[userInfo.clocktheme].border);
+//          draw_point(MAX_X - 1 + time_xDelta, j, clockTheme[userInfo.clocktheme].border);
+//        }
+//        draw_str_3x5(1 + time_xDelta, 1, timeStr, clockTheme[userInfo.clocktheme].font);
+//      }
+//      else
+//      {
+//        draw_num_str(time_xDelta, 0, hourMinute, 8, clockTheme[userInfo.clocktheme].font);
+//      }
 
-      roll_all_long_str();
-      {
-        if (time_xDelta < 0 && time_xDelta >= -MAX_X)
-          time_xDelta--;
+//      roll_all_long_str();
+//      {
+//        if (time_xDelta < 0 && time_xDelta >= -MAX_X)
+//          time_xDelta--;
 
-        if (time_xDelta > 0)
-          time_xDelta--;
+//        if (time_xDelta > 0)
+//          time_xDelta--;
 
-        if (get_long_str_count() == 0 && time_xDelta < 0)
-          time_xDelta = MAX_X;
-      }
-    }
-    else if (userInfo.sysmode == Snake)
+//        if (get_long_str_count() == 0 && time_xDelta < 0)
+//          time_xDelta = MAX_X;
+//      }
+//    }
+//    else if (userInfo.sysmode == Snake)
     {
       //      draw_num_str(0, 0, "12", 3, WhiteWithRed);
       //      draw_num_str(0, 4, "34", 4, WhiteWithRed);
       refrashSnake();
       osDelay(30);
     }
-    else if (userInfo.sysmode == SetDimm)
-    {
-      for (int i = 0; i < MAX_X; i++)
-      {
-        for (int j = 0; j < 2; j++)
-          if (i / 5 > (userInfo.dimming))
-            draw_point(i, j, Red);
-          else if (i / 5 < (userInfo.dimming))
-            draw_point(i, j, Cyan);
-          else
-            draw_point(i, j, White);
-      }
+//    else if (userInfo.sysmode == SetDimm)
+//    {
+//      for (int i = 0; i < MAX_X; i++)
+//      {
+//        for (int j = 0; j < 2; j++)
+//          if (i / 5 > (userInfo.dimming))
+//            draw_point(i, j, Red);
+//          else if (i / 5 < (userInfo.dimming))
+//            draw_point(i, j, Cyan);
+//          else
+//            draw_point(i, j, White);
+//      }
 
-      draw_str_3x5(0, 2, "brigh", WhiteWithRed);
-      if (backToDefaultTimestamp < HAL_GetTick())
-      {
-        userInfo.sysmode = Time;
-        STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
-      }
-    }
-    else if (userInfo.sysmode == SetYear)
-    {
-      for (int i = 0; i < MAX_X; i++)
-      {
-        if (i / 5 >= 1)
-          draw_point(i, 7, Red);
-        else
-          draw_point(i, 7, Cyan);
-      }
-      if (flash)
-        snprintf(tempstr, sizeof tempstr, "%04d", tm_set.tm_year + 2000);
-      else
-        snprintf(tempstr, sizeof tempstr, "    ");
+//      draw_str_3x5(0, 2, "brigh", WhiteWithRed);
+//      if (backToDefaultTimestamp < HAL_GetTick())
+//      {
+//        userInfo.sysmode = Time;
+//        STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
+//      }
+//    }
+//    else if (userInfo.sysmode == SetYear)
+//    {
+//      for (int i = 0; i < MAX_X; i++)
+//      {
+//        if (i / 5 >= 1)
+//          draw_point(i, 7, Red);
+//        else
+//          draw_point(i, 7, Cyan);
+//      }
+//      if (flash)
+//        snprintf(tempstr, sizeof tempstr, "%04d", tm_set.tm_year + 2000);
+//      else
+//        snprintf(tempstr, sizeof tempstr, "    ");
 
-      draw_str_3x5(2, 1, tempstr, WhiteWithRed);
-      if (backToDefaultTimestamp < HAL_GetTick())
-      {
-        userInfo.sysmode = Time;
-        STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
-      }
-    }
-    else if (userInfo.sysmode == SetMonth || userInfo.sysmode == SetDay)
-    {
-      for (int i = 0; i < MAX_X; i++)
-      {
-        if (i / 5 >= 2)
-          draw_point(i, 7, Red);
-        else
-          draw_point(i, 7, Cyan);
-      }
-      if (flash)
-        snprintf(tempstr, sizeof tempstr, "%02d-%02d", tm_set.tm_mon + 1, tm_set.tm_mday);
-      else if (userInfo.sysmode == SetMonth)
-        snprintf(tempstr, sizeof tempstr, "    -%02d", tm_set.tm_mday);
-      else if (userInfo.sysmode == SetDay)
-        snprintf(tempstr, sizeof tempstr, "%02d-  ", tm_set.tm_mon + 1);
+//      draw_str_3x5(2, 1, tempstr, WhiteWithRed);
+//      if (backToDefaultTimestamp < HAL_GetTick())
+//      {
+//        userInfo.sysmode = Time;
+//        STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
+//      }
+//    }
+//    else if (userInfo.sysmode == SetMonth || userInfo.sysmode == SetDay)
+//    {
+//      for (int i = 0; i < MAX_X; i++)
+//      {
+//        if (i / 5 >= 2)
+//          draw_point(i, 7, Red);
+//        else
+//          draw_point(i, 7, Cyan);
+//      }
+//      if (flash)
+//        snprintf(tempstr, sizeof tempstr, "%02d-%02d", tm_set.tm_mon + 1, tm_set.tm_mday);
+//      else if (userInfo.sysmode == SetMonth)
+//        snprintf(tempstr, sizeof tempstr, "    -%02d", tm_set.tm_mday);
+//      else if (userInfo.sysmode == SetDay)
+//        snprintf(tempstr, sizeof tempstr, "%02d-  ", tm_set.tm_mon + 1);
 
-      draw_str_3x5(1, 1, tempstr, WhiteWithRed);
-      if (backToDefaultTimestamp < HAL_GetTick())
-      {
-        userInfo.sysmode = Time;
-        STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
-      }
-    }
-    else if (userInfo.sysmode == SetWeek)
-    {
-      for (int i = 0; i < MAX_X; i++)
-      {
-        if (i / 5 >= 3)
-          draw_point(i, 7, Red);
-        else
-          draw_point(i, 7, Cyan);
-      }
-      if (flash)
-        snprintf(tempstr, sizeof tempstr, "%s", weekDays[tm_set.tm_wday]);
-      else
-        snprintf(tempstr, sizeof tempstr, "    ");
+//      draw_str_3x5(1, 1, tempstr, WhiteWithRed);
+//      if (backToDefaultTimestamp < HAL_GetTick())
+//      {
+//        userInfo.sysmode = Time;
+//        STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
+//      }
+//    }
+//    else if (userInfo.sysmode == SetWeek)
+//    {
+//      for (int i = 0; i < MAX_X; i++)
+//      {
+//        if (i / 5 >= 3)
+//          draw_point(i, 7, Red);
+//        else
+//          draw_point(i, 7, Cyan);
+//      }
+//      if (flash)
+//        snprintf(tempstr, sizeof tempstr, "%s", weekDays[tm_set.tm_wday]);
+//      else
+//        snprintf(tempstr, sizeof tempstr, "    ");
 
-      draw_str_3x5(4, 1, tempstr, WhiteWithRed);
-      if (backToDefaultTimestamp < HAL_GetTick())
-      {
-        userInfo.sysmode = Time;
-        STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
-      }
-    }
-    else if (userInfo.sysmode == SetHour || userInfo.sysmode == SetMin)
-    {
-      for (int i = 0; i < MAX_X; i++)
-      {
-        if (i / 5 >= 4)
-          draw_point(i, 7, Red);
-        else
-          draw_point(i, 7, Cyan);
-      }
-      if (flash)
-        snprintf(tempstr, sizeof tempstr, "%02d:%02d", tm_set.tm_hour, tm_set.tm_min);
-      else if (userInfo.sysmode == SetHour)
-        snprintf(tempstr, sizeof tempstr, "    :%02d", tm_set.tm_min);
-      else if (userInfo.sysmode == SetMin)
-        snprintf(tempstr, sizeof tempstr, "%02d:  ", tm_set.tm_hour);
+//      draw_str_3x5(4, 1, tempstr, WhiteWithRed);
+//      if (backToDefaultTimestamp < HAL_GetTick())
+//      {
+//        userInfo.sysmode = Time;
+//        STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
+//      }
+//    }
+//    else if (userInfo.sysmode == SetHour || userInfo.sysmode == SetMin)
+//    {
+//      for (int i = 0; i < MAX_X; i++)
+//      {
+//        if (i / 5 >= 4)
+//          draw_point(i, 7, Red);
+//        else
+//          draw_point(i, 7, Cyan);
+//      }
+//      if (flash)
+//        snprintf(tempstr, sizeof tempstr, "%02d:%02d", tm_set.tm_hour, tm_set.tm_min);
+//      else if (userInfo.sysmode == SetHour)
+//        snprintf(tempstr, sizeof tempstr, "    :%02d", tm_set.tm_min);
+//      else if (userInfo.sysmode == SetMin)
+//        snprintf(tempstr, sizeof tempstr, "%02d:  ", tm_set.tm_hour);
 
-      draw_str_3x5(1, 1, tempstr, WhiteWithRed);
-      if (backToDefaultTimestamp < HAL_GetTick())
-      {
-        userInfo.sysmode = Time;
-        STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
-      }
-    }
-
-    refrash_gram();
-
+//      draw_str_3x5(1, 1, tempstr, WhiteWithRed);
+//      if (backToDefaultTimestamp < HAL_GetTick())
+//      {
+//        userInfo.sysmode = Time;
+//        STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
+//      }
+//    }
+		refrash_gram();
     osDelay(30);
   }
 #else
