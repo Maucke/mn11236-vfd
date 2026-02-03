@@ -100,7 +100,7 @@ static void send_event(
     if (len && payload)
         memcpy(pkt->payload, payload, len);
 
-    nexlink_tx_send(tx, frame_len);
+    nexlink_tx_isr(tx, frame_len);
 }
 
 void nexlink_log(const char *fmt, ...)

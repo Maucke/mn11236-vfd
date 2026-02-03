@@ -41,12 +41,13 @@
 #include "stm32_dsp.h"
 #include "table_fft.h"
 #include "stm32_rx8900.h"
-#include "button.h"
 #include "stmflash.h"
 #include "stdbool.h"
 #include "usbd_nex_link.h"
 #include "nexlink_tasks.h"
 #include "nexlink_app.h"
+#include "easy_ui.h"
+#include "easy_ui_user_app.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -85,28 +86,22 @@ int time_xDelta = 0;
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
-    .name = "defaultTask",
-    .stack_size = 128 * 4,
-    .priority = (osPriority_t)osPriorityNormal,
+  .name = "defaultTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for displayTask */
 osThreadId_t displayTaskHandle;
 const osThreadAttr_t displayTask_attributes = {
-    .name = "displayTask",
-    .stack_size = 128 * 4,
-    .priority = (osPriority_t)osPriorityLow,
-};
-/* Definitions for flushTask */
-osThreadId_t flushTaskHandle;
-const osThreadAttr_t flushTask_attributes = {
-    .name = "flushTask",
-    .stack_size = 128 * 4,
-    .priority = (osPriority_t)osPriorityRealtime,
+  .name = "displayTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow,
 };
 /* Definitions for myMutex01 */
 osMutexId_t myMutex01Handle;
 const osMutexAttr_t myMutex01_attributes = {
-    .name = "myMutex01"};
+  .name = "myMutex01"
+};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -185,18 +180,16 @@ UserInfo_t userInfo;
 
 void StartDefaultTask(void *argument);
 void StartdisplayTask(void *argument);
-void StartflushTask(void *argument);
 
 extern void MX_USB_DEVICE_Init(void);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
 /**
- * @brief  FreeRTOS initialization
- * @param  None
- * @retval None
- */
-void MX_FREERTOS_Init(void)
-{
+  * @brief  FreeRTOS initialization
+  * @param  None
+  * @retval None
+  */
+void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
 
   /* USER CODE END Init */
@@ -228,9 +221,6 @@ void MX_FREERTOS_Init(void)
   /* creation of displayTask */
   displayTaskHandle = osThreadNew(StartdisplayTask, NULL, &displayTask_attributes);
 
-  /* creation of flushTask */
-  flushTaskHandle = osThreadNew(StartflushTask, NULL, &flushTask_attributes);
-
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   //  clockTaskHandle = osThreadNew(StartClockTask, NULL, &clockTask_attributes);
@@ -239,6 +229,7 @@ void MX_FREERTOS_Init(void)
   /* USER CODE BEGIN RTOS_EVENTS */
   /* add events, ... */
   /* USER CODE END RTOS_EVENTS */
+
 }
 
 /* USER CODE BEGIN Header_StartDefaultTask */
@@ -256,12 +247,10 @@ __weak void StartDefaultTask(void *argument)
   osDelay(200);
   NexLinkInit();
   /* Infinite loop */
-  Button_Init();
   FFT_Start();
   for (;;)
   {
     FFT_Pro();
-    Button_Update();
     osDelay(30);
   }
   /* USER CODE END StartDefaultTask */
@@ -280,181 +269,21 @@ __weak void StartdisplayTask(void *argument)
   const char *weekDays[7] = {
       "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
   static char tempstr[32] = {0};
+	MenuInit();
+	EasyUIInit(1);
 #if true
-  clock_init();
-  beginSnake();
-  //  for (size_t i = 0; i < MAX_X; i++)
-  //    for (size_t j = 0; j < MAX_Y; j++)
-  //    {
-  //      if ((j + i) % 3 == 0)
-  //        draw_point(i, j, Red);
-  //      else if ((j + i) % 3 == 1)
-  //        draw_point(i, j, Cyan);
-  //      else if ((j + i) % 3 == 2)
-  //        draw_point(i, j, White);
-  //    }
-  //  refrash_gram();
-  //  LongStr_t *s = draw_long_str("hello world, this is for long str present ", WhiteWithCyan);
+//  clock_init();
+//  beginSnake();
   /* Infinite loop */
   for (;;)
   {
-    clear_gram(White);
-
-//    if (userInfo.sysmode == Music)
-//    {
+//    clear_gram(White);
 //      clear_all_long_str();
 //      draw_fft(lBufMagArray, NPT / 2, 20, musicTheme[userInfo.musictheme].bar, musicTheme[userInfo.musictheme].dot);
-//    }
-//    else if (userInfo.sysmode == Time)
-//    {
-//      if (clockTheme[userInfo.clocktheme].type == 0)
-//      {
-//        for (int i = 0 + time_xDelta; i < MAX_X + time_xDelta; i++)
-//        {
-//          draw_point(i, 0, clockTheme[userInfo.clocktheme].border);
-//          draw_point(i, MAX_Y - 1, clockTheme[userInfo.clocktheme].border);
-//        }
-//        for (int j = 0; j < MAX_Y; j++)
-//        {
-//          draw_point(0 + time_xDelta, j, clockTheme[userInfo.clocktheme].border);
-//          draw_point(MAX_X - 1 + time_xDelta, j, clockTheme[userInfo.clocktheme].border);
-//        }
-//        draw_str_3x5(1 + time_xDelta, 1, timeStr, clockTheme[userInfo.clocktheme].font);
-//      }
-//      else
-//      {
-//        draw_num_str(time_xDelta, 0, hourMinute, 8, clockTheme[userInfo.clocktheme].font);
-//      }
 
-//      roll_all_long_str();
-//      {
-//        if (time_xDelta < 0 && time_xDelta >= -MAX_X)
-//          time_xDelta--;
-
-//        if (time_xDelta > 0)
-//          time_xDelta--;
-
-//        if (get_long_str_count() == 0 && time_xDelta < 0)
-//          time_xDelta = MAX_X;
-//      }
-//    }
-//    else if (userInfo.sysmode == Snake)
-    {
-      //      draw_num_str(0, 0, "12", 3, WhiteWithRed);
-      //      draw_num_str(0, 4, "34", 4, WhiteWithRed);
-      refrashSnake();
-      osDelay(30);
-    }
-//    else if (userInfo.sysmode == SetDimm)
-//    {
-//      for (int i = 0; i < MAX_X; i++)
-//      {
-//        for (int j = 0; j < 2; j++)
-//          if (i / 5 > (userInfo.dimming))
-//            draw_point(i, j, Red);
-//          else if (i / 5 < (userInfo.dimming))
-//            draw_point(i, j, Cyan);
-//          else
-//            draw_point(i, j, White);
-//      }
-
-//      draw_str_3x5(0, 2, "brigh", WhiteWithRed);
-//      if (backToDefaultTimestamp < HAL_GetTick())
-//      {
-//        userInfo.sysmode = Time;
-//        STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
-//      }
-//    }
-//    else if (userInfo.sysmode == SetYear)
-//    {
-//      for (int i = 0; i < MAX_X; i++)
-//      {
-//        if (i / 5 >= 1)
-//          draw_point(i, 7, Red);
-//        else
-//          draw_point(i, 7, Cyan);
-//      }
-//      if (flash)
-//        snprintf(tempstr, sizeof tempstr, "%04d", tm_set.tm_year + 2000);
-//      else
-//        snprintf(tempstr, sizeof tempstr, "    ");
-
-//      draw_str_3x5(2, 1, tempstr, WhiteWithRed);
-//      if (backToDefaultTimestamp < HAL_GetTick())
-//      {
-//        userInfo.sysmode = Time;
-//        STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
-//      }
-//    }
-//    else if (userInfo.sysmode == SetMonth || userInfo.sysmode == SetDay)
-//    {
-//      for (int i = 0; i < MAX_X; i++)
-//      {
-//        if (i / 5 >= 2)
-//          draw_point(i, 7, Red);
-//        else
-//          draw_point(i, 7, Cyan);
-//      }
-//      if (flash)
-//        snprintf(tempstr, sizeof tempstr, "%02d-%02d", tm_set.tm_mon + 1, tm_set.tm_mday);
-//      else if (userInfo.sysmode == SetMonth)
-//        snprintf(tempstr, sizeof tempstr, "    -%02d", tm_set.tm_mday);
-//      else if (userInfo.sysmode == SetDay)
-//        snprintf(tempstr, sizeof tempstr, "%02d-  ", tm_set.tm_mon + 1);
-
-//      draw_str_3x5(1, 1, tempstr, WhiteWithRed);
-//      if (backToDefaultTimestamp < HAL_GetTick())
-//      {
-//        userInfo.sysmode = Time;
-//        STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
-//      }
-//    }
-//    else if (userInfo.sysmode == SetWeek)
-//    {
-//      for (int i = 0; i < MAX_X; i++)
-//      {
-//        if (i / 5 >= 3)
-//          draw_point(i, 7, Red);
-//        else
-//          draw_point(i, 7, Cyan);
-//      }
-//      if (flash)
-//        snprintf(tempstr, sizeof tempstr, "%s", weekDays[tm_set.tm_wday]);
-//      else
-//        snprintf(tempstr, sizeof tempstr, "    ");
-
-//      draw_str_3x5(4, 1, tempstr, WhiteWithRed);
-//      if (backToDefaultTimestamp < HAL_GetTick())
-//      {
-//        userInfo.sysmode = Time;
-//        STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
-//      }
-//    }
-//    else if (userInfo.sysmode == SetHour || userInfo.sysmode == SetMin)
-//    {
-//      for (int i = 0; i < MAX_X; i++)
-//      {
-//        if (i / 5 >= 4)
-//          draw_point(i, 7, Red);
-//        else
-//          draw_point(i, 7, Cyan);
-//      }
-//      if (flash)
-//        snprintf(tempstr, sizeof tempstr, "%02d:%02d", tm_set.tm_hour, tm_set.tm_min);
-//      else if (userInfo.sysmode == SetHour)
-//        snprintf(tempstr, sizeof tempstr, "    :%02d", tm_set.tm_min);
-//      else if (userInfo.sysmode == SetMin)
-//        snprintf(tempstr, sizeof tempstr, "%02d:  ", tm_set.tm_hour);
-
-//      draw_str_3x5(1, 1, tempstr, WhiteWithRed);
-//      if (backToDefaultTimestamp < HAL_GetTick())
-//      {
-//        userInfo.sysmode = Time;
-//        STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
-//      }
-//    }
-		refrash_gram();
-    osDelay(30);
+//		refrash_gram();
+		EasyUIEvent(5);
+    osDelay(5);
   }
 #else
 	mn11236_init();
@@ -465,73 +294,6 @@ __weak void StartdisplayTask(void *argument)
   }
 #endif
   /* USER CODE END StartdisplayTask */
-}
-
-/* USER CODE BEGIN StartClockTask */
-__weak void StartClockTask(void *argument)
-{
-  static char tempstr[32] = {0};
-  static int count = 50;
-  const char *weekDays[7] = {
-      "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
-  RX8900_Init();
-  // RX8900_SetTime(&tm_local);
-  //  if (RX8900_GetTime(&tm_local))
-  //  {
-  osDelay(500);
-  //    if (RX8900_GetTime(&tm_local))
-  //		{
-  //			if (tm_local.tm_hour > 23 || tm_local.tm_wday > 6)
-  //			{
-  //				tm_set.tm_year = 25;
-  //				tm_set.tm_mon = 1;
-  //				tm_set.tm_mday = 1;
-  //				tm_set.tm_wday = 1;
-  //				tm_set.tm_hour = 0;
-  //				tm_set.tm_min = 0;
-  //				tm_set.tm_sec = 0;
-  //				RX8900_SetTime(&tm_set);
-  //			}
-  //		}
-  //  }
-  for (;;)
-  {
-    if (RX8900_GetTime(&tm_local))
-    {
-      nexlink_log("%02d:%02d:%02d\r\n", tm_local.tm_hour, tm_local.tm_min, tm_local.tm_sec);
-      nexlink_log("20%02d-%02d-%02d %d\r\n", tm_local.tm_year, tm_local.tm_mon + 1, tm_local.tm_mday, tm_local.tm_wday);
-      flash = !flash;
-      if (flash)
-        snprintf(timeStr, sizeof timeStr, "%02d:%02d", tm_local.tm_hour, tm_local.tm_min);
-      else
-        snprintf(timeStr, sizeof timeStr, "%02d %02d", tm_local.tm_hour, tm_local.tm_min);
-      snprintf(hourMinute, sizeof hourMinute, "%02d%02d", tm_local.tm_hour, tm_local.tm_min);
-//      if (userInfo.sysmode == Time && count++ > 60)
-//      {
-//        count = 0;
-//        time_xDelta--;
-//        snprintf(tempstr, sizeof tempstr, "20%02d-%02d-%02d %s", tm_local.tm_year, tm_local.tm_mon + 1, tm_local.tm_mday, weekDays[tm_local.tm_wday % 7]);
-//        draw_long_str(tempstr, clockTheme[userInfo.clocktheme].font, 0);
-//      }
-    }
-    osDelay(500);
-  }
-}
-/**
- * @brief Function implementing the usbTask thread.
- * @param argument: Not used
- * @retval None
- */
-/* USER CODE END StartClockTask */
-void StartflushTask(void *argument)
-{
-  /* USER CODE BEGIN StartflushTask */
-  /* Infinite loop */
-  for (;;)
-  {
-    osDelay(2);
-  }
-  /* USER CODE END StartflushTask */
 }
 
 /* Private application code --------------------------------------------------*/
@@ -545,3 +307,4 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 }
 
 /* USER CODE END Application */
+

@@ -29,6 +29,20 @@ void nexlink_tx_send(const void *buf, uint16_t len)
     xQueueSend(txq, &item, portMAX_DELAY);
 }
 
+void nexlink_tx_isr(const void *buf, uint16_t len)
+{
+    BaseType_t hpw = pdFALSE;
+    if (len > TX_BUF_SIZE)
+        return;
+
+    tx_item_t item;
+    item.len = len;
+    item.buf = (uint8_t *)buf;
+
+    xQueueSendFromISR(txq, &item, &hpw);
+    portYIELD_FROM_ISR(hpw);
+}
+
 extern USBD_HandleTypeDef hUSB;
 void NexLinkTxTask(void *arg)
 {

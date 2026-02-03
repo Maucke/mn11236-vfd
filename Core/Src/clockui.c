@@ -261,14 +261,14 @@ LList long_str_list;
 void clock_init()
 {
     llist_init(&long_str_list);
-		mn11236_init();
+    mn11236_init();
 }
 
 static int roll_long_str(LongStr_t *s)
 {
-	int postion = s->current - s->str;
+    int postion = s->current - s->str;
 
-	return 0;
+    return 0;
 }
 
 void roll_all_long_str()
@@ -386,8 +386,9 @@ void draw_point(int x, int y, Color color)
 
 void refrash_gram()
 {
-	mn11236_send_buffer();
+    mn11236_send_buffer();
 }
+
 #define BAR_COUNT MAX_X
 #define BAR_MAX MAX_Y
 FFTDisplay_t bars[BAR_COUNT];
@@ -431,9 +432,9 @@ void draw_bar(FFTDisplay_t *fft, Color bar, Color dot)
     {
         for (j = 0; j < (bars[i].output); j++)
         {
-            draw_point(i, 7 - j, bar);
+            draw_point(i, MAX_Y - 1 - j, bar);
         }
-        draw_point(i, 7 - bars[i].maximum, dot);
+        draw_point(i, MAX_Y - 1 - bars[i].maximum, dot);
         if (bar > White)
             i++;
     }

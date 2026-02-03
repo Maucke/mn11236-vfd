@@ -64,6 +64,7 @@ void clock_init(void);
 void clear_gram(Color color);
 LongStr_t *draw_long_str(char *str, Color color, int repeats);
 void draw_point(int x, int y, Color color);
+void refrash_gram();
 void draw_fft(long *fft_result, int len, int delta, Color bar, Color dot);
 int get_long_str_count(void);
 void roll_all_long_str(void);

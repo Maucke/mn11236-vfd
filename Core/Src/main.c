@@ -31,6 +31,9 @@
 /* USER CODE BEGIN Includes */
 #include "stmflash.h"
 #include "usbd_nex_link.h"
+
+#include "easy_key.h"
+#include "easy_ui_user_app.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -87,7 +90,6 @@ int main(void)
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-
   HAL_Init();
 
   /* USER CODE BEGIN Init */
@@ -130,6 +132,7 @@ int main(void)
 	
   HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 0, 0); //让扫描中断不被打断
   HAL_NVIC_EnableIRQ(DMA1_Stream4_IRQn);
+	HAL_TIM_Base_Start_IT(&htim3);
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -220,6 +223,14 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   }
   /* USER CODE BEGIN Callback 1 */
 
+
+	if (htim->Instance == htim3.Instance)
+	{
+		EasyKeyScanKeyState();
+		EasyKeyUserApp();
+		EasyUIKeyActionMonitor();
+//		dbmsg("tick: %d", HAL_GetTick());
+	}
   /* USER CODE END Callback 1 */
 }
 

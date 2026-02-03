@@ -237,6 +237,19 @@ void mn11236_clear_pixel(uint8_t x, uint8_t y, mn11236_color_t color)
     }
     reset_bit(display_buffer[y][color], x);
 }
+
+/**
+ * 读取一个点的颜色值,起点从0,0开始
+ */
+uint8_t mn11236_read_pixel(uint8_t x, uint8_t y, mn11236_color_t color)
+{
+    if (x >= VFD_WIDTH || y >= VFD_HEIGHT)
+    {
+        return 0; // 超出范围
+    }
+    return get_bit(display_buffer[y][color], x);
+}
+
 /**
  * 亮度调整0~255级
  */

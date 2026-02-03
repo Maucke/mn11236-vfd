@@ -32,6 +32,7 @@ extern "C" {
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
+#include "nexlink_app.h"
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
@@ -75,6 +76,7 @@ void Error_Handler(void);
 #define KEY_SW1_GPIO_Port GPIOB
 /* USER CODE BEGIN Private defines */
 
+#define dbmsg(fmt, args...) nexlink_log(fmt, ##args) //__FILE__,
   typedef enum
   {
     Time,
