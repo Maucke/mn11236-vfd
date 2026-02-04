@@ -31,7 +31,6 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
 #include "nexlink_app.h"
 /* USER CODE END Includes */
 
@@ -76,29 +75,39 @@ void Error_Handler(void);
 #define KEY_SW1_GPIO_Port GPIOB
 /* USER CODE BEGIN Private defines */
 
+#define NPT 256
 #define dbmsg(fmt, args...) nexlink_log(fmt, ##args) //__FILE__,
   typedef enum
   {
     Time,
     Music,
     Snake,
-    SetDimm,
-    SetYear,
-    SetMonth,
-    SetDay,
-    SetWeek,
-    SetHour,
-    SetMin,
     // Noty,
     Mode_Max,
   } Mode;
 
+
+typedef struct __attribute__((aligned(4)))
+{
+  uint8_t enMind;
+  uint8_t enCircle;
+  uint8_t enSnowflake;
+  uint8_t enMeteo;
+  uint8_t enPlanet;
+  uint8_t enTriangle;
+  uint8_t enStarwar;
+  uint8_t enGCircle;
+  uint8_t enFirework;
+  uint8_t reserved;
+} EffectSwitch_t;
+
   typedef struct __attribute__((aligned(4)))
   {
-    uint8_t dimming;
+//    uint8_t dimming;
     uint8_t clocktheme;
     uint8_t musictheme;
     Mode sysmode;
+		EffectSwitch_t effectswitch;
     uint8_t valid;
   } UserInfo_t;
 /* USER CODE END Private defines */

@@ -60,13 +60,13 @@ __inline void GUI_DrawPoint(int16 x, int16 y, const uint16 color)
   {
     if (GUI_colorMode == XOR)
     {
-      if (mn11236_read_pixel(x, y, color))
-        mn11236_clear_pixel(x, y, color);
+      if (mn11236_read_pixel(x, y, (mn11236_color_t)color))
+        mn11236_clear_pixel(x, y, (mn11236_color_t)color);
       else
-        mn11236_draw_pixel(x, y, 1 - color);
+        mn11236_draw_pixel(x, y, (mn11236_color_t)(1 - color));
     }
     else
-      mn11236_draw_pixel(x, y, color);
+      mn11236_draw_pixel(x, y, (mn11236_color_t)(color&1));
   }
 }
 

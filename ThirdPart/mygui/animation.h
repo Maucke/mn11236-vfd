@@ -1,6 +1,10 @@
 #ifndef __ANIMATION_H
 #define __ANIMATION_H
 
+#ifdef __cplusplus
+extern "C"
+{
+#endif
 #include "stm32f4xx_hal.h"
 #include "gui.h"
 #include "stdlib.h"
@@ -39,7 +43,7 @@
 #define STARWARMAX 15
 /***星空穿越特效相关参数*/
 #define FACTOR_SIZE 1  //星空粒子大小//方形时为方形的边长//圆形时为圆形半径
-#define FACTOR_SHAPE 1 //星空粒子形状//0 方形//1 圆形
+#define FACTOR_SHAPE 2 //星空粒子形状//0 方形//1 圆形//2 点
 
 typedef enum
 {
@@ -49,10 +53,6 @@ typedef enum
 	IDLE = 0x03U,
 } ANI_STATUS;
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
 
 void Motion_MindInit(void);
 void Motion_Mind(void);

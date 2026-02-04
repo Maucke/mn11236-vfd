@@ -8,9 +8,11 @@ extern "C"
 {
 #endif
 
+EffectSwitch_t g_EffectSwitch;
+
 uint16_t randomColor()
 {
-  return rand() & 2;
+  return rand() & 1;
 }
 
 typedef struct
@@ -24,6 +26,7 @@ typedef struct
   uint8_t Starwar;
   uint8_t GCircle;
 } ANI_TYPE;
+
 ANI_TYPE ani_len = { .Mind = 5, .Circle = 1,
   .Snowflake = 5,
   .Meteo = 5,
@@ -683,8 +686,8 @@ MTSTARWAR mtstarwar[STARWARMAX];
 
 ANI_STATUS MovStarWar(uint8_t Index)
 {
-  mtstarwar[Index].m_x_factor -= 6;
-  mtstarwar[Index].m_y_factor -= 6;
+  mtstarwar[Index].m_x_factor -= 1;
+  mtstarwar[Index].m_y_factor -= 1;
   mtstarwar[Index].m_size += mtstarwar[Index].m_size / 30;
   if(mtstarwar[Index].m_x_factor < 1 || mtstarwar[Index].m_y_factor < 1)
   {
@@ -765,6 +768,10 @@ void Motion_StarWar(void)
     else if(FACTOR_SHAPE == 1)
     {
       AniDrawDisc(mtstarwar[i].m_x, mtstarwar[i].m_y, mtstarwar[i].m_size, mtstarwar[i].m_color, CIRCLE_DRAW_ALL);
+    }
+    else if(FACTOR_SHAPE == 2)
+    {
+      AniDrawDot(mtstarwar[i].m_x, mtstarwar[i].m_y, mtstarwar[i].m_color);
     }
   }
 }
@@ -962,7 +969,7 @@ void Motion_FireworkInit(void)
 			mtfirework[p].x[i][0] = x;
 			mtfirework[p].y[i][0] = y;
 			mtfirework[p].yup[i] = SCR_HEIGHT;
-			mtfireworkc[p].r[i] = rand() % 3 + 1;
+			mtfireworkc[p].r[i] = rand() % 1 + 1;
 			mtfireworkc[p].color[i] = randomColor();
 			mtfireworkc[p].ange = rand() % 360;
 			mtfirework[p].spd[i] = (rand() % 1200) * 0.005 + 0.04;
@@ -994,7 +1001,7 @@ void Motion_Firework(void)
 				mtfirework[p].x[i][0] = x;
 				mtfirework[p].y[i][0] = y;
 				mtfirework[p].yup[i] = SCR_HEIGHT;
-				mtfireworkc[p].r[i] = rand() % 3 + 1;
+				mtfireworkc[p].r[i] = rand() % 1 + 1;
 				mtfireworkc[p].color[i] = randomColor();
 				mtfireworkc[p].ange = rand() % 360;
 				mtfirework[p].spd[i] = (rand() % 1200) * 0.005 + 0.04;
@@ -1026,7 +1033,9 @@ void Motion_Firework(void)
 			for (int j = FIREWORKTUOYING - 1; j > 0; j--)
 			{
 				if(rand()%FIREWORKFLASHL)
-					AniDrawDisc(mtfirework[p].x[0][0], mtfirework[p].yup[j], 3 - j / 20, RGB565_GRAY, CIRCLE_DRAW_ALL);
+					AniDrawDisc(mtfirework[p].x[0][0], mtfirework[p].yup[j], 1, 0, CIRCLE_DRAW_ALL);
+				if(rand()%FIREWORKFLASHL)
+					AniDrawDisc(mtfirework[p].x[0][0], mtfirework[p].yup[j], 1, 1, CIRCLE_DRAW_ALL);
 			}
 		}
 	}

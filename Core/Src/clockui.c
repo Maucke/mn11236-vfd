@@ -266,7 +266,7 @@ void clock_init()
 
 static int roll_long_str(LongStr_t *s)
 {
-    int postion = s->current - s->str;
+//    int postion = s->current - s->str;
 
     return 0;
 }

@@ -114,19 +114,27 @@ int main(void)
   /* USER CODE BEGIN 2 */
 	extern UserInfo_t userInfo;
   STMFLASH_Read(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t)/ sizeof(uint32_t));
-  if (userInfo.valid != 1)
+  if (userInfo.valid != 2)
   {
-    userInfo.dimming = 3;
     userInfo.sysmode = Time;
     userInfo.clocktheme = 0;
     userInfo.musictheme = 0;
-    userInfo.valid = 1;
+    userInfo.valid = 2;
+		userInfo.effectswitch.enFirework = true;
+		userInfo.effectswitch.enCircle = false;
+		userInfo.effectswitch.enGCircle = false;
+		userInfo.effectswitch.enMeteo = false;
+		userInfo.effectswitch.enMind = false;
+		userInfo.effectswitch.enPlanet = false;
+		userInfo.effectswitch.enSnowflake = false;
+		userInfo.effectswitch.enStarwar = true;
+		userInfo.effectswitch.enTriangle = false;
+		userInfo.effectswitch.reserved = false;
   }
 	
   if (userInfo.sysmode > Snake)
     userInfo.sysmode = Time;
 
-  userInfo.dimming %= 4;
   userInfo.clocktheme %= 4;
   userInfo.musictheme %= 8;
 	

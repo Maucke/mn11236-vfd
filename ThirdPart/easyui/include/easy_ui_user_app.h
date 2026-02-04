@@ -20,7 +20,8 @@ extern "C"
 
 extern EasyKey_t keyUp, keyDown;           // Used to control value up and down
 
-void MenuInit(void);
+void AppGUI_Init(UserInfo_t *userinfo);
+void AppGUI_Loop(uint8_t timer);
 void EasyUIKeyActionMonitor(void);
 void EventJump(void);
 void lowBatteryAction(void);

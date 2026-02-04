@@ -48,6 +48,9 @@
 #include "nexlink_app.h"
 #include "easy_ui.h"
 #include "easy_ui_user_app.h"
+#include "lv_anim_light.h"
+#include "animation.h"
+#include "fftaffect.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -58,7 +61,6 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-#define NPT 256
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -73,35 +75,30 @@ uint32_t adc_buf[NPT] = {0};
 static long lBufInArray[NPT];
 static long lBufOutArray[NPT];
 long lBufMagArray[NPT];
-extern struct tm tm_local;
 char timeStr[10] = {0};
 char hourMinute[10] = {0};
 uint32_t backToDefaultTimestamp = 0;
 struct tm tm_set;
-static int flash = 0;
-
-int time_xDelta = 0;
 
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
-  .name = "defaultTask",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
+    .name = "defaultTask",
+    .stack_size = 128 * 4,
+    .priority = (osPriority_t)osPriorityNormal,
 };
 /* Definitions for displayTask */
 osThreadId_t displayTaskHandle;
 const osThreadAttr_t displayTask_attributes = {
-  .name = "displayTask",
-  .stack_size = 128 * 4 * 4,
-  .priority = (osPriority_t) osPriorityLow,
+    .name = "displayTask",
+    .stack_size = 512 * 4,
+    .priority = (osPriority_t)osPriorityLow,
 };
 /* Definitions for myMutex01 */
 osMutexId_t myMutex01Handle;
 const osMutexAttr_t myMutex01_attributes = {
-  .name = "myMutex01"
-};
+    .name = "myMutex01"};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -159,23 +156,6 @@ void FFT_Pro(void)
 
 UserInfo_t userInfo;
 
- const ClockTheme_t clockTheme[4] = {
-     {Red, WhiteWithCyan, 0},
-     {Cyan, WhiteWithRed, 0},
-     {Red, WhiteWithCyan, 1},
-     {Cyan, WhiteWithRed, 1}};
-
- const MusicTheme_t musicTheme[8] = {
-     {Cyan, Red},
-     {Cyan, White},
-     {Red, White},
-     {White, Red},
-     {CyanWithCyan, RedWithRed},
-     {CyanWithCyan, WhiteWithWhite},
-     {RedWithRed, WhiteWithWhite},
-     {WhiteWithWhite, RedWithRed},
- };
-
 /* USER CODE END FunctionPrototypes */
 
 void StartDefaultTask(void *argument);
@@ -185,11 +165,12 @@ extern void MX_USB_DEVICE_Init(void);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
 /**
-  * @brief  FreeRTOS initialization
-  * @param  None
-  * @retval None
-  */
-void MX_FREERTOS_Init(void) {
+ * @brief  FreeRTOS initialization
+ * @param  None
+ * @retval None
+ */
+void MX_FREERTOS_Init(void)
+{
   /* USER CODE BEGIN Init */
 
   /* USER CODE END Init */
@@ -229,7 +210,6 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN RTOS_EVENTS */
   /* add events, ... */
   /* USER CODE END RTOS_EVENTS */
-
 }
 
 /* USER CODE BEGIN Header_StartDefaultTask */
@@ -266,30 +246,22 @@ __weak void StartDefaultTask(void *argument)
 __weak void StartdisplayTask(void *argument)
 {
   /* USER CODE BEGIN StartdisplayTask */
-  const char *weekDays[7] = {
-      "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
-  static char tempstr[32] = {0};
-	MenuInit();
-	EasyUIInit(1);
+//  const char *weekDays[7] = {
+//      "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
+//  static char tempstr[32] = {0};
 #if true
-//  clock_init();
-//  beginSnake();
+  AppGUI_Init(&userInfo);
   /* Infinite loop */
   for (;;)
   {
-//    clear_gram(White);
-//      clear_all_long_str();
-//      draw_fft(lBufMagArray, NPT / 2, 20, musicTheme[userInfo.musictheme].bar, musicTheme[userInfo.musictheme].dot);
-
-//		refrash_gram();
-		EasyUIEvent(5);
+		AppGUI_Loop(5);
     osDelay(5);
   }
 #else
-	mn11236_init();
+  mn11236_init();
   for (;;)
   {
-		mn11236_development_test();
+    mn11236_development_test();
     osDelay(1000);
   }
 #endif
@@ -307,4 +279,3 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 }
 
 /* USER CODE END Application */
-
