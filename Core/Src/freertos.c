@@ -156,6 +156,7 @@ void FFT_Pro(void)
 
 UserInfo_t userInfo;
 
+void StartClockTask(void *argument);
 /* USER CODE END FunctionPrototypes */
 
 void StartDefaultTask(void *argument);
@@ -204,7 +205,7 @@ void MX_FREERTOS_Init(void)
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
-  //  clockTaskHandle = osThreadNew(StartClockTask, NULL, &clockTask_attributes);
+    clockTaskHandle = osThreadNew(StartClockTask, NULL, &clockTask_attributes);
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
@@ -224,6 +225,30 @@ __weak void StartDefaultTask(void *argument)
   /* init code for USB_DEVICE */
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN StartDefaultTask */
+  STMFLASH_Read(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t)/ sizeof(uint32_t));
+  if (userInfo.valid != 2)
+  {
+    userInfo.sysmode = Time;
+    userInfo.clocktheme = 0;
+    userInfo.musictheme = 0;
+    userInfo.valid = 2;
+		userInfo.effectswitch.enFirework = true;
+		userInfo.effectswitch.enCircle = false;
+		userInfo.effectswitch.enGCircle = false;
+		userInfo.effectswitch.enMeteo = false;
+		userInfo.effectswitch.enMind = false;
+		userInfo.effectswitch.enPlanet = false;
+		userInfo.effectswitch.enSnowflake = false;
+		userInfo.effectswitch.enStarwar = true;
+		userInfo.effectswitch.enTriangle = false;
+		userInfo.effectswitch.reserved = false;
+  }
+	
+  if (userInfo.sysmode > Snake)
+    userInfo.sysmode = Time;
+
+  userInfo.clocktheme %= 4;
+  userInfo.musictheme %= 8;
   osDelay(200);
   NexLinkInit();
   /* Infinite loop */
@@ -276,6 +301,48 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
   FFT_Stop();
   FFT_Pro();
   FFT_Start();
+}
+
+struct tm tm_local;
+const char *weekDays[7] = {
+    "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
+
+const ClockTheme_t clockTheme[4] = {
+    {Red, WhiteWithCyan, 0},
+    {Cyan, WhiteWithRed, 0},
+    {Red, WhiteWithCyan, 1},
+    {Cyan, WhiteWithRed, 1}};
+
+
+__weak void StartClockTask(void *argument)
+{
+	static int flash = 0;
+  static char tempstr[32] = {0};
+  static int count = 60;
+  RX8900_Init();
+  // RX8900_SetTime(&tm_local);
+  osDelay(500);
+  for (;;)
+  {
+    if (RX8900_GetTime(&tm_local))
+    {
+      nexlink_log("%02d:%02d:%02d\r\n", tm_local.tm_hour, tm_local.tm_min, tm_local.tm_sec);
+      nexlink_log("20%02d-%02d-%02d %d\r\n", tm_local.tm_year, tm_local.tm_mon, tm_local.tm_mday, tm_local.tm_wday);
+      flash = !flash;
+      if (flash)
+        snprintf(timeStr, sizeof timeStr, "%02d:%02d", tm_local.tm_hour, tm_local.tm_min);
+      else
+        snprintf(timeStr, sizeof timeStr, "%02d %02d", tm_local.tm_hour, tm_local.tm_min);
+      snprintf(hourMinute, sizeof hourMinute, "%02d%02d", tm_local.tm_hour, tm_local.tm_min);
+			if (count++ > 10)
+			{
+				count = 0;
+				snprintf(tempstr, sizeof tempstr, "20%02d-%02d-%02d %s", tm_local.tm_year, tm_local.tm_mon, tm_local.tm_mday, weekDays[tm_local.tm_wday % 7]);
+				// draw_long_str(tempstr, Red, 0);
+			}
+    }
+    osDelay(500);
+  }
 }
 
 /* USER CODE END Application */

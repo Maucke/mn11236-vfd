@@ -28,7 +28,7 @@ EasyUIItem_t itemUSBForm;
 EasyUIItem_t itemDebug;
 EasyUIItem_t itemSensor;
 EasyUIItem_t itemAnimation;
-EasyUIItem_t itemSetting, itemColor, itemReset, itemBrightness, titleSetting;
+EasyUIItem_t itemSetting, titleSetting, itemMusicTheme;
 EasyUIItem_t itemAbout;
 EasyUIItem_t itemMind, itemCircle, itemSnowflake, itemMeteo, itemPlanet, itemTriangle, itemStarwar, itemBlast, itemGCircle, itemFirework, titleAnimation;
 
@@ -156,6 +156,42 @@ void PageDialog(EasyUIItem_t *page)
 {
 }
 
+void EventChangeMusicTheme(EasyUIItem_t* item)
+{
+  if(opnUp)
+  {
+    if(*item->param + 1 <= 7)
+      *item->param += 1;
+    else
+      *item->param = 7;
+    opnUp = false;
+  }
+  if(opnDown)
+  {
+    if(*item->param - 1 >= 7)
+      *item->param -= 1;
+    else
+      *item->param = 0;
+    opnDown = false;
+  }
+
+  if(opnEnter)
+  {
+    item->paramBackup = *item->param;
+    EasyUIBackgroundBlur();
+    functionIsRunning = false;
+    opnEnter = false;
+  }
+  if(opnExit)
+  {
+    *item->param = item->paramBackup;
+    EasyUIBackgroundBlur();
+    functionIsRunning = false;
+    opnExit = false;
+  }
+  // Clear the states of key to monitor next key action
+  opnEnter = opnUp = opnDown = false;
+}
 UserInfo_t *_userinfo;
 void AppGUI_Init(UserInfo_t *userinfo)
 {
@@ -176,6 +212,7 @@ void AppGUI_Init(UserInfo_t *userinfo)
   EasyUIAddItem(&pageMain, &itemAbout, "<About>", ITEM_JUMP_PAGE, pageAbout.id);
 
   EasyUIAddItem(&pageSetting, &titleSetting, "[Setting]", ITEM_PAGE_DESCRIPTION);
+  EasyUIAddItem(&pageSetting, &itemMusicTheme, "Theme", ITEM_PROGRESS_BAR, &setting_brightness, EventChangeMusicTheme);
 
   EasyUIAddItem(&pageAnimation, &titleAnimation, "[Animation]", ITEM_PAGE_DESCRIPTION);
   EasyUIAddItem(&pageAnimation, &itemMind, "Mind", ITEM_CHECKBOX, &_userinfo->effectswitch.enMind);
@@ -199,12 +236,7 @@ void AppGUI_Init(UserInfo_t *userinfo)
   clear_all_long_str();
 }
 
-const ClockTheme_t clockTheme[4] = {
-    {Red, WhiteWithCyan, 0},
-    {Cyan, WhiteWithRed, 0},
-    {Red, WhiteWithCyan, 1},
-    {Cyan, WhiteWithRed, 1}};
-
+extern long lBufMagArray[NPT];
 const MusicTheme_t musicTheme[8] = {
     {Cyan, Red},
     {Cyan, White},
@@ -215,7 +247,6 @@ const MusicTheme_t musicTheme[8] = {
     {RedWithRed, WhiteWithWhite},
     {WhiteWithWhite, RedWithRed},
 };
-extern long lBufMagArray[NPT];
 
 void Motion_Run(EffectSwitch_t *effectswitch)
 {
@@ -241,24 +272,38 @@ void Motion_Run(EffectSwitch_t *effectswitch)
 
 extern uint8_t layer;
 
+typedef enum
+{
+  DISP_MODE_CLOCK = 0,
+  DISP_MODE_FFT,
+  DISP_MODE_SNAKE,
+  DISP_MODE_MOTION,
+  DISP_MODE_MENU,
+} SysDisplayMode_e;
+
 void AppGUI_Loop(uint8_t timer)
 {
-  static int mode = 1;
-  
-  switch (mode)
+  static SysDisplayMode_e disp_mode = DISP_MODE_MOTION;
+
+  switch (disp_mode)
   {
-  case 0:
+  case DISP_MODE_CLOCK:
+    clear_gram(White);
+    roll_all_long_str();
+    refrash_gram();
+    break;
+  case DISP_MODE_FFT:
     clear_gram(White);
     draw_fft(lBufMagArray, NPT / 2, 20, musicTheme[_userinfo->musictheme].bar, musicTheme[_userinfo->musictheme].dot);
     refrash_gram();
     break;
-  case 1:
+  case DISP_MODE_SNAKE:
     clear_gram(White);
     refrashSnake();
     osDelay(50);
     refrash_gram();
     break;
-  case 2:
+  case DISP_MODE_MOTION:
     clear_gram(White);
     Motion_Run(&_userinfo->effectswitch);
     refrash_gram();
@@ -268,35 +313,32 @@ void AppGUI_Loop(uint8_t timer)
     break;
   }
 
-	if(mode != 3)
-	{
-		if (opnUp)
-		{
-			dbmsg("opnUp");
-			mode++;
-			if (mode > 2)
-				mode = 0;
-			opnUp = false;
-		}
-		if (opnDown)
-		{
-			dbmsg("opnDown");
-			mode--;
-			if (mode < 0)
-				mode = 2;
-			opnDown = false;
-		}
-		if (opnEnter)
-		{
-			dbmsg("opnEnter");
-			mode = 3;
-			opnEnter = false;
-		}
-	}
-  if(layer == 0 && opnExit)
+  if (disp_mode != DISP_MODE_MENU)
   {
-    dbmsg("opnExit");
-    mode = 0;
+    if (opnUp)
+    {
+      disp_mode++;
+      if (disp_mode > DISP_MODE_MOTION)
+        disp_mode = DISP_MODE_CLOCK;
+      opnUp = false;
+    }
+    if (opnDown) 
+    {
+      if (disp_mode == DISP_MODE_CLOCK)
+        disp_mode = DISP_MODE_MOTION;
+      else
+        disp_mode--;
+      opnDown = false;
+    }
+    if (opnEnter)
+    {
+      disp_mode = DISP_MODE_MENU;
+      opnEnter = false;
+    }
+  }
+  if (layer == 0 && opnExit)
+  {
+    disp_mode = DISP_MODE_CLOCK;
     opnExit = false;
   }
 }

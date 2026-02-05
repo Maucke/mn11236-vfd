@@ -112,31 +112,6 @@ int main(void)
   MX_TIM3_Init();
   MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
-	extern UserInfo_t userInfo;
-  STMFLASH_Read(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t)/ sizeof(uint32_t));
-  if (userInfo.valid != 2)
-  {
-    userInfo.sysmode = Time;
-    userInfo.clocktheme = 0;
-    userInfo.musictheme = 0;
-    userInfo.valid = 2;
-		userInfo.effectswitch.enFirework = true;
-		userInfo.effectswitch.enCircle = false;
-		userInfo.effectswitch.enGCircle = false;
-		userInfo.effectswitch.enMeteo = false;
-		userInfo.effectswitch.enMind = false;
-		userInfo.effectswitch.enPlanet = false;
-		userInfo.effectswitch.enSnowflake = false;
-		userInfo.effectswitch.enStarwar = true;
-		userInfo.effectswitch.enTriangle = false;
-		userInfo.effectswitch.reserved = false;
-  }
-	
-  if (userInfo.sysmode > Snake)
-    userInfo.sysmode = Time;
-
-  userInfo.clocktheme %= 4;
-  userInfo.musictheme %= 8;
 	
   HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 0, 0); //让扫描中断不被打断
   HAL_NVIC_EnableIRQ(DMA1_Stream4_IRQn);

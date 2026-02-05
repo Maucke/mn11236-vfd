@@ -264,10 +264,78 @@ void clock_init()
     mn11236_init();
 }
 
+static void draw_bits(uint8_t bit_mask, int x, Color color)
+{
+    for (int bit = 0; bit < 8; bit++)
+    {
+        if (bit_mask & (1 << bit))
+        {
+            draw_point(x, bit, color); 
+        }
+    }
+}
+
 static int roll_long_str(LongStr_t *s)
 {
-//    int postion = s->current - s->str;
+    int position = s->current - s->str; 
+    if (s->current != 0)
+    {
+        // 倒序遍历x轴，保留原逻辑
+        for (int x = MAX_X - 1; x >= 0; x--)
+        {
+            uint8_t bit_mask = s->current[x];
+            if (bit_mask == 0) continue; // 无点可绘，直接跳过
 
+            // 颜色掩码1：青，原x坐标 → 调用封装函数
+            if (s->color & 1)
+                draw_bits(bit_mask, x, Cyan);
+            // 颜色掩码2：红，原x坐标 → 调用封装函数
+            if (s->color & 2)
+                draw_bits(bit_mask, x, Red);
+
+            // x+1不越界时，处理偏移坐标
+            if (x + 1 < MAX_X)
+            {
+                // 颜色掩码4：青，x+1坐标 → 调用封装函数
+                if (s->color & 4)
+                    draw_bits(bit_mask, x + 1, Cyan);
+                // 颜色掩码8：红，x+1坐标 → 调用封装函数
+                if (s->color & 8)
+                    draw_bits(bit_mask, x + 1, Red);
+            }
+        }
+
+        // 保留原计数、滚动、重复、释放逻辑（无任何修改）
+        static int count = 0;
+        if (position % 6 == 2)
+        {
+            ++count;
+            if (count != 5)
+                return 1;
+            count = 0;
+        }
+        s->current++;
+        if (position > (s->length * 6) + MAX_X)
+        {
+            if (s->repeats == -1)
+            {
+                s->current = s->str;
+            }
+            else if (s->repeats > 0)
+            {
+                s->current = s->str;
+                s->repeats--;
+            }
+            else
+            {
+                s->current = 0;
+                mn11236_clear_buffers(); 
+                llist_remove(&long_str_list, s);
+                free(s);
+                return 1;
+            }
+        }
+    }
     return 0;
 }
 
@@ -365,12 +433,13 @@ void draw_point(int x, int y, Color color)
 {
     if (x < MAX_X && y < MAX_Y && x >= 0 && y >= 0)
     {
-        if (color & 1)
-            mn11236_draw_pixel(x, y, MN11236_COLOR_BLUE);
-        else
-            mn11236_clear_pixel(x, y, MN11236_COLOR_BLUE);
-        if (color & 2)
-            mn11236_draw_pixel(x, y, MN11236_COLOR_RED);
+        if (color)
+				{
+					if (color & 1)
+							mn11236_draw_pixel(x, y, MN11236_COLOR_BLUE);
+					if (color & 2)
+							mn11236_draw_pixel(x, y, MN11236_COLOR_RED);
+				}
         else
             mn11236_clear_pixel(x, y, MN11236_COLOR_RED);
 
@@ -486,7 +555,7 @@ void draw_fft(long *fft_result, int len, int delta, Color bar, Color dot)
 
 #define COLS MAX_X
 #define ROWS MAX_Y
-#define MAX_LENGTH 20
+#define MAX_LENGTH 100
 #define SNAKE_HEAD White
 #define SNAKE_BODY Cyan
 #define FOOD_DOT Red

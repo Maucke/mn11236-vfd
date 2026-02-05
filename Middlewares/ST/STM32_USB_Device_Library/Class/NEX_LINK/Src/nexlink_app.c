@@ -13,7 +13,7 @@
 static uint8_t rx_buf[NL_MAX_PAYLOAD];
 static uint16_t rx_len;
 
-uint64_t mcu_time_ms(void)
+static uint64_t mcu_time_ms(void)
 {
     TickType_t tick = xTaskGetTickCount();
     return (uint64_t)tick * (1000 / configTICK_RATE_HZ);

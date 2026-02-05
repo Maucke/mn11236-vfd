@@ -8,16 +8,6 @@
 static uint8_t B2D(uint8_t bcd);
 static uint8_t D2B(uint8_t decimal);
 
-struct tm tm_local = {
-	.tm_sec = 00,
-	.tm_min = 22,
-	.tm_hour = 10,
-	.tm_wday = 4,
-	.tm_mday = 20,
-	.tm_mon = 6,
-	.tm_year = 124,
-};
-
 void RX8900_Init()
 {
 	IIC_Init();

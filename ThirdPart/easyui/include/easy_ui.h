@@ -22,7 +22,6 @@ extern "C"
 #include "cmsis_os.h"
 
 // Operation response
-extern uint8_t opnForward, opnBackward;
 extern uint8_t opnEnter, opnExit, opnUp, opnDown;
 
 #define MPUCRL          1
