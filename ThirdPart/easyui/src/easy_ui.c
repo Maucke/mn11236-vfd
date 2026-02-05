@@ -288,16 +288,17 @@ void EasyUIDrawMsgBox(EasyUIPage_t *page, char *msg)
  */
 void EasyUIDrawProgressBar(EasyUIPage_t *page, EasyUIItem_t *item)
 {
+	char tempstr[20];
   static int16_t x, y;
   static uint16_t width, height;
   static uint8_t itemHeightOffset = 0;
   static uint16_t barWidth;
-  itemHeightOffset = (page->rowheight - page->font.height) / 2 + 1;
+  itemHeightOffset = (page->rowheight - page->font.height) / 2 - 1;
   EasyUISetFont(page->font.type);
   EasyUISetDrawColor(NORMAL);
 
   // Display information and draw box
-  height = page->rowheight * 2 + 2;
+  height = page->rowheight * 2 - 2;
   if (strlen(item->title) + 1 > 12)
     width = (strlen(item->title) + 1) * page->font.width + 7;
   else
@@ -307,17 +308,22 @@ void EasyUIDrawProgressBar(EasyUIPage_t *page, EasyUIItem_t *item)
   x = (SCREEN_WIDTH - width) / 2;
   y = (SCREEN_HEIGHT - height) / 2;
 
-  barWidth = width - 5 * page->font.width - 10;
+  barWidth = width - 2 * page->font.width - 0;
 
   EasyUIDrawFrame(x - 1, y - 1, width + 2, height + 2, GUI_penColor);
   EasyUIDrawBox(x, y, width, height, GUI_backgroundColor);
   EasyUIDisplayStr(x + 3, y + itemHeightOffset, item->title);
   EasyUIDisplayStr(x + 3 + strlen(item->title) * page->font.width, y + itemHeightOffset, ":");
   EasyUIDrawFrame(x + 3, y + page->rowheight + itemHeightOffset, barWidth, page->font.height, GUI_penColor);
-  EasyUIDrawBox(x + 5, y + page->rowheight + itemHeightOffset + 2, (float)*item->param / 100 * barWidth - 4,
+  EasyUIDrawBox(x + 5, y + page->rowheight + itemHeightOffset + 2, (float)*item->param / 7 * barWidth - 4,
                 page->font.height - 4, GUI_penColor);
+#if 0
   EasyUIDisplayFloat(x + width - 5 * page->font.width - 4, y + page->rowheight + itemHeightOffset, *item->param, 3, 2);
-
+#else
+	snprintf(tempstr, sizeof tempstr, "%0.0f", *item->param);
+	EasyUIDisplayStr(x + width - 2 * page->font.width + 4, y + page->rowheight + itemHeightOffset,
+										 tempstr); 
+#endif
   EasyUISendBuffer();
 }
 
@@ -443,6 +449,7 @@ void EasyUIGetItemPos(EasyUIPage_t *page, EasyUIItem_t *item, uint8_t index, uin
  */
 void EasyUIDisplayItem(EasyUIPage_t *page, EasyUIItem_t *item)
 {
+	char tempstr[20];
   EasyUISetFont(page->font.type);
   switch (item->funcType)
   {
@@ -480,17 +487,20 @@ void EasyUIDisplayItem(EasyUIPage_t *page, EasyUIItem_t *item)
     EasyUIDisplayStr(2, item->position, "-");
     EasyUIDisplayStr(5 + page->font.width, item->position, item->title);
     if (*item->param < 10 && *item->param >= 0)
-      EasyUIDisplayFloat(SCREEN_WIDTH - 0 - 4 * page->font.width - SCROLL_BAR_WIDTH, item->position,
-                         *item->param, 4, 2);
+		{
+			snprintf(tempstr, sizeof tempstr, "%0.0f", *item->param);
+      EasyUIDisplayStr(SCREEN_WIDTH - 0 - 2 * page->font.width - SCROLL_BAR_WIDTH, item->position,
+                         tempstr); 
+		}
     else if (*item->param < 100 && *item->param > -10)
       EasyUIDisplayFloat(SCREEN_WIDTH - 0 - 5 * page->font.width - SCROLL_BAR_WIDTH, item->position,
-                         *item->param, 4, 2);
+                         *item->param, 3, 0);
     else if (*item->param < 1000 && *item->param > -100)
       EasyUIDisplayFloat(SCREEN_WIDTH - 0 - 6 * page->font.width - SCROLL_BAR_WIDTH, item->position,
-                         *item->param, 4, 2);
+                         *item->param, 4, 0);
     else if (*item->param < 10000 && *item->param > -1000)
       EasyUIDisplayFloat(SCREEN_WIDTH - 0 - 7 * page->font.width - SCROLL_BAR_WIDTH, item->position,
-                         *item->param, 4, 2);
+                         *item->param, 4, 0);
     else // Hide because it's too long
       EasyUIDisplayStr(SCREEN_WIDTH - 7 - 5 * page->font.width - SCROLL_BAR_WIDTH, item->position, "**.**");
     break;
@@ -583,7 +593,7 @@ void EasyUIDrawIndicator(EasyUIPage_t *page, uint8_t index, uint8_t timer, uint8
 
   // Draw rounded box and scroll bar
   EasyUISetDrawColor(XOR);
-  EasyUIDrawRBox(0, (int16_t)y, (int16_t)length, page->rowheight, GUI_penColor, 1);
+  EasyUIDrawRBox(0, (int16_t)y, (int16_t)length, page->rowheight, GUI_actColor, 1);
   EasyUISetDrawColor(NORMAL);
   EasyUIDrawRBox(SCREEN_WIDTH - SCROLL_BAR_WIDTH, barPos, SCROLL_BAR_WIDTH, page->rowheight, GUI_penColor, 1);
   lastIndex = index;
@@ -698,9 +708,9 @@ void EasyUIEventChangeUint(EasyUIPage_t *page, EasyUIItem_t *item)
     EasyUISetDrawColor(XOR);
     EasyUIDrawBox(x + 2, y + 2, (strlen(item->title) + 1) * page->font.width + 3, page->rowheight - 2, GUI_penColor);
     EasyUISetDrawColor(NORMAL);
-    if (opnUp)
-      *item->param += step;
     if (opnDown)
+      *item->param += step;
+    if (opnUp)
     {
       if (*item->param - step >= 0)
         *item->param -= step;
@@ -819,9 +829,9 @@ void EasyUIEventChangeInt(EasyUIPage_t *page, EasyUIItem_t *item)
     EasyUISetDrawColor(XOR);
     EasyUIDrawBox(x + 2, y + 2, (strlen(item->title) + 1) * page->font.width + 3, page->rowheight - 2, GUI_penColor);
     EasyUISetDrawColor(NORMAL);
-    if (opnUp)
-      *item->param += step;
     if (opnDown)
+      *item->param += step;
+    if (opnUp)
       *item->param -= step;
   }
   else
@@ -936,9 +946,9 @@ void EasyUIEventChangeFloat(EasyUIPage_t *page, EasyUIItem_t *item)
     EasyUISetDrawColor(XOR);
     EasyUIDrawBox(x + 2, y + 2, (strlen(item->title) + 1) * page->font.width + 3, page->rowheight - 2, GUI_penColor);
     EasyUISetDrawColor(NORMAL);
-    if (opnUp)
-      *item->param += step;
     if (opnDown)
+      *item->param += step;
+    if (opnUp)
       *item->param -= step;
   }
   // else if (changeStep)

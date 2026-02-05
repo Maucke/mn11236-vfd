@@ -31,7 +31,8 @@ typedef enum
 	DMA_MEMINC_DISABLE
 } DMA_MEMINC_STATE;
      
-#define GUI_DEFAULT_PENCOLOR         (MN11236_COLOR_BLUE)                           
+#define GUI_DEFAULT_PENCOLOR         (MN11236_COLOR_BLUE + 1)            
+#define GUI_DEFAULT_ACTCOLOR         (MN11236_COLOR_RED + 1)                           
 #define GUI_DEFAULT_DISPLAY_FONT     (GUI_6X8_FONT)                      
 
 #define CIRCLE_UPPER_RIGHT      0x01
@@ -41,6 +42,7 @@ typedef enum
 #define CIRCLE_DRAW_ALL         (CIRCLE_UPPER_RIGHT | CIRCLE_UPPER_LEFT | CIRCLE_LOWER_LEFT | CIRCLE_LOWER_RIGHT)
 
 extern uint16 GUI_penColor;
+extern uint16 GUI_actColor;
 extern uint16 GUI_backgroundColor;
 
 typedef enum

@@ -8,6 +8,7 @@
 #include "gui.h"
 
 uint16 GUI_penColor = GUI_DEFAULT_PENCOLOR;
+uint16 GUI_actColor = GUI_DEFAULT_ACTCOLOR;
 uint16 GUI_backgroundColor = 0;
 
 static Font_Type_t GUI_display_font = GUI_DEFAULT_DISPLAY_FONT;
@@ -54,19 +55,32 @@ void GUI_SetDrawColor(GUI_ColorMode_e mode)
 // 使用示例     GUI_draw_point(0, 0, RGB565_RED);            // 坐标 0,0 画一个红色的点
 // 备注信息
 //-------------------------------------------------------------------------------------------------------------------
+// 0 无颜色，1 红色，2 蓝色
 __inline void GUI_DrawPoint(int16 x, int16 y, const uint16 color)
 {
+	mn11236_color_t color_ = (mn11236_color_t)((color - 1)&1);
   if (x < GUI_x_max && y < GUI_y_max && x >= 0 && y >= 0)
   {
+		
     if (GUI_colorMode == XOR)
     {
-      if (mn11236_read_pixel(x, y, (mn11236_color_t)color))
-        mn11236_clear_pixel(x, y, (mn11236_color_t)color);
+      if (mn11236_read_pixel(x, y, MN11236_COLOR_RED))
+        mn11236_clear_pixel(x, y, MN11236_COLOR_RED);
+      else if (mn11236_read_pixel(x, y, MN11236_COLOR_BLUE))
+        mn11236_clear_pixel(x, y, MN11236_COLOR_BLUE);
       else
-        mn11236_draw_pixel(x, y, (mn11236_color_t)(1 - color));
+        mn11236_draw_pixel(x, y, color_);
     }
     else
-      mn11236_draw_pixel(x, y, (mn11236_color_t)(color&1));
+		{
+			if(color)
+				mn11236_draw_pixel(x, y, color_);
+			else
+			{
+        mn11236_clear_pixel(x, y, MN11236_COLOR_BLUE);
+        mn11236_clear_pixel(x, y, MN11236_COLOR_RED);
+			}
+		}
   }
 }
 
@@ -449,18 +463,18 @@ void GUI_ShowStr(int16 x, int16 y, const char dat[])
       }
       else
       {
-        if (x > LCD_W - 6 * 8)
-        {
-          if (dat[j] != '\0' && dat[j + 1] != '\0' && dat[j + 2] != '\0')
-          {
-            for (int i = 0; i < 3; i++)
-            {
-              GUI_ShowChar(x, y, '.');
-              x += 6;
-            }
-            return;
-          }
-        }
+//        if (x > LCD_W - 6 * 8)
+//        {
+//          if (dat[j] != '\0' && dat[j + 1] != '\0' && dat[j + 2] != '\0')
+//          {
+//            for (int i = 0; i < 3; i++)
+//            {
+//              GUI_ShowChar(x, y, '.');
+//              x += 6;
+//            }
+//            return;
+//          }
+//        }
         GUI_ShowChar(x, y, dat[j]);
         x += 6;
       }

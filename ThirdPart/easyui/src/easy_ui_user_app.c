@@ -32,7 +32,7 @@ EasyUIItem_t itemSetting, titleSetting, itemMusicTheme;
 EasyUIItem_t itemAbout;
 EasyUIItem_t itemMind, itemCircle, itemSnowflake, itemMeteo, itemPlanet, itemTriangle, itemStarwar, itemBlast, itemGCircle, itemFirework, titleAnimation;
 
-float setting_brightness;
+float setting_musictheme;
 
 EasyKey_t keyUp, keyDown;
 
@@ -158,20 +158,20 @@ void PageDialog(EasyUIItem_t *page)
 
 void EventChangeMusicTheme(EasyUIItem_t* item)
 {
-  if(opnUp)
+  if(opnDown)
   {
     if(*item->param + 1 <= 7)
       *item->param += 1;
     else
-      *item->param = 7;
+      *item->param = 0;
     opnUp = false;
   }
-  if(opnDown)
+  if(opnUp)
   {
-    if(*item->param - 1 >= 7)
+    if(*item->param - 1 >= 0)
       *item->param -= 1;
     else
-      *item->param = 0;
+      *item->param = 7;
     opnDown = false;
   }
 
@@ -212,7 +212,7 @@ void AppGUI_Init(UserInfo_t *userinfo)
   EasyUIAddItem(&pageMain, &itemAbout, "<About>", ITEM_JUMP_PAGE, pageAbout.id);
 
   EasyUIAddItem(&pageSetting, &titleSetting, "[Setting]", ITEM_PAGE_DESCRIPTION);
-  EasyUIAddItem(&pageSetting, &itemMusicTheme, "Theme", ITEM_PROGRESS_BAR, &setting_brightness, EventChangeMusicTheme);
+  EasyUIAddItem(&pageSetting, &itemMusicTheme, "Theme", ITEM_PROGRESS_BAR, &setting_musictheme, EventChangeMusicTheme);
 
   EasyUIAddItem(&pageAnimation, &titleAnimation, "[Animation]", ITEM_PAGE_DESCRIPTION);
   EasyUIAddItem(&pageAnimation, &itemMind, "Mind", ITEM_CHECKBOX, &_userinfo->effectswitch.enMind);

@@ -12,7 +12,7 @@ EffectSwitch_t g_EffectSwitch;
 
 uint16_t randomColor()
 {
-  return rand() & 1;
+  return rand() % 2 + 1;
 }
 
 typedef struct
@@ -1038,7 +1038,7 @@ void Motion_Firework(void)
 			for (int j = FIREWORKTUOYING - 1; j > 0; j--)
 			{
 				if(rand()%FIREWORKFLASHL)
-					AniDrawDisc(mtfirework[p].x[0][0], mtfirework[p].yup[j], 1, 0, CIRCLE_DRAW_ALL);
+					AniDrawDisc(mtfirework[p].x[0][0], mtfirework[p].yup[j], 1, 2, CIRCLE_DRAW_ALL);
 				if(rand()%FIREWORKFLASHL)
 					AniDrawDisc(mtfirework[p].x[0][0], mtfirework[p].yup[j], 1, 1, CIRCLE_DRAW_ALL);
 			}
