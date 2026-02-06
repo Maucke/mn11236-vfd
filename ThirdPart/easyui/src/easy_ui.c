@@ -50,6 +50,7 @@ void EasyUIAddItem(EasyUIPage_t *page, EasyUIItem_t *item, char *_title, EasyUII
     item->param = va_arg(variableArg, paramType *);
     item->paramBackup = *item->param;
     item->paramDefault = *item->param;
+    item->paramMax = va_arg(variableArg, int);
     item->Event = va_arg(variableArg, void (*)(EasyUIItem_t *));
     break;
   case ITEM_MESSAGE:
@@ -315,7 +316,7 @@ void EasyUIDrawProgressBar(EasyUIPage_t *page, EasyUIItem_t *item)
   EasyUIDisplayStr(x + 3, y + itemHeightOffset, item->title);
   EasyUIDisplayStr(x + 3 + strlen(item->title) * page->font.width, y + itemHeightOffset, ":");
   EasyUIDrawFrame(x + 3, y + page->rowheight + itemHeightOffset, barWidth, page->font.height, GUI_penColor);
-  EasyUIDrawBox(x + 5, y + page->rowheight + itemHeightOffset + 2, (float)*item->param / 7 * barWidth - 4,
+  EasyUIDrawBox(x + 5, y + page->rowheight + itemHeightOffset + 2, (float)*item->param / item->paramMax * barWidth - 4,
                 page->font.height - 4, GUI_penColor);
 #if 0
   EasyUIDisplayFloat(x + width - 5 * page->font.width - 4, y + page->rowheight + itemHeightOffset, *item->param, 3, 2);

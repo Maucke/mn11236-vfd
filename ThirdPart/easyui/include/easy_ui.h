@@ -118,6 +118,7 @@ typedef struct EasyUI_item
     bool *flag;                                 // ITEM_CHECKBOX and ITEM_RADIO_BUTTON and ITEM_SWITCH
     bool flagDefault;                           // Factory default setting
     paramType *param;                           // ITEM_CHANGE_VALUE and ITEM_PROGRESS_BAR
+    int paramMax;
     paramType paramDefault;                     // Factory default setting
     paramType paramBackup;                      // ITEM_CHANGE_VALUE and ITEM_PROGRESS_BAR
     uint8_t pageId;                             // ITEM_JUMP_PAGE

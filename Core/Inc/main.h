@@ -87,19 +87,19 @@ void Error_Handler(void);
   } Mode;
 
 
-typedef struct __attribute__((aligned(4)))
-{
-  uint8_t enMind;
-  uint8_t enCircle;
-  uint8_t enSnowflake;
-  uint8_t enMeteo;
-  uint8_t enPlanet;
-  uint8_t enTriangle;
-  uint8_t enStarwar;
-  uint8_t enGCircle;
-  uint8_t enFirework;
-  uint8_t reserved;
-} EffectSwitch_t;
+	typedef struct __attribute__((aligned(4)))
+	{
+		uint8_t enMind;
+		uint8_t enCircle;
+		uint8_t enSnowflake;
+		uint8_t enMeteo;
+		uint8_t enPlanet;
+		uint8_t enTriangle;
+		uint8_t enStarwar;
+		uint8_t enGCircle;
+		uint8_t enFirework;
+		uint8_t reserved;
+	} EffectSwitch_t;
 
   typedef struct __attribute__((aligned(4)))
   {

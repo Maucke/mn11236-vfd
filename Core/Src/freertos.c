@@ -92,7 +92,7 @@ const osThreadAttr_t defaultTask_attributes = {
 osThreadId_t displayTaskHandle;
 const osThreadAttr_t displayTask_attributes = {
     .name = "displayTask",
-    .stack_size = 512 * 4,
+    .stack_size = 512 * 8,
     .priority = (osPriority_t)osPriorityLow,
 };
 /* Definitions for myMutex01 */
@@ -154,7 +154,7 @@ void FFT_Pro(void)
   GetPowerMag();
 }
 
-UserInfo_t userInfo;
+extern UserInfo_t userInfo;
 
 void StartClockTask(void *argument);
 /* USER CODE END FunctionPrototypes */
@@ -225,30 +225,6 @@ __weak void StartDefaultTask(void *argument)
   /* init code for USB_DEVICE */
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN StartDefaultTask */
-  STMFLASH_Read(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t)/ sizeof(uint32_t));
-  if (userInfo.valid != 2)
-  {
-    userInfo.sysmode = Time;
-    userInfo.clocktheme = 0;
-    userInfo.musictheme = 0;
-    userInfo.valid = 2;
-		userInfo.effectswitch.enFirework = true;
-		userInfo.effectswitch.enCircle = false;
-		userInfo.effectswitch.enGCircle = false;
-		userInfo.effectswitch.enMeteo = false;
-		userInfo.effectswitch.enMind = false;
-		userInfo.effectswitch.enPlanet = false;
-		userInfo.effectswitch.enSnowflake = false;
-		userInfo.effectswitch.enStarwar = true;
-		userInfo.effectswitch.enTriangle = false;
-		userInfo.effectswitch.reserved = false;
-  }
-	
-  if (userInfo.sysmode > Snake)
-    userInfo.sysmode = Time;
-
-  userInfo.clocktheme %= 4;
-  userInfo.musictheme %= 8;
   osDelay(200);
   NexLinkInit();
   /* Infinite loop */

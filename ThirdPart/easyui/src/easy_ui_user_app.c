@@ -19,6 +19,7 @@
 #include "fftaffect.h"
 #include "main.h"
 #include "clockui.h"
+#include "stmflash.h"
 
 // Pages
 EasyUIPage_t pageMain, pageUSBForm, pageDialog, pageSensor, pageAnimation, pageSetting, pageAbout;
@@ -31,8 +32,6 @@ EasyUIItem_t itemAnimation;
 EasyUIItem_t itemSetting, titleSetting, itemMusicTheme;
 EasyUIItem_t itemAbout;
 EasyUIItem_t itemMind, itemCircle, itemSnowflake, itemMeteo, itemPlanet, itemTriangle, itemStarwar, itemBlast, itemGCircle, itemFirework, titleAnimation;
-
-float setting_musictheme;
 
 EasyKey_t keyUp, keyDown;
 
@@ -93,14 +92,6 @@ void PageAbout(EasyUIPage_t *page)
   char tempstr[128];
   int screen_delta = 0;
 
-  EasyUIDisplayStr(10, screen_delta, "MCU: STM32F405RG");
-  screen_delta += page->rowheight;
-  EasyUIDisplayStr(10, screen_delta, "MPU: MPU6050");
-  screen_delta += page->rowheight;
-  EasyUIDisplayStr(10, screen_delta, "CLOCK: RX8900");
-  screen_delta += page->rowheight;
-  EasyUIDisplayStr(10, screen_delta, "SEN: BMP280");
-  screen_delta += page->rowheight;
   EasyUIDisplayStr(10, screen_delta, "Author: DPJ");
   screen_delta += page->rowheight;
   EasyUIDisplayStr(10, screen_delta, EasyUIVersion);
@@ -156,6 +147,10 @@ void PageDialog(EasyUIItem_t *page)
 {
 }
 
+UserInfo_t *pUserInfo;
+extern long lBufMagArray[NPT];
+extern uint8_t layer;
+
 void EventChangeMusicTheme(EasyUIItem_t* item)
 {
   if(opnDown)
@@ -178,6 +173,10 @@ void EventChangeMusicTheme(EasyUIItem_t* item)
   if(opnEnter)
   {
     item->paramBackup = *item->param;
+		pUserInfo->musictheme = *item->param;
+//    taskENTER_CRITICAL();
+//		STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)pUserInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
+//    taskEXIT_CRITICAL();
     EasyUIBackgroundBlur();
     functionIsRunning = false;
     opnEnter = false;
@@ -192,38 +191,42 @@ void EventChangeMusicTheme(EasyUIItem_t* item)
   // Clear the states of key to monitor next key action
   opnEnter = opnUp = opnDown = false;
 }
-UserInfo_t *_userinfo;
+
 void AppGUI_Init(UserInfo_t *userinfo)
 {
-  _userinfo = userinfo;
+	static float setting_musictheme;
+  pUserInfo = userinfo;
   EasyUIAddPage(&pageMain, GUI_DEFAULT_DISPLAY_FONT, PAGE_LIST);
   EasyUIAddPage(&pageSetting, GUI_DEFAULT_DISPLAY_FONT, PAGE_LIST);
-  EasyUIAddPage(&pageUSBForm, GUI_DEFAULT_DISPLAY_FONT, PAGE_CUSTOM, PageUSBForm);
-  EasyUIAddPage(&pageDialog, GUI_6X8_FONT, PAGE_LIST);
+//  EasyUIAddPage(&pageUSBForm, GUI_DEFAULT_DISPLAY_FONT, PAGE_CUSTOM, PageUSBForm);
+//  EasyUIAddPage(&pageDialog, GUI_6X8_FONT, PAGE_LIST);
   EasyUIAddPage(&pageSensor, GUI_DEFAULT_DISPLAY_FONT, PAGE_CUSTOM, PageSensor);
   EasyUIAddPage(&pageAnimation, GUI_DEFAULT_DISPLAY_FONT, PAGE_LIST);
   EasyUIAddPage(&pageAbout, GUI_DEFAULT_DISPLAY_FONT, PAGE_CUSTOM, PageAbout);
 
-  EasyUIAddItem(&pageMain, &itemUSBForm, "USBForm", ITEM_JUMP_PAGE, pageUSBForm.id);
-  EasyUIAddItem(&pageMain, &itemDebug, "Debug", ITEM_JUMP_PAGE, pageDialog.id);
+//  EasyUIAddItem(&pageMain, &itemUSBForm, "USBForm", ITEM_JUMP_PAGE, pageUSBForm.id);
+//  EasyUIAddItem(&pageMain, &itemDebug, "Debug", ITEM_JUMP_PAGE, pageDialog.id);
   EasyUIAddItem(&pageMain, &itemSensor, "Sensor", ITEM_JUMP_PAGE, pageSensor.id);
   EasyUIAddItem(&pageMain, &itemAnimation, "Animation", ITEM_JUMP_PAGE, pageAnimation.id);
   EasyUIAddItem(&pageMain, &itemSetting, "Setting", ITEM_JUMP_PAGE, pageSetting.id);
   EasyUIAddItem(&pageMain, &itemAbout, "<About>", ITEM_JUMP_PAGE, pageAbout.id);
 
   EasyUIAddItem(&pageSetting, &titleSetting, "[Setting]", ITEM_PAGE_DESCRIPTION);
-  EasyUIAddItem(&pageSetting, &itemMusicTheme, "Theme", ITEM_PROGRESS_BAR, &setting_musictheme, EventChangeMusicTheme);
+	
+	setting_musictheme = pUserInfo->musictheme;
+	
+  EasyUIAddItem(&pageSetting, &itemMusicTheme, "Theme", ITEM_PROGRESS_BAR, &setting_musictheme, 7, EventChangeMusicTheme);
 
   EasyUIAddItem(&pageAnimation, &titleAnimation, "[Animation]", ITEM_PAGE_DESCRIPTION);
-  EasyUIAddItem(&pageAnimation, &itemMind, "Mind", ITEM_CHECKBOX, &_userinfo->effectswitch.enMind);
-  EasyUIAddItem(&pageAnimation, &itemCircle, "Circle", ITEM_CHECKBOX, &_userinfo->effectswitch.enCircle);
-  EasyUIAddItem(&pageAnimation, &itemSnowflake, "Snowflake", ITEM_CHECKBOX, &_userinfo->effectswitch.enSnowflake);
-  EasyUIAddItem(&pageAnimation, &itemMeteo, "Meteo", ITEM_CHECKBOX, &_userinfo->effectswitch.enMeteo);
-  EasyUIAddItem(&pageAnimation, &itemPlanet, "Planet", ITEM_CHECKBOX, &_userinfo->effectswitch.enPlanet);
-  EasyUIAddItem(&pageAnimation, &itemTriangle, "Triangle", ITEM_CHECKBOX, &_userinfo->effectswitch.enTriangle);
-  EasyUIAddItem(&pageAnimation, &itemStarwar, "Starwar", ITEM_CHECKBOX, &_userinfo->effectswitch.enStarwar);
-  EasyUIAddItem(&pageAnimation, &itemGCircle, "GCircle", ITEM_CHECKBOX, &_userinfo->effectswitch.enGCircle);
-  EasyUIAddItem(&pageAnimation, &itemFirework, "Firework", ITEM_CHECKBOX, &_userinfo->effectswitch.enFirework);
+  EasyUIAddItem(&pageAnimation, &itemMind, "Mind", ITEM_CHECKBOX, &pUserInfo->effectswitch.enMind);
+  EasyUIAddItem(&pageAnimation, &itemCircle, "Circle", ITEM_CHECKBOX, &pUserInfo->effectswitch.enCircle);
+  EasyUIAddItem(&pageAnimation, &itemSnowflake, "Snowflake", ITEM_CHECKBOX, &pUserInfo->effectswitch.enSnowflake);
+  EasyUIAddItem(&pageAnimation, &itemMeteo, "Meteo", ITEM_CHECKBOX, &pUserInfo->effectswitch.enMeteo);
+  EasyUIAddItem(&pageAnimation, &itemPlanet, "Planet", ITEM_CHECKBOX, &pUserInfo->effectswitch.enPlanet);
+  EasyUIAddItem(&pageAnimation, &itemTriangle, "Triangle", ITEM_CHECKBOX, &pUserInfo->effectswitch.enTriangle);
+  EasyUIAddItem(&pageAnimation, &itemStarwar, "Starwar", ITEM_CHECKBOX, &pUserInfo->effectswitch.enStarwar);
+  EasyUIAddItem(&pageAnimation, &itemGCircle, "GCircle", ITEM_CHECKBOX, &pUserInfo->effectswitch.enGCircle);
+  EasyUIAddItem(&pageAnimation, &itemFirework, "Firework", ITEM_CHECKBOX, &pUserInfo->effectswitch.enFirework);
 
   //		EasyUIItemOperationResponse(&pageAnimation, &itemAnimation, &itemAnimation.id);
   // Key init
@@ -233,10 +236,8 @@ void AppGUI_Init(UserInfo_t *userinfo)
   clock_init();
   beginSnake();
   Motion_Init();
-  clear_all_long_str();
 }
 
-extern long lBufMagArray[NPT];
 const MusicTheme_t musicTheme[8] = {
     {Cyan, Red},
     {Cyan, White},
@@ -270,8 +271,6 @@ void Motion_Run(EffectSwitch_t *effectswitch)
     Motion_Firework();
 }
 
-extern uint8_t layer;
-
 typedef enum
 {
   DISP_MODE_CLOCK = 0,
@@ -294,7 +293,7 @@ void AppGUI_Loop(uint8_t timer)
     break;
   case DISP_MODE_FFT:
     clear_gram(White);
-    draw_fft(lBufMagArray, NPT / 2, 20, musicTheme[_userinfo->musictheme].bar, musicTheme[_userinfo->musictheme].dot);
+    draw_fft(lBufMagArray, NPT / 2, 20, musicTheme[pUserInfo->musictheme].bar, musicTheme[pUserInfo->musictheme].dot);
     refrash_gram();
     break;
   case DISP_MODE_SNAKE:
@@ -305,7 +304,7 @@ void AppGUI_Loop(uint8_t timer)
     break;
   case DISP_MODE_MOTION:
     clear_gram(White);
-    Motion_Run(&_userinfo->effectswitch);
+    Motion_Run(&pUserInfo->effectswitch);
     refrash_gram();
     break;
   default:

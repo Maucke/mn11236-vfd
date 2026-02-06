@@ -18,6 +18,7 @@
 #define CMD_GET_VERSION     0x0002
 #define CMD_SYNC_TIME       0x0003
 #define CMD_LOOPBACK     0x0004
+#define CMD_KEY     0x0010
 
 /* 0x0100 - log */
 #define EVT_LOG             0x0100

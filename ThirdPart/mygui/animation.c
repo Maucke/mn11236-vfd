@@ -926,7 +926,7 @@ ANI_STATUS Firework(uint8_t Index)
 			}
 			mtfirework[Index].x[i][0] += mtfirework[Index].xspd[i];
 			mtfirework[Index].y[i][0] += mtfirework[Index].yspd[i];
-			mtfirework[Index].yspd[i] = mtfirework[Index].yspd[i] + 0.025f * mtfirework[Index].runtimes;
+			mtfirework[Index].yspd[i] = mtfirework[Index].yspd[i] + 0.015f * mtfirework[Index].runtimes;
 		}
 
 		if (mtfirework[Index].runtimes++ > 80)
@@ -940,7 +940,7 @@ ANI_STATUS Firework(uint8_t Index)
 		{
 			mtfirework[Index].yup[j + 1] = mtfirework[Index].yup[j];
 		}
-		mtfirework[Index].yup[0] -= (mtfirework[Index].yup[0] - mtfirework[Index].y[0][0]) * 0.2f + 0.1f;
+		mtfirework[Index].yup[0] -= (mtfirework[Index].yup[0] - mtfirework[Index].y[0][0]) * 0.08f + 0.08f;
 
 		if (mtfirework[Index].yup[0] < mtfirework[Index].y[0][0])
 			mtfirework[Index].states = 2;

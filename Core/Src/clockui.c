@@ -261,7 +261,7 @@ LList long_str_list;
 void clock_init()
 {
     llist_init(&long_str_list);
-    mn11236_init();
+		clear_all_long_str();
 }
 
 static void draw_bits(uint8_t bit_mask, int x, Color color)
@@ -553,9 +553,10 @@ void draw_fft(long *fft_result, int len, int delta, Color bar, Color dot)
     draw_bar(bars, bar, dot);
 }
 
-#define COLS MAX_X
-#define ROWS MAX_Y
-#define MAX_LENGTH 100
+#define SNAKE_WIDTH 2
+#define COLS (MAX_X/SNAKE_WIDTH)
+#define ROWS (MAX_Y/SNAKE_WIDTH)
+#define MAX_LENGTH 60
 #define SNAKE_HEAD White
 #define SNAKE_BODY Cyan
 #define FOOD_DOT Red
@@ -563,8 +564,8 @@ void draw_fft(long *fft_result, int len, int delta, Color bar, Color dot)
 // 定义蛇的结构体
 typedef struct
 {
-    uint16_t x;
-    uint16_t y;
+    int16_t x;
+    int16_t y;
 } SnakeSegment;
 
 // 定义蛇的结构体
@@ -581,21 +582,62 @@ typedef struct
     uint16_t x;
     uint16_t y;
 } Food_t;
+typedef enum
+{
+    SNAKE_ALIVE = 0,
+    SNAKE_DYING,      // 正在从头到尾变红
+    SNAKE_DEAD_WAIT   // 已全红，等待重生
+} SnakeState_t;
+
+SnakeState_t snakeState = SNAKE_ALIVE;
+int deathIndex = 0;
+int deadWaitCnt = 0;
+
 Snake_t snake;
 Food_t food;
+
 void initSnake(Snake_t *snake)
 {
-    snake->length = 4;
-    snake->body[0].x = 3;
-    snake->body[0].y = 8;
-    snake->body[1].x = 2;
-    snake->body[1].y = 8;
-    snake->body[2].x = 1;
-    snake->body[2].y = 8;
-    snake->body[3].x = 0;
-    snake->body[3].y = 8;
-    snake->direction = 1;
+    int ok = 0;
+
+    while (!ok)
+    {
+        ok = 1;
+
+        snake->length = 4;
+        snake->direction = rand() % 4;
+
+        int hx = rand() % COLS;
+        int hy = rand() % ROWS;
+
+        /* 根据方向计算身体增长方向（反方向） */
+        int dx = 0, dy = 0;
+        switch (snake->direction)
+        {
+        case 0: dy = 1; break;  // 上 → 身体向下
+        case 1: dx = -1; break; // 右 → 身体向左
+        case 2: dy = -1; break; // 下 → 身体向上
+        case 3: dx = 1; break;  // 左 → 身体向右
+        }
+
+        /* 检查是否越界 */
+        for (int i = 0; i < snake->length; i++)
+        {
+            int x = hx + dx * i;
+            int y = hy + dy * i;
+
+            if (x < 0 || x >= COLS || y < 0 || y >= ROWS)
+            {
+                ok = 0;
+                break;
+            }
+
+            snake->body[i].x = x;
+            snake->body[i].y = y;
+        }
+    }
 }
+
 void initFood(Food_t *food, Snake_t *snake)
 {
     int valid;
@@ -617,18 +659,25 @@ void initFood(Food_t *food, Snake_t *snake)
     } while (!valid);
 }
 // 打印游戏界面
+static inline void draw_block3(int x, int y, uint8_t color)
+{
+    int px = x * SNAKE_WIDTH;
+    int py = y * SNAKE_WIDTH;
+
+    for (int dx = 0; dx < SNAKE_WIDTH; dx++)
+        for (int dy = 0; dy < SNAKE_WIDTH; dy++)
+            draw_point(px + dx, py + dy, (Color)color);
+}
+
 void printBoard(Snake_t *snake, Food_t *food)
 {
-    // 绘制蛇
-    draw_point(snake->body[0].x, snake->body[0].y, SNAKE_HEAD);
-    for (int i = 1; i < snake->length; i++)
-    {
-        draw_point(snake->body[i].x, snake->body[i].y, SNAKE_BODY);
-    }
+    draw_block3(snake->body[0].x, snake->body[0].y, SNAKE_HEAD);
 
-    // 绘制食物
-    draw_point(food->x, food->y, FOOD_DOT);
-}
+    for (int i = 1; i < snake->length; i++)
+        draw_block3(snake->body[i].x, snake->body[i].y, SNAKE_BODY);
+
+    draw_block3(food->x, food->y, FOOD_DOT);
+} 
 
 // 辅助函数：返回给定方向的相反方向
 int oppositeDirection(int dir)
@@ -651,158 +700,95 @@ int oppositeDirection(int dir)
 // 让蛇自动追踪食物，避免撞到自己
 void autoTrackFood(Snake_t *snake, Food_t *food)
 {
-    int headX = snake->body[0].x;
-    int headY = snake->body[0].y;
-    int bestDirection = -1;
-    int safeDirections[4] = {0};
-    int safeCount = 0;
-    static int lastDirection = -1; // 记录上一次移动方向，避免来回移动
+    int hx = snake->body[0].x;
+    int hy = snake->body[0].y;
+    int best = -1;
 
-    // 计算到食物的距离
-    int dx = food->x - headX;
-    int dy = food->y - headY;
+    static int lastDir = -1;
 
-    // 根据距离确定方向优先级
-    // 优先水平移动还是垂直移动取决于哪个距离更大
+    int dx = food->x - hx;
+    int dy = food->y - hy;
+
+    int cand[4];
+    int idx = 0;
+
     if (abs(dx) > abs(dy))
     {
-        // 水平距离更大，优先左右移动
-        if (dx > 0)
-        {
-            // 食物在右侧
-            safeDirections[safeCount++] = 1;                // 右
-            safeDirections[safeCount++] = (dy > 0) ? 2 : 0; // 下或上
-            safeDirections[safeCount++] = (dy > 0) ? 0 : 2; // 上或下
-            safeDirections[safeCount++] = 3;                // 左
-        }
-        else
-        {
-            // 食物在左侧
-            safeDirections[safeCount++] = 3;                // 左
-            safeDirections[safeCount++] = (dy > 0) ? 2 : 0; // 下或上
-            safeDirections[safeCount++] = (dy > 0) ? 0 : 2; // 上或下
-            safeDirections[safeCount++] = 1;                // 右
-        }
+        cand[idx++] = dx > 0 ? 1 : 3;
+        cand[idx++] = dy > 0 ? 2 : 0;
+        cand[idx++] = dy > 0 ? 0 : 2;
+        cand[idx++] = dx > 0 ? 3 : 1;
     }
     else
     {
-        // 垂直距离更大，优先上下移动
-        if (dy > 0)
-        {
-            // 食物在下方
-            safeDirections[safeCount++] = 2;                // 下
-            safeDirections[safeCount++] = (dx > 0) ? 1 : 3; // 右或左
-            safeDirections[safeCount++] = (dx > 0) ? 3 : 1; // 左或右
-            safeDirections[safeCount++] = 0;                // 上
-        }
-        else
-        {
-            // 食物在上方
-            safeDirections[safeCount++] = 0;                // 上
-            safeDirections[safeCount++] = (dx > 0) ? 1 : 3; // 右或左
-            safeDirections[safeCount++] = (dx > 0) ? 3 : 1; // 左或右
-            safeDirections[safeCount++] = 2;                // 下
-        }
+        cand[idx++] = dy > 0 ? 2 : 0;
+        cand[idx++] = dx > 0 ? 1 : 3;
+        cand[idx++] = dx > 0 ? 3 : 1;
+        cand[idx++] = dy > 0 ? 0 : 2;
     }
 
-    // 检查每个方向是否安全（不会撞到身体）
     for (int i = 0; i < 4; i++)
     {
-        int dir = safeDirections[i];
+        int dir = cand[i];
 
-        // 避免180度转向（直接撞到身体）
-        if ((dir == 0 && snake->direction == 2) ||
-            (dir == 2 && snake->direction == 0) ||
-            (dir == 1 && snake->direction == 3) ||
-            (dir == 3 && snake->direction == 1))
-        {
+        if (dir == oppositeDirection(snake->direction))
             continue;
-        }
 
-        // 计算下一个位置
-        int nextX = headX;
-        int nextY = headY;
-        switch (dir)
-        {
-        case 0:
-            nextY--;
-            break;
-        case 1:
-            nextX++;
-            break;
-        case 2:
-            nextY++;
-            break;
-        case 3:
-            nextX--;
-            break;
-        }
+        int nx = hx, ny = hy;
+        if (dir == 0) ny--;
+        if (dir == 1) nx++;
+        if (dir == 2) ny++;
+        if (dir == 3) nx--;
 
-        // 边界处理（如果需要边界检测）
-        // nextX = (nextX + COLS) % COLS;
-        // nextY = (nextY + ROWS) % ROWS;
+        /* ★ 边界检查 */
+        if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS)
+            continue;
 
-        // 检查是否会撞到身体
         int safe = 1;
-        for (int j = 1; j < snake->length; j++)
+        for (int j = 1; j < snake->length - 1; j++)
         {
-            if (nextX == snake->body[j].x && nextY == snake->body[j].y)
+            if (nx == snake->body[j].x &&
+                ny == snake->body[j].y)
             {
                 safe = 0;
                 break;
             }
         }
 
-        // 如果安全，选择这个方向
-        if (safe)
-        {
-            // 避免循环移动（如左右来回）
-            if (dir == oppositeDirection(lastDirection))
-            {
-                // 如果是上一次的反方向，继续检查下一个方向
-                continue;
-            }
+        if (!safe)
+            continue;
 
-            bestDirection = dir;
-            break;
-        }
+        if (dir == oppositeDirection(lastDir))
+            continue;
+
+        best = dir;
+        break;
     }
 
-    // 如果找到了安全方向，更新蛇的方向
-    if (bestDirection != -1)
+    if (best != -1)
     {
-        snake->direction = bestDirection;
-        lastDirection = bestDirection;
+        snake->direction = best;
+        lastDir = best;
     }
-    // 否则保持当前方向，希望能通过移动腾出空间
 }
-// 移动蛇
+
 void moveSnake(Snake_t *snake)
 {
     for (int i = snake->length - 1; i > 0; i--)
     {
-        snake->body[i].x = snake->body[i - 1].x;
-        snake->body[i].y = snake->body[i - 1].y;
+        snake->body[i] = snake->body[i - 1];
     }
 
     switch (snake->direction)
     {
-    case 0:
-        snake->body[0].y--;
-        break;
-    case 1:
-        snake->body[0].x++;
-        break;
-    case 2:
-        snake->body[0].y++;
-        break;
-    case 3:
-        snake->body[0].x--;
-        break;
+    case 0: snake->body[0].y--; break;
+    case 1: snake->body[0].x++; break;
+    case 2: snake->body[0].y++; break;
+    case 3: snake->body[0].x--; break;
     }
-    snake->body[0].x %= COLS;
-    snake->body[0].y %= ROWS;
+    /* ❌ 不允许取模 */
 }
+
 // 检查蛇是否吃到食物
 int checkEat(Snake_t *snake, Food_t *food)
 {
@@ -820,18 +806,44 @@ int checkEat(Snake_t *snake, Food_t *food)
 
 int checkCollision(Snake_t *snake)
 {
-    // if (snake->body[0].x < 0 || snake->body[0].x > (COLS - 1) || snake->body[0].y < 0 || snake->body[0].y > (ROWS - 1))
-    // {
-    //     return 1;
-    // }
-    for (int i = 1; i < snake->length; i++)
+    int x = snake->body[0].x;
+    int y = snake->body[0].y;
+
+    /* 撞墙 */
+    if (x < 0 || x >= COLS || y < 0 || y >= ROWS)
+        return 1;
+
+    /* 撞身体（不查最后一节） */
+    for (int i = 1; i < snake->length - 1; i++)
     {
-        if (snake->body[0].x == snake->body[i].x && snake->body[0].y == snake->body[i].y)
-        {
+        if (x == snake->body[i].x &&
+            y == snake->body[i].y)
             return 1;
-        }
     }
     return 0;
+}
+
+void drawSnakeDying(Snake_t *snake)
+{
+    for (int i = 0; i < snake->length; i++)
+    {
+        if (i <= deathIndex)
+        {
+            draw_block3(
+                snake->body[i].x,
+                snake->body[i].y,
+                Red     // 已“死亡”的部分
+            );
+        }
+        else
+        {
+            draw_block3(
+                snake->body[i].x,
+                snake->body[i].y,
+                SNAKE_BODY
+            );
+        }
+    }
 }
 
 void beginSnake()
@@ -841,6 +853,50 @@ void beginSnake()
 
 void refrashSnake()
 {
+    /* ====== 1. 正在死亡动画（逐节变红） ====== */
+    if (snakeState == SNAKE_DYING)
+    {
+        drawSnakeDying(&snake);
+
+        deathIndex++;
+
+        if (deathIndex >= snake.length - 1)
+        {
+            /* 已经全红，进入等待阶段 */
+            snakeState = SNAKE_DEAD_WAIT;
+            deadWaitCnt = 0;
+        }
+        return;
+    }
+
+    /* ====== 2. 全红等待阶段 ====== */
+    if (snakeState == SNAKE_DEAD_WAIT)
+    {
+        /* 整条蛇保持红色 */
+        for (int i = 0; i < snake.length; i++)
+        {
+            draw_block3(
+                snake.body[i].x,
+                snake.body[i].y,
+                Red
+            );
+        }
+
+        deadWaitCnt++;
+
+        if (deadWaitCnt >= 10)   // ★ 等待 10 个周期
+        {
+            deathIndex = 0;
+            deadWaitCnt = 0;
+            snakeState = SNAKE_ALIVE;
+
+            initSnake(&snake);
+            initFood(&food, &snake);
+        }
+        return;
+    }
+
+    /* ====== 3. 正常游戏阶段 ====== */
     printBoard(&snake, &food);
 
     autoTrackFood(&snake, &food);
@@ -854,7 +910,7 @@ void refrashSnake()
     if (checkCollision(&snake))
     {
         nexlink_log("Game Over!\n");
-        initSnake(&snake);
-        //	initFood(&food, &snake);
+        snakeState = SNAKE_DYING;
+        deathIndex = 0;
     }
 }
