@@ -118,28 +118,21 @@ void PageUSBForm(EasyUIPage_t *page)
   // }
 }
 
+extern struct tm tm_local;
 static const char weekdays[7][4] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
 void PageSensor(EasyUIPage_t *page)
 {
-  static int levelrun = 0;
   char tempstr[64];
-  int screen_delta = 10;
-  static struct tm time_user;
-  //  static float temperature;
+  int screen_delta = 1;
   static long last_update_time = 0;
   long now_tick = HAL_GetTick();
   if (now_tick - last_update_time > 500)
   {
-    RX8900_GetTime(&time_user);
-    screen_delta += page->rowheight;
-    GUI_DrawBMP565(165, screen_delta, 36, 36, gImage_Battery[levelrun]);
-
-    snprintf(tempstr, sizeof tempstr, "%04d-%02d-%02d, %s", time_user.tm_year + 1900, time_user.tm_mon + 1, time_user.tm_mday, weekdays[time_user.tm_wday % 7]);
+    snprintf(tempstr, sizeof tempstr, "%04d-%02d-%02d, %s", tm_local.tm_year + 2000, tm_local.tm_mon + 1, tm_local.tm_mday, weekdays[tm_local.tm_wday % 7]);
     EasyUIDisplayStr(10, screen_delta, tempstr);
     screen_delta += page->rowheight;
-    snprintf(tempstr, sizeof tempstr, "%02d:%02d:%02d", time_user.tm_hour % 100, time_user.tm_min % 100, time_user.tm_sec % 100);
+    snprintf(tempstr, sizeof tempstr, "%02d:%02d:%02d", tm_local.tm_hour % 100, tm_local.tm_min % 100, tm_local.tm_sec % 100);
     EasyUIDisplayStr(10, screen_delta, tempstr);
-    screen_delta += page->rowheight;
   }
 }
 
@@ -282,6 +275,7 @@ typedef enum
 
 void AppGUI_Loop(uint8_t timer)
 {
+	static SysDisplayMode_e last_disp_mode = DISP_MODE_MOTION;
   static SysDisplayMode_e disp_mode = DISP_MODE_MOTION;
 
   switch (disp_mode)
@@ -319,6 +313,7 @@ void AppGUI_Loop(uint8_t timer)
       disp_mode++;
       if (disp_mode > DISP_MODE_MOTION)
         disp_mode = DISP_MODE_CLOCK;
+			EasyUITransitionAnim();
       opnUp = false;
     }
     if (opnDown) 
@@ -327,17 +322,27 @@ void AppGUI_Loop(uint8_t timer)
         disp_mode = DISP_MODE_MOTION;
       else
         disp_mode--;
+			EasyUITransitionAnim();
       opnDown = false;
     }
     if (opnEnter)
     {
+			last_disp_mode = disp_mode;
+			EasyUITransitionAnim();
       disp_mode = DISP_MODE_MENU;
       opnEnter = false;
     }
+		if (opnExit)
+		{
+			if(disp_mode == DISP_MODE_FFT)
+				pUserInfo->musictheme = (pUserInfo->musictheme+1)%8;
+			opnExit = false;
+		}
   }
-  if (layer == 0 && opnExit)
+	else if (layer == 0 && opnExit)
   {
-    disp_mode = DISP_MODE_CLOCK;
+    disp_mode = last_disp_mode;
     opnExit = false;
+		EasyUITransitionAnim();
   }
 }
