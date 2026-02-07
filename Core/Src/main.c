@@ -29,11 +29,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "stmflash.h"
-#include "usbd_nex_link.h"
-
-#include "easy_key.h"
-#include "easy_ui_user_app.h"
+#include "bootloader.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -53,7 +49,6 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-USBD_HandleTypeDef hUSB;
 UserInfo_t userInfo = {0};
 /* USER CODE END PV */
 
@@ -65,16 +60,6 @@ void MX_FREERTOS_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void MX_USB_DEVICE_Init()
-{
-#ifdef FUSB
-  USBD_Init(&hUSB, &FS_Desc, DEVICE_FS);
-#else
-  USBD_Init(&hUSB, &FS_Desc, DEVICE_HS);
-#endif
-  USBD_RegisterClass(&hUSB, &USBD_NEX_LINK);
-  USBD_Start(&hUSB);
-}
 
 /* USER CODE END 0 */
 
@@ -113,35 +98,12 @@ int main(void)
   MX_TIM3_Init();
   MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
-	
-  STMFLASH_Read(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
-  if (userInfo.valid != 4)
-  {
-    userInfo.sysmode = Time;
-    userInfo.clocktheme = 0;
-    userInfo.musictheme = 2;
-    userInfo.valid = 4;
-		userInfo.effectswitch.enFirework = true;
-		userInfo.effectswitch.enCircle = false;
-		userInfo.effectswitch.enGCircle = false;
-		userInfo.effectswitch.enMeteo = false;
-		userInfo.effectswitch.enMind = false;
-		userInfo.effectswitch.enPlanet = false;
-		userInfo.effectswitch.enSnowflake = false;
-		userInfo.effectswitch.enStarwar = true;
-		userInfo.effectswitch.enTriangle = false;
-		userInfo.effectswitch.reserved = false;
-		STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
-  }
-	
-  if (userInfo.sysmode > Snake)
-    userInfo.sysmode = Time;
-
-  userInfo.clocktheme %= 4;
-  userInfo.musictheme %= 8;
-  HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 0, 0); //让扫描中断不被打断
+    if(HAL_GPIO_ReadPin(KEY_SW1_GPIO_Port, KEY_SW1_Pin) && HAL_GPIO_ReadPin(KEY_SW2_GPIO_Port, KEY_SW2_Pin))
+		{
+    JumpToApplication();
+		}
+	  HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream4_IRQn);
-	HAL_TIM_Base_Start_IT(&htim3);
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -232,14 +194,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   }
   /* USER CODE BEGIN Callback 1 */
 
-
-	if (htim->Instance == htim3.Instance)
-	{
-		EasyKeyScanKeyState();
-		EasyKeyUserApp();
-		EasyUIKeyActionMonitor();
-//		dbmsg("tick: %d", HAL_GetTick());
-	}
   /* USER CODE END Callback 1 */
 }
 

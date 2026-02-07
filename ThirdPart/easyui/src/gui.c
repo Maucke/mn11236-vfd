@@ -168,6 +168,7 @@ void GUI_ShowChar(int16 x, int16 y, const char dat)
       }
     }
     break;
+#if 0
   case GUI_8X16_FONT:
     for (i = 0; i < 8; i++)
     {
@@ -388,7 +389,7 @@ void GUI_ShowChar(int16 x, int16 y, const char dat)
       }
     }
     break;
-
+#endif
   default:
     break;
   }

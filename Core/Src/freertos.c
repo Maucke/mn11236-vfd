@@ -32,25 +32,14 @@
 #include "usart.h"
 #include "usb_device.h"
 #include "gpio.h"
-#include "clockui.h"
 #include <stdarg.h>
 #include <math.h>
 #include <string.h>
 // #include "gu20x8_301.h"
 #include "mn11236.h"
-#include "stm32_dsp.h"
-#include "table_fft.h"
-#include "stm32_rx8900.h"
 #include "stmflash.h"
 #include "stdbool.h"
-#include "usbd_nex_link.h"
-#include "nexlink_tasks.h"
-#include "nexlink_app.h"
-#include "easy_ui.h"
-#include "easy_ui_user_app.h"
-#include "lv_anim_light.h"
-#include "animation.h"
-#include "fftaffect.h"
+#include "gui.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -71,92 +60,34 @@
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
 
-uint32_t adc_buf[NPT] = {0};
-static long lBufInArray[NPT];
-static long lBufOutArray[NPT];
-long lBufMagArray[NPT];
-char timeStr[10] = {0};
-char hourMinute[10] = {0};
-uint32_t backToDefaultTimestamp = 0;
-struct tm tm_set;
-
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
-    .name = "defaultTask",
-    .stack_size = 128 * 4,
-    .priority = (osPriority_t)osPriorityNormal,
+  .name = "defaultTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for displayTask */
 osThreadId_t displayTaskHandle;
 const osThreadAttr_t displayTask_attributes = {
-    .name = "displayTask",
-    .stack_size = 512 * 8,
-    .priority = (osPriority_t)osPriorityLow,
+  .name = "displayTask",
+  .stack_size = 1024 * 4,
+  .priority = (osPriority_t) osPriorityLow,
 };
 /* Definitions for myMutex01 */
 osMutexId_t myMutex01Handle;
 const osMutexAttr_t myMutex01_attributes = {
-    .name = "myMutex01"};
+  .name = "myMutex01"
+};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
-osThreadId_t clockTaskHandle;
-const osThreadAttr_t clockTask_attributes = {
-    .name = "clockTask",
-    .stack_size = 128 * 4,
-    .priority = (osPriority_t)osPriorityNormal,
-};
 
 osMessageQueueId_t usbQueueHandle;
 const osMessageQueueAttr_t usbQueue_attributes = {
     .name = "usbQueue"};
 
-void FFT_Start(void)
-{
-  HAL_ADC_Start_DMA(&hadc1, adc_buf, NPT);
-  HAL_TIM_Base_Start(&htim3);
-}
-void FFT_Stop(void)
-{
-  HAL_ADC_Stop_DMA(&hadc1);
-  HAL_TIM_Base_Stop(&htim3);
-}
-void GetPowerMag(void)
-{
-  signed short lX, lY;
-  float X, Y, Mag;
-  unsigned short i;
-
-  for (i = 0; i < NPT; i++)
-  {
-    lX = (lBufOutArray[i] << 16) >> 16;
-    lY = (lBufOutArray[i] >> 16);
-
-    X = NPT * ((float)lX) / 32768;
-    Y = NPT * ((float)lY) / 32768;
-    Mag = sqrt(X * X + Y * Y) * 1.0f / NPT;
-    if (i == 0)
-      lBufMagArray[i] = (unsigned long)(Mag * 32768);
-    else
-      lBufMagArray[i] = (unsigned long)(Mag * 65536);
-  }
-}
-void FFT_Pro(void)
-{
-  uint16_t i = 0;
-  for (i = 0; i < NPT; i++)
-  {
-    lBufInArray[i] = ((signed short)(adc_buf[i]) - 1551) << 18;
-  }
-  cr4_fft_256_stm32(lBufOutArray, lBufInArray, NPT);
-  GetPowerMag();
-}
-
-extern UserInfo_t userInfo;
-
-void StartClockTask(void *argument);
 /* USER CODE END FunctionPrototypes */
 
 void StartDefaultTask(void *argument);
@@ -166,12 +97,11 @@ extern void MX_USB_DEVICE_Init(void);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
 /**
- * @brief  FreeRTOS initialization
- * @param  None
- * @retval None
- */
-void MX_FREERTOS_Init(void)
-{
+  * @brief  FreeRTOS initialization
+  * @param  None
+  * @retval None
+  */
+void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
 
   /* USER CODE END Init */
@@ -205,12 +135,12 @@ void MX_FREERTOS_Init(void)
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
-    clockTaskHandle = osThreadNew(StartClockTask, NULL, &clockTask_attributes);
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
   /* add events, ... */
   /* USER CODE END RTOS_EVENTS */
+
 }
 
 /* USER CODE BEGIN Header_StartDefaultTask */
@@ -226,13 +156,35 @@ __weak void StartDefaultTask(void *argument)
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN StartDefaultTask */
   osDelay(200);
-  NexLinkInit();
+	GUI_Init();
+	GUI_ClearBuffer();
+	GUI_ShowStr(5, 1, "Connect USB to PC");
+	GUI_ShowStr(2, 1 + 8, "Drop file to Udisk");
+	GUI_SendBuffer();
   /* Infinite loop */
-  FFT_Start();
   for (;;)
   {
-    FFT_Pro();
     osDelay(30);
+    extern uint8_t isUpgraded;
+    if(isUpgraded)
+    {
+			GUI_ClearBuffer();
+			GUI_SetColor(GUI_DEFAULT_ACTCOLOR, 0);
+			GUI_ShowStr(10, 1, "Upgrade");
+			GUI_ShowStr(10, 1 + 8, "Complete");
+			GUI_SendBuffer();
+      MX_USB_DEVICE_DeInit();
+			HAL_UART_MspDeInit(&huart1);
+      for(int i = 0; i < 80; i++)
+      {
+        HAL_GPIO_TogglePin(SYS_LED_GPIO_Port, SYS_LED_Pin);
+        osDelay(50);
+      }
+//      JumpToApplication();
+			NVIC_SystemReset();
+    }
+    osDelay(500);
+    HAL_GPIO_TogglePin(SYS_LED_GPIO_Port, SYS_LED_Pin);
   }
   /* USER CODE END StartDefaultTask */
 }
@@ -251,11 +203,10 @@ __weak void StartdisplayTask(void *argument)
 //      "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
 //  static char tempstr[32] = {0};
 #if true
-  AppGUI_Init(&userInfo);
+	
   /* Infinite loop */
   for (;;)
   {
-		AppGUI_Loop(5);
     osDelay(5);
   }
 #else
@@ -274,51 +225,7 @@ __weak void StartdisplayTask(void *argument)
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
-  FFT_Stop();
-  FFT_Pro();
-  FFT_Start();
-}
-
-struct tm tm_local;
-const char *weekDays[7] = {
-    "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
-
-const ClockTheme_t clockTheme[4] = {
-    {Red, WhiteWithCyan, 0},
-    {Cyan, WhiteWithRed, 0},
-    {Red, WhiteWithCyan, 1},
-    {Cyan, WhiteWithRed, 1}};
-
-
-__weak void StartClockTask(void *argument)
-{
-	static int flash = 0;
-  static char tempstr[32] = {0};
-  static int count = 60;
-  RX8900_Init();
-  // RX8900_SetTime(&tm_local);
-  osDelay(500);
-  for (;;)
-  {
-    if (RX8900_GetTime(&tm_local))
-    {
-      nexlink_log("%02d:%02d:%02d\r\n", tm_local.tm_hour, tm_local.tm_min, tm_local.tm_sec);
-      nexlink_log("20%02d-%02d-%02d %d\r\n", tm_local.tm_year, tm_local.tm_mon, tm_local.tm_mday, tm_local.tm_wday);
-      flash = !flash;
-      if (flash)
-        snprintf(timeStr, sizeof timeStr, "%02d:%02d", tm_local.tm_hour, tm_local.tm_min);
-      else
-        snprintf(timeStr, sizeof timeStr, "%02d %02d", tm_local.tm_hour, tm_local.tm_min);
-      snprintf(hourMinute, sizeof hourMinute, "%02d%02d", tm_local.tm_hour, tm_local.tm_min);
-			if (count++ > 10)
-			{
-				count = 0;
-				snprintf(tempstr, sizeof tempstr, "20%02d-%02d-%02d %s", tm_local.tm_year, tm_local.tm_mon, tm_local.tm_mday, weekDays[tm_local.tm_wday % 7]);
-				// draw_long_str(tempstr, Red, 0);
-			}
-    }
-    osDelay(500);
-  }
 }
 
 /* USER CODE END Application */
+
