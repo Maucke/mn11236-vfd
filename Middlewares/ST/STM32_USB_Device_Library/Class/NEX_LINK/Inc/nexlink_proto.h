@@ -14,6 +14,7 @@
 /* CMD */
 //16-bit cmd = [ 高 8 位：功能域 ][ 低 8 位：子命令 ]
 /* 0x0000 - core */
+#define CMD_HW_RESET            0x0000
 #define CMD_PING            0x0001
 #define CMD_GET_VERSION     0x0002
 #define CMD_SYNC_TIME       0x0003

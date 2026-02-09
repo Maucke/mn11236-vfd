@@ -680,7 +680,7 @@ void EasyUIEventChangeUint(EasyUIPage_t *page, EasyUIItem_t *item)
   static uint16_t width, height;
   static uint8_t index = 1, step = 1;
   static uint8_t itemHeightOffset = 0;
-  static bool changeVal = false, changeStep = false;
+  static bool changeVal = false;
   itemHeightOffset = (page->rowheight - page->font.height) / 2 + 1;
   EasyUISetDrawColor(NORMAL);
   EasyUISetFont(page->font.type);
@@ -763,8 +763,6 @@ void EasyUIEventChangeUint(EasyUIPage_t *page, EasyUIItem_t *item)
     if (index == 1)
       changeVal = true;
     else if (index == 2)
-      changeStep = true;
-    else if (index == 3)
     {
       item->paramBackup = *item->param;
       functionIsRunning = false;
@@ -785,8 +783,6 @@ void EasyUIEventChangeUint(EasyUIPage_t *page, EasyUIItem_t *item)
   {
     if (index == 1)
       changeVal = false;
-    else if (index == 2)
-      changeStep = false;
   }
 
   // Clear the states of key to monitor next key action
@@ -801,7 +797,7 @@ void EasyUIEventChangeInt(EasyUIPage_t *page, EasyUIItem_t *item)
   static uint16_t width, height;
   static uint8_t index = 1, step = 1;
   static uint8_t itemHeightOffset = 0;
-  static bool changeVal = false, changeStep = false;
+  static bool changeVal = false;
   itemHeightOffset = (page->rowheight - page->font.height) / 2 + 1;
   EasyUISetFont(page->font.type);
   EasyUISetDrawColor(NORMAL);
@@ -879,8 +875,6 @@ void EasyUIEventChangeInt(EasyUIPage_t *page, EasyUIItem_t *item)
     if (index == 1)
       changeVal = true;
     else if (index == 2)
-      changeStep = true;
-    else if (index == 3)
     {
       item->paramBackup = *item->param;
       functionIsRunning = false;
@@ -901,8 +895,6 @@ void EasyUIEventChangeInt(EasyUIPage_t *page, EasyUIItem_t *item)
   {
     if (index == 1)
       changeVal = false;
-    else if (index == 2)
-      changeStep = false;
   }
 
   // Clear the states of key to monitor next key action
@@ -918,7 +910,7 @@ void EasyUIEventChangeFloat(EasyUIPage_t *page, EasyUIItem_t *item)
   static uint8_t index = 1;
   static double step = 0.01;
   static uint8_t itemHeightOffset = 0;
-  static bool changeVal = false, changeStep = false;
+  static bool changeVal = false;
   itemHeightOffset = (page->rowheight - page->font.height) / 2 + 1;
   EasyUISetFont(page->font.type);
   EasyUISetDrawColor(NORMAL);
@@ -1020,8 +1012,6 @@ void EasyUIEventChangeFloat(EasyUIPage_t *page, EasyUIItem_t *item)
     if (index == 1)
       changeVal = true;
     else if (index == 2)
-      changeStep = true;
-    else if (index == 3)
     {
       item->paramBackup = *item->param;
       functionIsRunning = false;
@@ -1042,8 +1032,6 @@ void EasyUIEventChangeFloat(EasyUIPage_t *page, EasyUIItem_t *item)
   {
     if (index == 1)
       changeVal = false;
-    else if (index == 2)
-      changeStep = false;
   }
 
   // Clear the states of key to monitor next key action

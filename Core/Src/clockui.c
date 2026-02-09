@@ -552,10 +552,10 @@ void draw_fft(long *fft_result, int len, int delta, Color bar, Color dot)
     }
     draw_bar(bars, bar, dot);
 }
+static uint8_t g_snakeWidth = 2;   // 默认宽度
+#define COLS (MAX_X / g_snakeWidth)
+#define ROWS (MAX_Y / g_snakeWidth)
 
-#define SNAKE_WIDTH 2
-#define COLS (MAX_X/SNAKE_WIDTH)
-#define ROWS (MAX_Y/SNAKE_WIDTH)
 #define MAX_LENGTH 60
 #define SNAKE_HEAD White
 #define SNAKE_BODY Cyan
@@ -661,13 +661,14 @@ void initFood(Food_t *food, Snake_t *snake)
 // 打印游戏界面
 static inline void draw_block3(int x, int y, uint8_t color)
 {
-    int px = x * SNAKE_WIDTH;
-    int py = y * SNAKE_WIDTH;
+    int px = x * g_snakeWidth;
+    int py = y * g_snakeWidth;
 
-    for (int dx = 0; dx < SNAKE_WIDTH; dx++)
-        for (int dy = 0; dy < SNAKE_WIDTH; dy++)
+    for (int dx = 0; dx < g_snakeWidth; dx++)
+        for (int dy = 0; dy < g_snakeWidth; dy++)
             draw_point(px + dx, py + dy, (Color)color);
 }
+
 
 void printBoard(Snake_t *snake, Food_t *food)
 {
@@ -844,6 +845,24 @@ void drawSnakeDying(Snake_t *snake)
             );
         }
     }
+}
+
+void setSnakeWidth(uint8_t width)
+{
+    if (width < 1)
+        width = 1;
+    if (width > 8)          // 可按屏幕性能限制
+        width = 8;
+
+    g_snakeWidth = width;
+
+    /* ⚠️ 切换宽度后，强烈建议重开一局 */
+    snakeState = SNAKE_ALIVE;
+    deathIndex = 0;
+    deadWaitCnt = 0;
+
+    initSnake(&snake);
+    initFood(&food, &snake);
 }
 
 void beginSnake()

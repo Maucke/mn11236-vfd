@@ -120,7 +120,9 @@ int main(void)
     userInfo.sysmode = Time;
     userInfo.clocktheme = 0;
     userInfo.musictheme = 2;
+    userInfo.snakewidth = 2;
     userInfo.valid = 4;
+		
 		userInfo.effectswitch.enFirework = true;
 		userInfo.effectswitch.enCircle = false;
 		userInfo.effectswitch.enGCircle = false;

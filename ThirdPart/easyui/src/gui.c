@@ -73,12 +73,19 @@ __inline void GUI_DrawPoint(int16 x, int16 y, const uint16 color)
     }
     else
 		{
-			if(color)
-				mn11236_draw_pixel(x, y, color_);
-			else
+			if(color == 0)
 			{
         mn11236_clear_pixel(x, y, MN11236_COLOR_BLUE);
         mn11236_clear_pixel(x, y, MN11236_COLOR_RED);
+			}
+			else if(color < 3)
+			{
+				mn11236_draw_pixel(x, y, color_);
+			}
+			else
+			{
+        mn11236_draw_pixel(x, y, MN11236_COLOR_BLUE);
+        mn11236_draw_pixel(x, y, MN11236_COLOR_RED);
 			}
 		}
   }

@@ -22,7 +22,7 @@
 #include "stmflash.h"
 
 // Pages
-EasyUIPage_t pageMain, pageUSBForm, pageDialog, pageSensor, pageAnimation, pageSetting, pageAbout;
+EasyUIPage_t pageMain, pageUSBForm, pageDialog, pageSensor, pageAnimation, pageSetting, pageDiagnostic, pageAbout;
 
 // Items
 EasyUIItem_t itemUSBForm;
@@ -30,6 +30,7 @@ EasyUIItem_t itemDebug;
 EasyUIItem_t itemSensor;
 EasyUIItem_t itemAnimation;
 EasyUIItem_t itemSetting, titleSetting, itemMusicTheme;
+EasyUIItem_t itemDiagnostic;
 EasyUIItem_t itemAbout;
 EasyUIItem_t itemMind, itemCircle, itemSnowflake, itemMeteo, itemPlanet, itemTriangle, itemStarwar, itemBlast, itemGCircle, itemFirework, titleAnimation;
 
@@ -101,23 +102,6 @@ void PageAbout(EasyUIPage_t *page)
   screen_delta += page->rowheight;
 }
 
-void PageUSBForm(EasyUIPage_t *page)
-{
-  // if(usbinhibit)
-  // {
-  //   EasyUITransitionAnim();
-  //   EasyUIClearBuffer();
-  //   EasyUISendBuffer();
-  //   usbinhibit = false;
-  // }
-  // if(opnExit)
-  // {
-  //   usbinhibit = true;
-
-  // 	GUI_SetRotation(GUI_PORTAIT);
-  // }
-}
-
 extern struct tm tm_local;
 static const char weekdays[7][4] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
 void PageSensor(EasyUIPage_t *page)
@@ -136,8 +120,26 @@ void PageSensor(EasyUIPage_t *page)
   }
 }
 
-void PageDialog(EasyUIItem_t *page)
+void PageDiagnostic(EasyUIItem_t *page)
 {
+	static uint16 color = 0;
+  if(opnDown)
+  {
+    if(color + 1 <= 3)
+      color += 1;
+    else
+      color = 0;
+    opnDown = false;
+  }
+  if(opnUp)
+  {
+    if(color - 1 >= 0)
+      color -= 1;
+    else
+      color = 3;
+    opnUp = false;
+  }
+	EasyUIDrawBox(0, 0, SCREEN_WIDTH - 1, SCREEN_HEIGHT - 1, color);
 }
 
 UserInfo_t *pUserInfo;
@@ -152,7 +154,7 @@ void EventChangeMusicTheme(EasyUIItem_t* item)
       *item->param += 1;
     else
       *item->param = 0;
-    opnUp = false;
+    opnDown = false;
   }
   if(opnUp)
   {
@@ -160,7 +162,7 @@ void EventChangeMusicTheme(EasyUIItem_t* item)
       *item->param -= 1;
     else
       *item->param = 7;
-    opnDown = false;
+    opnUp = false;
   }
 
   if(opnEnter)
@@ -195,6 +197,7 @@ void AppGUI_Init(UserInfo_t *userinfo)
 //  EasyUIAddPage(&pageDialog, GUI_6X8_FONT, PAGE_LIST);
   EasyUIAddPage(&pageSensor, GUI_DEFAULT_DISPLAY_FONT, PAGE_CUSTOM, PageSensor);
   EasyUIAddPage(&pageAnimation, GUI_DEFAULT_DISPLAY_FONT, PAGE_LIST);
+  EasyUIAddPage(&pageDiagnostic, GUI_DEFAULT_DISPLAY_FONT, PAGE_CUSTOM, PageDiagnostic);
   EasyUIAddPage(&pageAbout, GUI_DEFAULT_DISPLAY_FONT, PAGE_CUSTOM, PageAbout);
 
 //  EasyUIAddItem(&pageMain, &itemUSBForm, "USBForm", ITEM_JUMP_PAGE, pageUSBForm.id);
@@ -202,6 +205,7 @@ void AppGUI_Init(UserInfo_t *userinfo)
   EasyUIAddItem(&pageMain, &itemSensor, "Sensor", ITEM_JUMP_PAGE, pageSensor.id);
   EasyUIAddItem(&pageMain, &itemAnimation, "Animation", ITEM_JUMP_PAGE, pageAnimation.id);
   EasyUIAddItem(&pageMain, &itemSetting, "Setting", ITEM_JUMP_PAGE, pageSetting.id);
+  EasyUIAddItem(&pageMain, &itemDiagnostic, "Diagnostic", ITEM_JUMP_PAGE, pageDiagnostic.id);
   EasyUIAddItem(&pageMain, &itemAbout, "<About>", ITEM_JUMP_PAGE, pageAbout.id);
 
   EasyUIAddItem(&pageSetting, &titleSetting, "[Setting]", ITEM_PAGE_DESCRIPTION);
@@ -221,6 +225,7 @@ void AppGUI_Init(UserInfo_t *userinfo)
   EasyUIAddItem(&pageAnimation, &itemGCircle, "GCircle", ITEM_CHECKBOX, &pUserInfo->effectswitch.enGCircle);
   EasyUIAddItem(&pageAnimation, &itemFirework, "Firework", ITEM_CHECKBOX, &pUserInfo->effectswitch.enFirework);
 
+  EasyUIAddItem(&pageSetting, &itemMusicTheme, "Theme", ITEM_PROGRESS_BAR, &setting_musictheme, 7, EventChangeMusicTheme);
   //		EasyUIItemOperationResponse(&pageAnimation, &itemAnimation, &itemAnimation.id);
   // Key init
   EasyKeyInit(&keyUp, GPIOB, KEY_SW1_Pin);
@@ -335,7 +340,13 @@ void AppGUI_Loop(uint8_t timer)
 		if (opnExit)
 		{
 			if(disp_mode == DISP_MODE_FFT)
-				pUserInfo->musictheme = (pUserInfo->musictheme+1)%8;
+				pUserInfo->musictheme = (pUserInfo->musictheme + 1) % 8;
+			if(disp_mode == DISP_MODE_SNAKE)
+			{
+				pUserInfo->snakewidth = (pUserInfo->snakewidth + 1) % 5;
+				if(pUserInfo->snakewidth == 0) pUserInfo->snakewidth = 1;
+				setSnakeWidth(pUserInfo->snakewidth);
+			}
 			opnExit = false;
 		}
   }

@@ -289,6 +289,10 @@ static void handle_cmd(nl_packet_t *pkt)
 {
     switch (pkt->cmd)
     {
+    case CMD_HW_RESET:
+        send_resp_ok(pkt->cmd, pkt->seq, NULL, 0);
+				HAL_NVIC_SystemReset();
+        break;
     case CMD_PING:
         send_resp_ok(pkt->cmd, pkt->seq, NULL, 0);
         break;

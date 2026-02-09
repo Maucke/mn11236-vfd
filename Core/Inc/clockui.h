@@ -70,5 +70,6 @@ int get_long_str_count(void);
 void roll_all_long_str(void);
 void beginSnake(void);
 void refrashSnake(void);
+void setSnakeWidth(uint8_t width);
 
 #endif

@@ -802,14 +802,14 @@ void RefresGCircle(int i)
 
   GCircle[i].Stime = 0;
 
-  GCircle[i].r = 3 + rand() % 3;
+  GCircle[i].r = 1 + rand() % 3;
 
   GCircle[i].x = GCircle[i].r + rand() % SCR_WIDTH;
 
   GCircle[i].y = SCR_HEIGHT + GCircle[i].r;
   GCircle[i].dirx = 0;
   GCircle[i].diry = 0;
-  GCircle[i].maxh = (SCR_HEIGHT / 2) + rand() % 60;
+  GCircle[i].maxh = (SCR_HEIGHT / 2) + rand() % (SCR_HEIGHT / 2);
   GCircle[i].color = randomColor();
 }
 

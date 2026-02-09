@@ -106,6 +106,7 @@ void Error_Handler(void);
 //    uint8_t dimming;
     uint8_t clocktheme;
     uint8_t musictheme;
+    uint8_t snakewidth;
     Mode sysmode;
 		EffectSwitch_t effectswitch;
     uint8_t valid;
