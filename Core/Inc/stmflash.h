@@ -48,7 +48,7 @@ typedef __I uint32_t vuc32;  /*!< Read Only */
 typedef __I uint16_t vuc16;  /*!< Read Only */
 typedef __I uint8_t vuc8;   /*!< Read Only */
 
-#define FLASH_SAVE_ADDR  0x0803F000 
+#define FLASH_SAVE_ADDR  ADDR_FLASH_SECTOR_3 
 //FLASH起始地址
 #define STM32_FLASH_BASE 0x08000000 	//STM32 FLASH的起始地址
 #define FLASH_WAITETIME  50000          //FLASH等待超时时间

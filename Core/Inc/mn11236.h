@@ -49,10 +49,6 @@ void mn11236_clear_pixel(uint8_t x, uint8_t y, mn11236_color_t color);
  * 读取一个点的颜色值,起点从0,0开始
  */
 uint8_t mn11236_read_pixel(uint8_t x, uint8_t y, mn11236_color_t color);
-/**
- * 亮度调整0~255级
- */
-void mn11236_set_brightness(uint8_t level);
 
 /* Development test function */
 void mn11236_development_test(void);

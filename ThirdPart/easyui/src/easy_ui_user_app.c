@@ -19,8 +19,11 @@
 #include "fftaffect.h"
 #include "main.h"
 #include "clockui.h"
+#include "FreeRTOS.h"
+#include "task.h"
+#include "cmsis_os.h"
 #include "stmflash.h"
-
+#include "semphr.h"
 // Pages
 EasyUIPage_t pageMain, pageUSBForm, pageDialog, pageSensor, pageAnimation, pageSetting, pageDiagnostic, pageAbout;
 
@@ -145,6 +148,30 @@ void PageDiagnostic(EasyUIItem_t *page)
 UserInfo_t *pUserInfo;
 extern long lBufMagArray[NPT];
 extern uint8_t layer;
+static SemaphoreHandle_t flashMutex;
+
+static bool firstsave = true;
+
+void SaveInfo()
+{
+  HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_SET);
+	xSemaphoreTake(flashMutex, portMAX_DELAY);
+	taskENTER_CRITICAL();
+	STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)pUserInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
+	taskEXIT_CRITICAL();
+	xSemaphoreGive(flashMutex);
+  HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_RESET);
+	if(firstsave)
+	{
+		firstsave = false;
+		SaveInfo();
+	}
+}
+
+void InitInfo()
+{
+	flashMutex = xSemaphoreCreateMutex();
+}
 
 void EventChangeMusicTheme(EasyUIItem_t* item)
 {
@@ -169,14 +196,11 @@ void EventChangeMusicTheme(EasyUIItem_t* item)
   {
     item->paramBackup = *item->param;
 		pUserInfo->musictheme = *item->param;
-//    taskENTER_CRITICAL();
-//		STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)pUserInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
-//    taskEXIT_CRITICAL();
     EasyUIBackgroundBlur();
     functionIsRunning = false;
     opnEnter = false;
   }
-  if(opnExit)
+  if(opnExit) 
   {
     *item->param = item->paramBackup;
     EasyUIBackgroundBlur();
@@ -187,9 +211,32 @@ void EventChangeMusicTheme(EasyUIItem_t* item)
   opnEnter = opnUp = opnDown = false;
 }
 
+bool UserInfo_AutoSave()
+{
+    static UserInfo_t last;
+    static bool inited = false;
+
+    if (!inited)
+    {
+        memcpy(&last, pUserInfo, sizeof(UserInfo_t));
+        inited = true;
+        return false; 
+    }
+
+    if (memcmp(&last, pUserInfo, sizeof(UserInfo_t)) != 0)
+    {
+        memcpy(&last, pUserInfo, sizeof(UserInfo_t));
+        SaveInfo();
+        return true;   
+    }
+
+    return false;
+}
+
 void AppGUI_Init(UserInfo_t *userinfo)
 {
 	static float setting_musictheme;
+	InitInfo();
   pUserInfo = userinfo;
   EasyUIAddPage(&pageMain, GUI_DEFAULT_DISPLAY_FONT, PAGE_LIST);
   EasyUIAddPage(&pageSetting, GUI_DEFAULT_DISPLAY_FONT, PAGE_LIST);
@@ -225,13 +272,12 @@ void AppGUI_Init(UserInfo_t *userinfo)
   EasyUIAddItem(&pageAnimation, &itemGCircle, "GCircle", ITEM_CHECKBOX, &pUserInfo->effectswitch.enGCircle);
   EasyUIAddItem(&pageAnimation, &itemFirework, "Firework", ITEM_CHECKBOX, &pUserInfo->effectswitch.enFirework);
 
-  EasyUIAddItem(&pageSetting, &itemMusicTheme, "Theme", ITEM_PROGRESS_BAR, &setting_musictheme, 7, EventChangeMusicTheme);
-  //		EasyUIItemOperationResponse(&pageAnimation, &itemAnimation, &itemAnimation.id);
   // Key init
   EasyKeyInit(&keyUp, GPIOB, KEY_SW1_Pin);
   EasyKeyInit(&keyDown, GPIOB, KEY_SW2_Pin);
   EasyUIInit(1);
   clock_init();
+	setSnakeWidth(pUserInfo->snakewidth);
   beginSnake();
   Motion_Init();
 }
@@ -269,21 +315,10 @@ void Motion_Run(EffectSwitch_t *effectswitch)
     Motion_Firework();
 }
 
-typedef enum
-{
-  DISP_MODE_CLOCK = 0,
-  DISP_MODE_FFT,
-  DISP_MODE_SNAKE,
-  DISP_MODE_MOTION,
-  DISP_MODE_MENU,
-} SysDisplayMode_e;
-
 void AppGUI_Loop(uint8_t timer)
 {
 	static SysDisplayMode_e last_disp_mode = DISP_MODE_MOTION;
-  static SysDisplayMode_e disp_mode = DISP_MODE_MOTION;
-
-  switch (disp_mode)
+  switch (pUserInfo->disp_mode)
   {
   case DISP_MODE_CLOCK:
     clear_gram(White);
@@ -310,38 +345,39 @@ void AppGUI_Loop(uint8_t timer)
     EasyUIEvent(5);
     break;
   }
+	UserInfo_AutoSave();
 
-  if (disp_mode != DISP_MODE_MENU)
+  if (pUserInfo->disp_mode != DISP_MODE_MENU)
   {
     if (opnUp)
     {
-      disp_mode++;
-      if (disp_mode > DISP_MODE_MOTION)
-        disp_mode = DISP_MODE_CLOCK;
+      pUserInfo->disp_mode++;
+      if (pUserInfo->disp_mode > DISP_MODE_MOTION)
+        pUserInfo->disp_mode = DISP_MODE_CLOCK;
 			EasyUITransitionAnim();
       opnUp = false;
     }
     if (opnDown) 
     {
-      if (disp_mode == DISP_MODE_CLOCK)
-        disp_mode = DISP_MODE_MOTION;
+      if (pUserInfo->disp_mode == DISP_MODE_CLOCK)
+        pUserInfo->disp_mode = DISP_MODE_MOTION;
       else
-        disp_mode--;
+        pUserInfo->disp_mode--;
 			EasyUITransitionAnim();
       opnDown = false;
     }
     if (opnEnter)
     {
-			last_disp_mode = disp_mode;
+			last_disp_mode = pUserInfo->disp_mode;
 			EasyUITransitionAnim();
-      disp_mode = DISP_MODE_MENU;
+      pUserInfo->disp_mode = DISP_MODE_MENU;
       opnEnter = false;
     }
 		if (opnExit)
 		{
-			if(disp_mode == DISP_MODE_FFT)
+			if(pUserInfo->disp_mode == DISP_MODE_FFT)
 				pUserInfo->musictheme = (pUserInfo->musictheme + 1) % 8;
-			if(disp_mode == DISP_MODE_SNAKE)
+			if(pUserInfo->disp_mode == DISP_MODE_SNAKE)
 			{
 				pUserInfo->snakewidth = (pUserInfo->snakewidth + 1) % 5;
 				if(pUserInfo->snakewidth == 0) pUserInfo->snakewidth = 1;
@@ -352,7 +388,7 @@ void AppGUI_Loop(uint8_t timer)
   }
 	else if (layer == 0 && opnExit)
   {
-    disp_mode = last_disp_mode;
+    pUserInfo->disp_mode = last_disp_mode;
     opnExit = false;
 		EasyUITransitionAnim();
   }

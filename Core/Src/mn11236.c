@@ -13,9 +13,6 @@ static uint8_t dma_tx_buffer[VFD_FRAMES][DMA_BUFFER_SIZE];
 // 当前扫描行号
 static volatile uint8_t current_grid = 0;
 
-// 当前亮度等级
-static uint8_t brightness = 255; // 0-255
-
 /**
  * 设置Bit位
  */
@@ -90,9 +87,11 @@ void mn11236_init(void)
 
     // 初始化LAT和BK引脚状态
     HAL_GPIO_WritePin(VFD_LAT_GPIO_Port, VFD_LAT_Pin, GPIO_PIN_RESET);
-    // 高电平关闭显示
-    HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_SET);
+//    // 高电平关闭显示
+//    HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_SET);
 
+    HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_RESET);
+	
     // 初始化栅极模板
     init_grids_template();
 
@@ -111,13 +110,9 @@ void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
     if (hspi != &hspi2)
         return;
 
-    // BLK 高 → LAT → BLK 低
-//    HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_SET);
     HAL_GPIO_WritePin(VFD_LAT_GPIO_Port, VFD_LAT_Pin, GPIO_PIN_SET);
     HAL_GPIO_WritePin(VFD_LAT_GPIO_Port, VFD_LAT_Pin, GPIO_PIN_RESET);
 		   
-    HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_RESET);
-		
     current_grid = (current_grid + 1) % VFD_FRAMES;
 
     HAL_SPI_Transmit_DMA(
@@ -251,20 +246,11 @@ uint8_t mn11236_read_pixel(uint8_t x, uint8_t y, mn11236_color_t color)
 }
 
 /**
- * 亮度调整0~255级
- */
-void mn11236_set_brightness(uint8_t level)
-{
-    brightness = level;
-}
-
-/**
  * 开发测试函数 - 动画效果测试
  */
 void mn11236_development_test(void)
 {
     uint8_t x, y;
-    mn11236_set_brightness(255);
     // 动画1: 垂直扫描线从左到右（蓝色）
     for (x = 0; x < VFD_WIDTH; x++)
     {
@@ -344,8 +330,6 @@ void mn11236_development_test(void)
     }
 
     osDelay(1000);
-
-    mn11236_set_brightness(10);
 
     // 动画6: 蛇形填充
     mn11236_clear_buffers();
