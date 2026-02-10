@@ -315,10 +315,20 @@ void Motion_Run(EffectSwitch_t *effectswitch)
     Motion_Firework();
 }
 
+typedef enum
+{
+		DISP_MODE_CLOCK = 0,
+		DISP_MODE_FFT,
+		DISP_MODE_SNAKE,
+		DISP_MODE_MOTION,
+		DISP_MODE_MENU,
+} SysDisplayMode_e;
+
 void AppGUI_Loop(uint8_t timer)
 {
 	static SysDisplayMode_e last_disp_mode = DISP_MODE_MOTION;
-  switch (pUserInfo->disp_mode)
+	static SysDisplayMode_e disp_mode = DISP_MODE_MOTION;
+  switch (disp_mode)
   {
   case DISP_MODE_CLOCK:
     clear_gram(White);
@@ -347,37 +357,37 @@ void AppGUI_Loop(uint8_t timer)
   }
 	UserInfo_AutoSave();
 
-  if (pUserInfo->disp_mode != DISP_MODE_MENU)
+  if (disp_mode != DISP_MODE_MENU)
   {
     if (opnUp)
     {
-      pUserInfo->disp_mode++;
-      if (pUserInfo->disp_mode > DISP_MODE_MOTION)
-        pUserInfo->disp_mode = DISP_MODE_CLOCK;
+      disp_mode++;
+      if (disp_mode > DISP_MODE_MOTION)
+        disp_mode = DISP_MODE_CLOCK;
 			EasyUITransitionAnim();
       opnUp = false;
     }
     if (opnDown) 
     {
-      if (pUserInfo->disp_mode == DISP_MODE_CLOCK)
-        pUserInfo->disp_mode = DISP_MODE_MOTION;
+      if (disp_mode == DISP_MODE_CLOCK)
+        disp_mode = DISP_MODE_MOTION;
       else
-        pUserInfo->disp_mode--;
+        disp_mode--;
 			EasyUITransitionAnim();
       opnDown = false;
     }
     if (opnEnter)
     {
-			last_disp_mode = pUserInfo->disp_mode;
+			last_disp_mode = disp_mode;
 			EasyUITransitionAnim();
-      pUserInfo->disp_mode = DISP_MODE_MENU;
+      disp_mode = DISP_MODE_MENU;
       opnEnter = false;
     }
 		if (opnExit)
 		{
-			if(pUserInfo->disp_mode == DISP_MODE_FFT)
+			if(disp_mode == DISP_MODE_FFT)
 				pUserInfo->musictheme = (pUserInfo->musictheme + 1) % 8;
-			if(pUserInfo->disp_mode == DISP_MODE_SNAKE)
+			if(disp_mode == DISP_MODE_SNAKE)
 			{
 				pUserInfo->snakewidth = (pUserInfo->snakewidth + 1) % 5;
 				if(pUserInfo->snakewidth == 0) pUserInfo->snakewidth = 1;
@@ -388,7 +398,7 @@ void AppGUI_Loop(uint8_t timer)
   }
 	else if (layer == 0 && opnExit)
   {
-    pUserInfo->disp_mode = last_disp_mode;
+    disp_mode = last_disp_mode;
     opnExit = false;
 		EasyUITransitionAnim();
   }

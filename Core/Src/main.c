@@ -117,7 +117,6 @@ int main(void)
   STMFLASH_Read(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
   if (userInfo.valid != 4)
   {
-    userInfo.disp_mode = DISP_MODE_MOTION;
     userInfo.clocktheme = 0;
     userInfo.musictheme = 2;
     userInfo.snakewidth = 2;
@@ -135,9 +134,6 @@ int main(void)
 		userInfo.effectswitch.reserved = false;
 		STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
   }
-	
-  if (userInfo.disp_mode >= DISP_MODE_MENU)
-    userInfo.disp_mode = DISP_MODE_MOTION;
 
   userInfo.clocktheme %= 4;
   userInfo.musictheme %= 8;

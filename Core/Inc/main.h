@@ -77,16 +77,15 @@ void Error_Handler(void);
 
 #define NPT 256
 #define dbmsg(fmt, args...) nexlink_log(fmt, ##args) //__FILE__,
+  typedef enum
+  {
+    Time,
+    Music,
+    Snake,
+    // Noty,
+    Mode_Max,
+  } Mode;
 
-
-	typedef enum
-	{
-		DISP_MODE_CLOCK = 0,
-		DISP_MODE_FFT,
-		DISP_MODE_SNAKE,
-		DISP_MODE_MOTION,
-		DISP_MODE_MENU,
-	} SysDisplayMode_e;
 
 	typedef struct __attribute__((aligned(4)))
 	{
@@ -107,7 +106,6 @@ void Error_Handler(void);
     uint8_t clocktheme;
     uint8_t musictheme;
     uint8_t snakewidth;
-    SysDisplayMode_e disp_mode;
 		EffectSwitch_t effectswitch;
     uint8_t valid;
   } UserInfo_t;
