@@ -265,11 +265,11 @@ void AppGUI_Init(UserInfo_t *userinfo)
   EasyUIAddItem(&pageAnimation, &itemMind, "Mind", ITEM_CHECKBOX, &pUserInfo->effectswitch.enMind);
   EasyUIAddItem(&pageAnimation, &itemCircle, "Circle", ITEM_CHECKBOX, &pUserInfo->effectswitch.enCircle);
   EasyUIAddItem(&pageAnimation, &itemSnowflake, "Snowflake", ITEM_CHECKBOX, &pUserInfo->effectswitch.enSnowflake);
-  EasyUIAddItem(&pageAnimation, &itemMeteo, "Meteo", ITEM_CHECKBOX, &pUserInfo->effectswitch.enMeteo);
+//  EasyUIAddItem(&pageAnimation, &itemMeteo, "Meteo", ITEM_CHECKBOX, &pUserInfo->effectswitch.enMeteo);
   EasyUIAddItem(&pageAnimation, &itemPlanet, "Planet", ITEM_CHECKBOX, &pUserInfo->effectswitch.enPlanet);
   EasyUIAddItem(&pageAnimation, &itemTriangle, "Triangle", ITEM_CHECKBOX, &pUserInfo->effectswitch.enTriangle);
   EasyUIAddItem(&pageAnimation, &itemStarwar, "Starwar", ITEM_CHECKBOX, &pUserInfo->effectswitch.enStarwar);
-  EasyUIAddItem(&pageAnimation, &itemGCircle, "GCircle", ITEM_CHECKBOX, &pUserInfo->effectswitch.enGCircle);
+//  EasyUIAddItem(&pageAnimation, &itemGCircle, "GCircle", ITEM_CHECKBOX, &pUserInfo->effectswitch.enGCircle);
   EasyUIAddItem(&pageAnimation, &itemFirework, "Firework", ITEM_CHECKBOX, &pUserInfo->effectswitch.enFirework);
 
   // Key init
@@ -301,16 +301,16 @@ void Motion_Run(EffectSwitch_t *effectswitch)
     Motion_Circle();
   if (effectswitch->enSnowflake)
     Motion_Snowflake();
-  if (effectswitch->enMeteo)
-    Motion_Movmeteor();
+//  if (effectswitch->enMeteo)
+//    Motion_Movmeteor();
   if (effectswitch->enPlanet)
     Motion_Planet();
   if (effectswitch->enTriangle)
-    Motion_Triangle();
+    Motion_TriangleF();
   if (effectswitch->enStarwar)
     Motion_StarWar();
-  if (effectswitch->enGCircle)
-    Motion_GCFireworks();
+//  if (effectswitch->enGCircle)
+//    Motion_GCFireworks();
   if (effectswitch->enFirework)
     Motion_Firework();
 }

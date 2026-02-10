@@ -106,8 +106,8 @@ void Motion_MindInit(void)
     __ASM("NOP");
     mtmovmind[i].y = rand() % SCR_HEIGHT;
 
-    mtmovmind[i].dirx = (rand() % 30 - 15) * 0.1f;
-    mtmovmind[i].diry = (rand() % 30 - 15) * 0.1f;
+    mtmovmind[i].dirx = (rand() % 30 - 15) * 0.05f;
+    mtmovmind[i].diry = (rand() % 30 - 15) * 0.05f;
     if(mtmovmind[i].dirx < 0.2f && mtmovmind[i].dirx > -0.2f)
       mtmovmind[i].dirx = 0.5f;
     if(mtmovmind[i].diry < 0.2f && mtmovmind[i].diry > -0.2f)
@@ -123,8 +123,8 @@ void Motion_Mind(void)
     if(MovMind(i) == IDLE)
     {
       mtmovmind[i].color = randomColor();
-      mtmovmind[i].dirx = (rand() % 30 - 15) * 0.1f;
-      mtmovmind[i].diry = (rand() % 30 - 15) * 0.1f;
+      mtmovmind[i].dirx = (rand() % 30 - 15) * 0.05f;
+      mtmovmind[i].diry = (rand() % 30 - 15) * 0.05f;
       if(mtmovmind[i].dirx < 0.2f && mtmovmind[i].dirx > -0.2f)
         mtmovmind[i].dirx = 0.5f;
       if(mtmovmind[i].diry < 0.2f && mtmovmind[i].diry > -0.2f)
@@ -137,19 +137,19 @@ void Motion_Mind(void)
     }
   }
 
-  for(i = 0; i < ani_len.Mind ; i++)
-  {
-    for(j = 0; j < ani_len.Mind ; j++)
-    {
-      if((mtmovmind[i].x - mtmovmind[j].x) * (mtmovmind[i].x - mtmovmind[j].x) + (mtmovmind[i].y - mtmovmind[j].y) * (mtmovmind[i].y - mtmovmind[j].y) < 900)
-      {
-        AniDrawLine(mtmovmind[j].x, mtmovmind[j].y, mtmovmind[i].x, mtmovmind[i].y, RGB565_GRAY);
-      }
-    }
-  }
+//  for(i = 0; i < ani_len.Mind ; i++)
+//  {
+//    for(j = 0; j < ani_len.Mind ; j++)
+//    {
+//      if((mtmovmind[i].x - mtmovmind[j].x) * (mtmovmind[i].x - mtmovmind[j].x) + (mtmovmind[i].y - mtmovmind[j].y) * (mtmovmind[i].y - mtmovmind[j].y) < 900)
+//      {
+//        AniDrawLine(mtmovmind[j].x, mtmovmind[j].y, mtmovmind[i].x, mtmovmind[i].y, RGB565_GRAY);
+//      }
+//    }
+//  }
 
   for(i = 0; i < ani_len.Mind ; i++)
-    AniDrawDisc(mtmovmind[i].x, mtmovmind[i].y, 2, mtmovmind[i].color, CIRCLE_DRAW_ALL);
+    AniDrawDisc(mtmovmind[i].x, mtmovmind[i].y, 1, mtmovmind[i].color, CIRCLE_DRAW_ALL);
 }
 
 typedef struct
@@ -173,8 +173,8 @@ ANI_STATUS FucCircle(uint8_t Index)
       return IDLE;
     }
     AniDrawDisc(mtcircle[Index].x, mtcircle[Index].y, mtcircle[Index].r - mtcircle[Index].crt, mtcircle[Index].color, CIRCLE_DRAW_ALL);
-    AniDrawCircle(mtcircle[Index].x, mtcircle[Index].y, mtcircle[Index].r + mtcircle[Index].crt, RGB565_GRAY, CIRCLE_DRAW_ALL);
-    mtcircle[Index].crt += 0.4f;
+//    AniDrawCircle(mtcircle[Index].x, mtcircle[Index].y, mtcircle[Index].r + mtcircle[Index].crt, RGB565_GRAY, CIRCLE_DRAW_ALL);
+    mtcircle[Index].crt += 0.2f;
     return BUSY;
   }
   else
@@ -192,7 +192,7 @@ void Motion_CircleInit(void)
     __ASM("NOP");
     mtcircle[i].y = rand() % SCR_HEIGHT;
     __ASM("NOP");
-    mtcircle[i].r = rand() % 10 + 2;
+    mtcircle[i].r = rand() % 5;
     __ASM("NOP");
     mtcircle[i].color = randomColor();
   }
@@ -209,7 +209,7 @@ void Motion_Circle(void)
       __ASM("NOP");
       mtcircle[i].y = rand() % SCR_HEIGHT;
       __ASM("NOP");
-      mtcircle[i].r = rand() % 10 + 2;
+      mtcircle[i].r = rand() % 5;
       __ASM("NOP");
       mtcircle[i].color = randomColor();
 
@@ -233,8 +233,8 @@ MTSNOWFLAKE mtsnowflake[STARMAX];
 
 ANI_STATUS MovSnowflake(uint8_t Index)
 {
-  mtsnowflake[Index].x += mtsnowflake[Index].dirx; // 求取两点之间的差值
-  mtsnowflake[Index].y++;
+  mtsnowflake[Index].x += 0; // 求取两点之间的差值
+  mtsnowflake[Index].y+=0.4f;
   if(mtsnowflake[Index].y > SCR_HEIGHT || mtsnowflake[Index].x > SCR_WIDTH || mtsnowflake[Index].y < 0 || mtsnowflake[Index].x < 0)
     return IDLE;
   return BUSY;
@@ -324,7 +324,7 @@ float movmeteorstep = MOVMETEORDEF / SCR_HEIGHT;
 ANI_STATUS Movmeteor(uint8_t Index)
 {
   mtmovmeteor[Index].y++;
-  mtmovmeteor[Index].x += movmeteorstep;
+  mtmovmeteor[Index].x += 0;
   if(mtmovmeteor[Index].y > SCR_HEIGHT)
     return IDLE;
   else
@@ -339,11 +339,11 @@ void Motion_MovmeteorInit(void)
     mtmovmeteor[i].start = rand() % SCR_WIDTH;
     mtmovmeteor[i].x = mtmovmeteor[i].start;
     mtmovmeteor[i].y = 0;
-    mtmovmeteor[i].spd = rand() % 5 + 1; // Speed
+    mtmovmeteor[i].spd = rand() % 10/10 + 0.2; // Speed
     __ASM("NOP");
     mtmovmeteor[i].type = rand() % 4; // Type
     __ASM("NOP");
-    mtmovmeteor[i].len = rand() % 15;
+    mtmovmeteor[i].len = rand() % 8;
     ; // LineColor
     __ASM("NOP");
     mtmovmeteor[i].color = randomColor();
@@ -368,11 +368,11 @@ void Motion_Movmeteor(void)
         mtmovmeteor[i].start = rand() % SCR_WIDTH;
         mtmovmeteor[i].x = mtmovmeteor[i].start;
         mtmovmeteor[i].y = 0;
-        mtmovmeteor[i].spd = rand() % 5 + 1; // Speed
+        mtmovmeteor[i].spd = rand() % 10/10 + 0.2;// Speed
         __ASM("NOP");
         mtmovmeteor[i].type = rand() % 4; // Type
         __ASM("NOP");
-        mtmovmeteor[i].len = rand() % 15;
+        mtmovmeteor[i].len = rand() % 8;
         ; // LineColor
         __ASM("NOP");
         mtmovmeteor[i].color = randomColor();
@@ -471,13 +471,13 @@ void Motion_Planet(void)
   {
     if(Planet(i) == IDLE)
     {
-      mtplanet[i].r = rand() % 4 + 1; //行星大小
+      mtplanet[i].r = rand() % 3 + 0; //行星大小
       __ASM("NOP");
       mtplanet[i].color = randomColor(); //行星颜色
       __ASM("NOP");
-      mtplanet[i].spd = (rand() % 20 + 10) / 5; //行星转速
+      mtplanet[i].spd = (rand() % 20 + 10) / 10; //行星转速
       __ASM("NOP");
-      mtplanet[i].orb = rand() % 60 + 4; //行星运行轨道
+      mtplanet[i].orb = rand() % 30 + 4; //行星运行轨道
       __ASM("NOP");
       mtplanet[i].angle = 0; //行星运行角度
 
@@ -495,20 +495,20 @@ void Motion_Planet(void)
     //		AniDrawCircle(SCR_WIDTH/2,SCR_HEIGHT/2,mtplanet[i].orb,3);
   }
 
-  for(i = 0; i < ani_len.Planet; i++)
-  {
-    for(j = 0; j < ani_len.Planet; j++)
-    {
-      //			Temp = GetMindDistanceSquare(mtmovmind[i].x,mtmovmind[i].y,mtmovmind[j].x,mtmovmind[j].y);
-      if((mtplanet[i].x - mtplanet[j].x) * (mtplanet[i].x - mtplanet[j].x) + (mtplanet[i].y - mtplanet[j].y) * (mtplanet[i].y - mtplanet[j].y) < 1600)
-      {
-        if(mtplanet[i].r == 1 || mtplanet[j].r == 1)
-          ;
-        else
-          AniDrawLine(mtplanet[j].x, mtplanet[j].y, mtplanet[i].x, mtplanet[i].y, RGB565_GRAY);
-      }
-    }
-  }
+//  for(i = 0; i < ani_len.Planet; i++)
+//  {
+//    for(j = 0; j < ani_len.Planet; j++)
+//    {
+//      //			Temp = GetMindDistanceSquare(mtmovmind[i].x,mtmovmind[i].y,mtmovmind[j].x,mtmovmind[j].y);
+//      if((mtplanet[i].x - mtplanet[j].x) * (mtplanet[i].x - mtplanet[j].x) + (mtplanet[i].y - mtplanet[j].y) * (mtplanet[i].y - mtplanet[j].y) < 1600)
+//      {
+//        if(mtplanet[i].r == 1 || mtplanet[j].r == 1)
+//          ;
+//        else
+//          AniDrawLine(mtplanet[j].x, mtplanet[j].y, mtplanet[i].x, mtplanet[i].y, RGB565_GRAY);
+//      }
+//    }
+//  }
 
   //	for(i=0;i<ani_len.Planet-1;i++)
   //	{
@@ -643,7 +643,7 @@ void Motion_TriangleF(void)
       __ASM("NOP");
       mttriangle[i].color = randomColor();
       __ASM("NOP");
-      mttriangle[i].spd = (rand() % 20 + 10) / 15;
+      mttriangle[i].spd = (rand() % 20 + 10) / 40;
       __ASM("NOP");
       mttriangle[i].angle = rand() % 60; //运行角度30 150 270
 
@@ -670,7 +670,7 @@ void Motion_TriangleF(void)
   {
     AniFillTriangle(mttriangle[i].x + ((mttriangle[i].r) * cos(mttriangle[i].angle * PI / 180)), mttriangle[i].y + ((mttriangle[i].r) * sin(mttriangle[i].angle * PI / 180)), mttriangle[i].x + ((mttriangle[i].r) * cos((mttriangle[i].angle + mttriangle[i].delt1) * PI / 180)), mttriangle[i].y + ((mttriangle[i].r) * sin((mttriangle[i].angle + mttriangle[i].delt1) * PI / 180)), mttriangle[i].x + ((mttriangle[i].r) * cos((mttriangle[i].angle + mttriangle[i].delt2) * PI / 180)), mttriangle[i].y + ((mttriangle[i].r) * sin((mttriangle[i].angle + mttriangle[i].delt2) * PI / 180)), mttriangle[i].color);
 
-    AniTriangle(mttriangle[i].x + ((mttriangle[i].r + 1) * cos(mttriangle[i].angle * PI / 180)), mttriangle[i].y + ((mttriangle[i].r + 1) * sin(mttriangle[i].angle * PI / 180)), mttriangle[i].x + ((mttriangle[i].r + 1) * cos((mttriangle[i].angle + mttriangle[i].delt1) * PI / 180)), mttriangle[i].y + ((mttriangle[i].r + 1) * sin((mttriangle[i].angle + mttriangle[i].delt1) * PI / 180)), mttriangle[i].x + ((mttriangle[i].r + 1) * cos((mttriangle[i].angle + mttriangle[i].delt2) * PI / 180)), mttriangle[i].y + ((mttriangle[i].r + 1) * sin((mttriangle[i].angle + mttriangle[i].delt2) * PI / 180)), RGB565_GRAY);
+ //   AniTriangle(mttriangle[i].x + ((mttriangle[i].r + 1) * cos(mttriangle[i].angle * PI / 180)), mttriangle[i].y + ((mttriangle[i].r + 1) * sin(mttriangle[i].angle * PI / 180)), mttriangle[i].x + ((mttriangle[i].r + 1) * cos((mttriangle[i].angle + mttriangle[i].delt1) * PI / 180)), mttriangle[i].y + ((mttriangle[i].r + 1) * sin((mttriangle[i].angle + mttriangle[i].delt1) * PI / 180)), mttriangle[i].x + ((mttriangle[i].r + 1) * cos((mttriangle[i].angle + mttriangle[i].delt2) * PI / 180)), mttriangle[i].y + ((mttriangle[i].r + 1) * sin((mttriangle[i].angle + mttriangle[i].delt2) * PI / 180)), RGB565_GRAY);
     //		if(mttriangle[i].r>5)
   }
 }
@@ -845,7 +845,9 @@ void Motion_GCFireworks(void)
     }
     else if(GCircle[i].state == true && SCR_HEIGHT - GCircle[i].y > GCircle[i].maxh / 2)
     {
-      GCircle[i].Stime--;
+			if(GCircle[i].Stime > 0)
+				GCircle[i].Stime--;
+
 
       GCircle[i].diry = GCircle[i].Stime * GCircle[i].Stime * GCircle[i].speed;
 
@@ -873,7 +875,7 @@ void Motion_GCFireworks(void)
         {
           ani_len.Circle++;
         }
-        return;
+        continue;
       }
       GCircle[i].Stime += 12;
       GCircle[i].dirx = GCircle[i].x + cos(PI / 2 + PI / 4) * GCircle[i].Stime;
