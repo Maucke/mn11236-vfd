@@ -321,7 +321,7 @@ void EasyUIDrawProgressBar(EasyUIPage_t *page, EasyUIItem_t *item)
 #if 0
   EasyUIDisplayFloat(x + width - 5 * page->font.width - 4, y + page->rowheight + itemHeightOffset, *item->param, 3, 2);
 #else
-	snprintf(tempstr, sizeof tempstr, "%0.0f", *item->param);
+	snprintf(tempstr, sizeof tempstr, "%d", *item->param);
 	EasyUIDisplayStr(x + width - 2 * page->font.width + 4, y + page->rowheight + itemHeightOffset,
 										 tempstr); 
 #endif
@@ -487,21 +487,21 @@ void EasyUIDisplayItem(EasyUIPage_t *page, EasyUIItem_t *item)
   case ITEM_CHANGE_VALUE:
     EasyUIDisplayStr(2, item->position, "-");
     EasyUIDisplayStr(5 + page->font.width, item->position, item->title);
-    if (*item->param < 10 && *item->param >= 0)
+    if (*item->param < 10)
 		{
-			snprintf(tempstr, sizeof tempstr, "%0.0f", *item->param);
+			snprintf(tempstr, sizeof tempstr, "%d", *item->param);
       EasyUIDisplayStr(SCREEN_WIDTH - 0 - 2 * page->font.width - SCROLL_BAR_WIDTH, item->position,
                          tempstr); 
 		}
-    else if (*item->param < 100 && *item->param > -10)
-      EasyUIDisplayFloat(SCREEN_WIDTH - 0 - 5 * page->font.width - SCROLL_BAR_WIDTH, item->position,
-                         *item->param, 3, 0);
-    else if (*item->param < 1000 && *item->param > -100)
-      EasyUIDisplayFloat(SCREEN_WIDTH - 0 - 6 * page->font.width - SCROLL_BAR_WIDTH, item->position,
-                         *item->param, 4, 0);
-    else if (*item->param < 10000 && *item->param > -1000)
-      EasyUIDisplayFloat(SCREEN_WIDTH - 0 - 7 * page->font.width - SCROLL_BAR_WIDTH, item->position,
-                         *item->param, 4, 0);
+//    else if (*item->param < 100 && *item->param > -10)
+//      EasyUIDisplayFloat(SCREEN_WIDTH - 0 - 5 * page->font.width - SCROLL_BAR_WIDTH, item->position,
+//                         *item->param, 3, 0);
+//    else if (*item->param < 1000 && *item->param > -100)
+//      EasyUIDisplayFloat(SCREEN_WIDTH - 0 - 6 * page->font.width - SCROLL_BAR_WIDTH, item->position,
+//                         *item->param, 4, 0);
+//    else if (*item->param < 10000 && *item->param > -1000)
+//      EasyUIDisplayFloat(SCREEN_WIDTH - 0 - 7 * page->font.width - SCROLL_BAR_WIDTH, item->position,
+//                         *item->param, 4, 0);
     else // Hide because it's too long
       EasyUIDisplayStr(SCREEN_WIDTH - 7 - 5 * page->font.width - SCROLL_BAR_WIDTH, item->position, "**.**");
     break;

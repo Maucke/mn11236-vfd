@@ -32,7 +32,7 @@ EasyUIItem_t itemUSBForm;
 EasyUIItem_t itemDebug;
 EasyUIItem_t itemSensor;
 EasyUIItem_t itemAnimation;
-EasyUIItem_t itemSetting, titleSetting, itemMusicTheme;
+EasyUIItem_t itemSetting, titleSetting, itemMusicTheme, itemClockTheme;
 EasyUIItem_t itemDiagnostic;
 EasyUIItem_t itemAbout;
 EasyUIItem_t itemMind, itemCircle, itemSnowflake, itemMeteo, itemPlanet, itemTriangle, itemStarwar, itemBlast, itemGCircle, itemFirework, titleAnimation;
@@ -173,11 +173,11 @@ void InitInfo()
 	flashMutex = xSemaphoreCreateMutex();
 }
 
-void EventChangeMusicTheme(EasyUIItem_t* item)
+void EventChangeValue(EasyUIItem_t* item)
 {
   if(opnDown)
   {
-    if(*item->param + 1 <= 7)
+    if(*item->param + 1 <= item->paramMax)
       *item->param += 1;
     else
       *item->param = 0;
@@ -188,14 +188,13 @@ void EventChangeMusicTheme(EasyUIItem_t* item)
     if(*item->param - 1 >= 0)
       *item->param -= 1;
     else
-      *item->param = 7;
+      *item->param = item->paramMax;
     opnUp = false;
   }
 
   if(opnEnter)
   {
     item->paramBackup = *item->param;
-		pUserInfo->musictheme = *item->param;
     EasyUIBackgroundBlur();
     functionIsRunning = false;
     opnEnter = false;
@@ -235,7 +234,6 @@ bool UserInfo_AutoSave()
 
 void AppGUI_Init(UserInfo_t *userinfo)
 {
-	static float setting_musictheme;
 	InitInfo();
   pUserInfo = userinfo;
   EasyUIAddPage(&pageMain, GUI_DEFAULT_DISPLAY_FONT, PAGE_LIST);
@@ -257,9 +255,8 @@ void AppGUI_Init(UserInfo_t *userinfo)
 
   EasyUIAddItem(&pageSetting, &titleSetting, "[Setting]", ITEM_PAGE_DESCRIPTION);
 	
-	setting_musictheme = pUserInfo->musictheme;
-	
-  EasyUIAddItem(&pageSetting, &itemMusicTheme, "Theme", ITEM_PROGRESS_BAR, &setting_musictheme, 7, EventChangeMusicTheme);
+  EasyUIAddItem(&pageSetting, &itemMusicTheme, "FFT Theme", ITEM_PROGRESS_BAR, &pUserInfo->musictheme, 7, EventChangeValue);
+  EasyUIAddItem(&pageSetting, &itemClockTheme, "Clock Theme", ITEM_PROGRESS_BAR, &pUserInfo->clocktheme, 3, EventChangeValue);
 
   EasyUIAddItem(&pageAnimation, &titleAnimation, "[Animation]", ITEM_PAGE_DESCRIPTION);
   EasyUIAddItem(&pageAnimation, &itemMind, "Mind", ITEM_CHECKBOX, &pUserInfo->effectswitch.enMind);
@@ -324,6 +321,13 @@ typedef enum
 		DISP_MODE_MENU,
 } SysDisplayMode_e;
 
+extern char timeStr[10];
+const ClockTheme_t clockTheme[4] = {
+    {Red, WhiteWithCyan, 0},
+    {Cyan, WhiteWithRed, 0},
+    {Red, WhiteWithCyan, 1},
+    {Cyan, WhiteWithRed, 1}};
+
 void AppGUI_Loop(uint8_t timer)
 {
 	static SysDisplayMode_e last_disp_mode = DISP_MODE_MOTION;
@@ -332,6 +336,7 @@ void AppGUI_Loop(uint8_t timer)
   {
   case DISP_MODE_CLOCK:
     clear_gram(White);
+		draw_str_3x5((SCREEN_WIDTH/3-(3*5))/2 - 3, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
     roll_all_long_str();
     refrash_gram();
     break;
@@ -387,7 +392,9 @@ void AppGUI_Loop(uint8_t timer)
 		{
 			if(disp_mode == DISP_MODE_FFT)
 				pUserInfo->musictheme = (pUserInfo->musictheme + 1) % 8;
-			if(disp_mode == DISP_MODE_SNAKE)
+			else if(disp_mode == DISP_MODE_CLOCK)
+				pUserInfo->clocktheme = (pUserInfo->clocktheme + 1) % 4;
+			else if(disp_mode == DISP_MODE_SNAKE)
 			{
 				pUserInfo->snakewidth = (pUserInfo->snakewidth + 1) % 5;
 				if(pUserInfo->snakewidth == 0) pUserInfo->snakewidth = 1;

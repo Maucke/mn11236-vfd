@@ -58,9 +58,14 @@ typedef struct
 	uint8_t remain;
 } FFTDisplay_t;
 
+void draw_char_3x5(int x,int y, char ch, Color color);
+void draw_char(int x,int y, char ch, Color color);
 int roll_long_str(LongStr_t *s);
 void clear_all_long_str(void);
 void clock_init(void);
+void draw_str(int x,int y, char *str, Color color);
+void draw_str_3x5(int x,int y, char *str, Color color);
+void draw_num_str(int x, int y, char *str, uint8_t height, Color color);
 void clear_gram(Color color);
 LongStr_t *draw_long_str(char *str, Color color, int repeats);
 void draw_point(int x, int y, Color color);

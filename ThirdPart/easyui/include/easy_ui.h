@@ -67,7 +67,7 @@ extern uint8_t opnEnter, opnExit, opnUp, opnDown;
 #define HOLDTIME 120 //0.5s
 void ClearRemind(void);
 
-typedef     float      paramType;
+typedef     uint8_t      paramType;
 
 typedef struct {
     float current_value;  // ��ǰֵ

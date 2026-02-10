@@ -80,7 +80,7 @@ const uint8_t hex_codes_3x5[CHAR_COUNT][3] = {
     {0x01, 0x1D, 0x03}, /*"7", 55(ASCII)*/
     {0x1F, 0x15, 0x1F}, /*"8", 56(ASCII)*/
     {0x17, 0x15, 0x0F}, /*"9", 57(ASCII)*/
-    {0x0A, 0x00, 0x00}, /*":", 58(ASCII)*/
+    {0x00, 0x0A, 0x00}, /*":", 58(ASCII)*/
     {0x00, 0x1A, 0x00}, /*";", 59(ASCII)*/
     {0x04, 0x0A, 0x11}, /*"<", 60(ASCII)*/
     {0x0A, 0x0A, 0x0A}, /*"=", 61(ASCII)*/
@@ -264,13 +264,24 @@ void clock_init()
 		clear_all_long_str();
 }
 
+static uint8_t g_clockWidth = 3; 
+static inline void draw_clock_block(int x, int y, uint8_t color)
+{
+    int px = x * g_clockWidth;
+    int py = y * g_clockWidth;
+
+    for (int dx = 0; dx < g_clockWidth; dx++)
+        for (int dy = 0; dy < g_clockWidth; dy++)
+            draw_point(px + dx, py + dy, (Color)color);
+}
+
 static void draw_bits(uint8_t bit_mask, int x, Color color)
 {
     for (int bit = 0; bit < 8; bit++)
     {
         if (bit_mask & (1 << bit))
         {
-            draw_point(x, bit, color); 
+            draw_clock_block(x, bit, color); 
         }
     }
 }
@@ -379,6 +390,162 @@ void clear_all_long_str()
         current = next;
     }
     mn11236_clear_buffers();
+}
+
+void draw_char(int x, int y, char ch, Color color)
+{
+	if (color == None)
+		return;
+	for (int i = 0; i < 5; i++)
+	{
+		if ((i + x) < MAX_X && ((i + x) >= 0))
+		{
+			uint8_t bit_mask = hex_codes[ch - ' '][i] << y;
+			if (bit_mask == 0) continue; // 无点可绘，直接跳过
+			// 颜色掩码1：青，原x坐标 → 调用封装函数
+			if (color & 1)
+					draw_bits(bit_mask, i + x, Cyan);
+			// 颜色掩码2：红，原x坐标 → 调用封装函数
+			if (color & 2)
+					draw_bits(bit_mask, i + x, Red);
+
+			// x+1不越界时，处理偏移坐标
+			if (x + 1 < MAX_X)
+			{
+					// 颜色掩码4：青，x+1坐标 → 调用封装函数
+					if (color & 4)
+							draw_bits(bit_mask, i + x + 1, Cyan);
+					// 颜色掩码8：红，x+1坐标 → 调用封装函数
+					if (color & 8)
+							draw_bits(bit_mask, i + x + 1, Red);
+			}
+		}
+	}
+}
+
+void draw_char_3x5(int x, int y, char ch, Color color)
+{
+	if (color == None)
+		return;
+	for (int i = 0; i < 3; i++)
+	{
+		if ((i + x) < MAX_X && ((i + x) >= 0))
+		{
+			uint8_t bit_mask = hex_codes_3x5[ch - ' '][i] << (y + 1);
+			if (bit_mask == 0) continue; // 无点可绘，直接跳过
+			// 颜色掩码1：青，原x坐标 → 调用封装函数
+			if (color & 1)
+					draw_bits(bit_mask, i + x, Cyan);
+			// 颜色掩码2：红，原x坐标 → 调用封装函数
+			if (color & 2)
+					draw_bits(bit_mask, i + x, Red);
+
+			// x+1不越界时，处理偏移坐标
+			if (x + 1 < MAX_X)
+			{
+					// 颜色掩码4：青，x+1坐标 → 调用封装函数
+					if (color & 4)
+							draw_bits(bit_mask, i + x + 1, Cyan);
+					// 颜色掩码8：红，x+1坐标 → 调用封装函数
+					if (color & 8)
+							draw_bits(bit_mask, i + x + 1, Red);
+			}
+		}
+	}
+}
+
+void draw_num(int x, int y, char ch, uint8_t height, Color color)
+{
+
+	if (color == None)
+		return;
+
+	const uint8_t *codes;
+	if (height == 3)
+		codes = &hex_codes_3x3[0][0];
+	else if (height == 4)
+		codes = &hex_codes_3x4[0][0];
+	else if (height == 8)
+		codes = &hex_codes_4x8[0][0];
+
+	uint8_t width = 3;
+	if (height == 8)
+		width = 4;
+	for (int i = 0; i < width; i++)
+	{
+		uint8_t ind = ch - '0' + 1;
+		if (ch == ' ')
+			ind = 0;
+
+		if ((i + x) < MAX_X && ((i + x) >= 0))
+		{
+			uint8_t bit_mask = codes[ind * width + i] << y;
+			if (bit_mask == 0) continue; // 无点可绘，直接跳过
+			// 颜色掩码1：青，原x坐标 → 调用封装函数
+			if (color & 1)
+					draw_bits(bit_mask, i + x, Cyan);
+			// 颜色掩码2：红，原x坐标 → 调用封装函数
+			if (color & 2)
+					draw_bits(bit_mask, i + x, Red);
+
+			// x+1不越界时，处理偏移坐标
+			if (x + 1 < MAX_X)
+			{
+					// 颜色掩码4：青，x+1坐标 → 调用封装函数
+					if (color & 4)
+							draw_bits(bit_mask, i + x + 1, Cyan);
+					// 颜色掩码8：红，x+1坐标 → 调用封装函数
+					if (color & 8)
+							draw_bits(bit_mask, i + x + 1, Red);
+			}
+		}
+	}
+}
+
+void draw_num_str(int x, int y, char *str, uint8_t height, Color color)
+{
+	if (color == None)
+		return;
+
+	int len = strlen(str);
+	uint8_t width = 3;
+	if (height == 8)
+		width = 4;
+	for (int i = 0; i < len; i++)
+	{
+		draw_num(x + i * (width + 1), y, str[i], height, color);
+	}
+}
+
+void draw_str(int x, int y, char *str, Color color)
+{
+	if (color == None)
+		return;
+
+	int len = strlen(str);
+
+	for (int i = 0; i < len; i++)
+	{
+		draw_char(x + i * 6, y, str[i], color);
+	}
+}
+
+void draw_str_3x5(int x, int y, char *str, Color color)
+{
+	int delta = 0;
+	if (color == None)
+		return;
+
+	int len = strlen(str);
+
+	for (int i = 0; i < len; i++)
+	{
+		draw_char_3x5(x + delta, y, str[i], color);
+//		if (str[i] == ' ' || str[i] == ':')
+//			delta += 2;
+//		else
+			delta += 4;
+	}
 }
 
 void clear_gram(Color color)
@@ -659,7 +826,7 @@ void initFood(Food_t *food, Snake_t *snake)
     } while (!valid);
 }
 // 打印游戏界面
-static inline void draw_block3(int x, int y, uint8_t color)
+static inline void draw_snake_block(int x, int y, uint8_t color)
 {
     int px = x * g_snakeWidth;
     int py = y * g_snakeWidth;
@@ -672,12 +839,12 @@ static inline void draw_block3(int x, int y, uint8_t color)
 
 void printBoard(Snake_t *snake, Food_t *food)
 {
-    draw_block3(snake->body[0].x, snake->body[0].y, SNAKE_HEAD);
+    draw_snake_block(snake->body[0].x, snake->body[0].y, SNAKE_HEAD);
 
     for (int i = 1; i < snake->length; i++)
-        draw_block3(snake->body[i].x, snake->body[i].y, SNAKE_BODY);
+        draw_snake_block(snake->body[i].x, snake->body[i].y, SNAKE_BODY);
 
-    draw_block3(food->x, food->y, FOOD_DOT);
+    draw_snake_block(food->x, food->y, FOOD_DOT);
 } 
 
 // 辅助函数：返回给定方向的相反方向
@@ -830,7 +997,7 @@ void drawSnakeDying(Snake_t *snake)
     {
         if (i <= deathIndex)
         {
-            draw_block3(
+            draw_snake_block(
                 snake->body[i].x,
                 snake->body[i].y,
                 Red     // 已“死亡”的部分
@@ -838,7 +1005,7 @@ void drawSnakeDying(Snake_t *snake)
         }
         else
         {
-            draw_block3(
+            draw_snake_block(
                 snake->body[i].x,
                 snake->body[i].y,
                 SNAKE_BODY
@@ -894,7 +1061,7 @@ void refrashSnake()
         /* 整条蛇保持红色 */
         for (int i = 0; i < snake.length; i++)
         {
-            draw_block3(
+            draw_snake_block(
                 snake.body[i].x,
                 snake.body[i].y,
                 Red

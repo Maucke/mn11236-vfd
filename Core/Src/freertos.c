@@ -283,12 +283,6 @@ struct tm tm_local;
 const char *weekDays[7] = {
     "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
 
-const ClockTheme_t clockTheme[4] = {
-    {Red, WhiteWithCyan, 0},
-    {Cyan, WhiteWithRed, 0},
-    {Red, WhiteWithCyan, 1},
-    {Cyan, WhiteWithRed, 1}};
-
 
 __weak void StartClockTask(void *argument)
 {
