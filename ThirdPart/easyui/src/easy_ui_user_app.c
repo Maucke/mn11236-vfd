@@ -410,8 +410,8 @@ void AppGUI_Init(UserInfo_t *userinfo)
   InitInfo();
   pUserInfo = userinfo;
 	
-	last_disp_mode = pUserInfo->defaultfunc;
-	disp_mode = pUserInfo->defaultfunc;
+	last_disp_mode = (SysDisplayMode_e)pUserInfo->defaultfunc;
+	disp_mode = (SysDisplayMode_e)pUserInfo->defaultfunc;
 	
   EasyUIAddPage(&pageMain, GUI_DEFAULT_DISPLAY_FONT, PAGE_LIST);
   EasyUIAddPage(&pageSetting, GUI_DEFAULT_DISPLAY_FONT, PAGE_LIST);
@@ -500,9 +500,15 @@ const ClockTheme_t clockTheme[4] = {
 
 void AppGUI_Loop(uint8_t timer)
 {
+	static char timeupdateflag;
   switch (disp_mode)
   {
   case DISP_MODE_CLOCK:
+		if (timeupdateflag != timeStr[4])
+		{
+			EasyUITransitionAnim();
+			timeupdateflag = timeStr[4];
+		}
     clear_gram(White);
     draw_str_3x5((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 3, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
     roll_all_long_str();
