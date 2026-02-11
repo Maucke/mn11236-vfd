@@ -22,7 +22,7 @@
 #include "usbd_storage_if.h"
 
 /* USER CODE BEGIN INCLUDE */
-
+#include "bootloader.h"
 /* USER CODE END INCLUDE */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -164,6 +164,7 @@ uint8_t upgradeFunc(uint8_t* buf, uint32_t addr, uint16_t len)
   static uint8_t isUpgard = 0;
   if(isUpgradeHeader(buf) == 0)
   {
+    HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_SET);
     isUpgard = 1;
 //    dbmsg("start of erase");
     Flash_Erase();
@@ -190,6 +191,7 @@ uint8_t upgradeFunc(uint8_t* buf, uint32_t addr, uint16_t len)
   }
   else if(addr < upgradedStartAddr && isUpgard)
   {
+    HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_RESET);
     isUpgard = 0;
 //    dbmsg("flashed");
     isUpgraded = 1;

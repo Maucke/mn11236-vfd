@@ -91,7 +91,7 @@ void mn11236_init(void)
     // 初始化LAT和BK引脚状态
     HAL_GPIO_WritePin(VFD_LAT_GPIO_Port, VFD_LAT_Pin, GPIO_PIN_RESET);
     // 高电平关闭显示
-    HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_RESET);
 
     // 初始化栅极模板
     init_grids_template();
@@ -116,8 +116,6 @@ void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
     HAL_GPIO_WritePin(VFD_LAT_GPIO_Port, VFD_LAT_Pin, GPIO_PIN_SET);
     HAL_GPIO_WritePin(VFD_LAT_GPIO_Port, VFD_LAT_Pin, GPIO_PIN_RESET);
 		   
-    HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_RESET);
-		
     current_grid = (current_grid + 1) % VFD_FRAMES;
 
     HAL_SPI_Transmit_DMA(
