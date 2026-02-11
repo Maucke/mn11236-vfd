@@ -103,6 +103,7 @@ void Error_Handler(void);
 
   typedef struct __attribute__((aligned(4)))
   {
+    uint8_t defaultfunc;
     uint8_t clocktheme;
     uint8_t musictheme;
     uint8_t snakewidth;

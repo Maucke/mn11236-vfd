@@ -117,6 +117,7 @@ int main(void)
   STMFLASH_Read(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
   if (userInfo.valid != 4)
   {
+		userInfo.defaultfunc = 0;
     userInfo.clocktheme = 0;
     userInfo.musictheme = 2;
     userInfo.snakewidth = 2;

@@ -25,14 +25,14 @@
 #include "stmflash.h"
 #include "semphr.h"
 // Pages
-EasyUIPage_t pageMain, pageUSBForm, pageDialog, pageSensor, pageAnimation, pageSetting, pageDiagnostic, pageAbout;
+EasyUIPage_t pageMain, pageUSBForm, pageDialog, pageSensor, pageAnimation, pageSetting, pageDiagnostic, pageAbout, pageSetTime;
 
 // Items
 EasyUIItem_t itemUSBForm;
 EasyUIItem_t itemDebug;
 EasyUIItem_t itemSensor;
 EasyUIItem_t itemAnimation;
-EasyUIItem_t itemSetting, titleSetting, itemMusicTheme, itemClockTheme;
+EasyUIItem_t itemSetting, titleSetting, itemMusicTheme, itemClockTheme, itemSetTime, itemDefaultFunc;
 EasyUIItem_t itemDiagnostic;
 EasyUIItem_t itemAbout;
 EasyUIItem_t itemMind, itemCircle, itemSnowflake, itemMeteo, itemPlanet, itemTriangle, itemStarwar, itemBlast, itemGCircle, itemFirework, titleAnimation;
@@ -104,9 +104,171 @@ void PageAbout(EasyUIPage_t *page)
   EasyUIDisplayStr(10, screen_delta, tempstr);
   screen_delta += page->rowheight;
 }
+typedef enum
+{
+  SetYear,
+  SetMonth,
+  SetDay,
+  SetWeek,
+  SetHour,
+  SetMin,
+} SetTimeMode;
 
 extern struct tm tm_local;
 static const char weekdays[7][4] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+void PageSetTime(EasyUIPage_t *page)
+{
+  static bool syncstate = false;
+  static struct tm tm_setting;
+  char tempstr[64];
+  int screen_delta = 1;
+  static SetTimeMode mode = SetYear;
+  switch (mode)
+  {
+  case SetYear:
+    if (!syncstate)
+    {
+      syncstate = true;
+      tm_setting = tm_local;
+    }
+
+    EasyUIDrawFrame(10, 0, 4 * 6 + 1, 8 + 1, GUI_DEFAULT_ACTCOLOR);
+    if (opnUp)
+    {
+      tm_setting.tm_year += 1;
+      if (tm_setting.tm_year > 99)
+        tm_setting.tm_year = 99;
+      opnUp = false;
+    }
+    if (opnDown)
+    {
+      tm_setting.tm_year -= 1;
+      if (tm_setting.tm_year < 0)
+        tm_setting.tm_year = 0;
+      opnDown = false;
+    }
+    if (opnEnter)
+    {
+      mode = SetMonth;
+      opnEnter = false;
+    }
+    break;
+  case SetMonth:
+    EasyUIDrawFrame(10 + 4 * 6 + 6, 0, 2 * 6 + 1, 8 + 1, GUI_DEFAULT_ACTCOLOR);
+    if (opnUp)
+    {
+      tm_setting.tm_mon += 1;
+      if (tm_setting.tm_mon > 11)
+        tm_setting.tm_mon = 11;
+      opnUp = false;
+    }
+    if (opnDown)
+    {
+      tm_setting.tm_mon -= 1;
+      if (tm_setting.tm_mon < 0)
+        tm_setting.tm_mon = 0;
+      opnDown = false;
+    }
+    if (opnEnter)
+    {
+      mode = SetDay;
+      opnEnter = false;
+    }
+    break;
+  case SetDay:
+    EasyUIDrawFrame(10 + 4 * 6 + 2 * 6 + 6 * 2, 0, 2 * 6 + 1, 8 + 1, GUI_DEFAULT_ACTCOLOR);
+    if (opnUp)
+    {
+      tm_setting.tm_mday += 1;
+      if (tm_setting.tm_mday > 31)
+        tm_setting.tm_mday = 31;
+      opnUp = false;
+    }
+    if (opnDown)
+    {
+      tm_setting.tm_mday -= 1;
+      if (tm_setting.tm_mday < 1)
+        tm_setting.tm_mday = 1;
+      opnDown = false;
+    }
+    if (opnEnter)
+    {
+      mode = SetWeek;
+      opnEnter = false;
+    }
+    break;
+  case SetWeek:
+    EasyUIDrawFrame(10 + 4 * 6 + 2 * 6 + 6 * 4 + 2 * 6, 0, 3 * 6 + 1, 8 + 1, GUI_DEFAULT_ACTCOLOR);
+    if (opnUp)
+    {
+      tm_setting.tm_wday = (tm_setting.tm_wday + 1) % 7;
+      opnUp = false;
+    }
+    if (opnDown)
+    {
+      tm_setting.tm_wday = (tm_setting.tm_wday + 6) % 7;
+      opnDown = false;
+    }
+    if (opnEnter)
+    {
+      mode = SetHour;
+      opnEnter = false;
+    }
+    break;
+
+  case SetHour:
+    EasyUIDrawFrame(10, 0 + 9, 2 * 6 + 1, 8 + 1, GUI_DEFAULT_ACTCOLOR);
+    if (opnUp)
+    {
+      tm_setting.tm_hour = (tm_setting.tm_hour + 1) % 24;
+      opnUp = false;
+    }
+    if (opnDown)
+    {
+      tm_setting.tm_hour = (tm_setting.tm_hour + 23) % 24;
+      opnDown = false;
+    }
+    if (opnEnter)
+    {
+      mode = SetMin;
+      opnEnter = false;
+    }
+    break;
+  case SetMin:
+    EasyUIDrawFrame(10 + 3 * 6, 0 + 9, 2 * 6 + 1, 8 + 1, GUI_DEFAULT_ACTCOLOR);
+    if (opnUp)
+    {
+      tm_setting.tm_min = (tm_setting.tm_min + 1) % 60;
+      opnUp = false;
+    }
+    if (opnDown)
+    {
+      tm_setting.tm_min = (tm_setting.tm_min + 59) % 60;
+      opnDown = false;
+    }
+    if (opnEnter)
+    {
+      RX8900_SetTime(&tm_setting);
+      mode = SetYear;
+      syncstate = false;
+      EasyUIBackgroundBlur();
+      opnEnter = false;
+      opnExit = true;
+    }
+    break;
+  }
+  snprintf(tempstr, sizeof tempstr, "%04d-%02d-%02d, %s", tm_setting.tm_year + 2000, tm_setting.tm_mon + 1, tm_setting.tm_mday, weekdays[tm_setting.tm_wday % 7]);
+  EasyUIDisplayStr(10, screen_delta, tempstr);
+  screen_delta += 9;
+  snprintf(tempstr, sizeof tempstr, "%02d:%02d", tm_setting.tm_hour % 100, tm_setting.tm_min % 100);
+  EasyUIDisplayStr(10, screen_delta, tempstr);
+  if (opnExit)
+  {
+    mode = SetYear;
+    syncstate = false;
+  }
+}
+
 void PageSensor(EasyUIPage_t *page)
 {
   char tempstr[64];
@@ -117,7 +279,7 @@ void PageSensor(EasyUIPage_t *page)
   {
     snprintf(tempstr, sizeof tempstr, "%04d-%02d-%02d, %s", tm_local.tm_year + 2000, tm_local.tm_mon + 1, tm_local.tm_mday, weekdays[tm_local.tm_wday % 7]);
     EasyUIDisplayStr(10, screen_delta, tempstr);
-    screen_delta += page->rowheight;
+    screen_delta += 9;
     snprintf(tempstr, sizeof tempstr, "%02d:%02d:%02d", tm_local.tm_hour % 100, tm_local.tm_min % 100, tm_local.tm_sec % 100);
     EasyUIDisplayStr(10, screen_delta, tempstr);
   }
@@ -125,24 +287,24 @@ void PageSensor(EasyUIPage_t *page)
 
 void PageDiagnostic(EasyUIItem_t *page)
 {
-	static uint16 color = 0;
-  if(opnDown)
+  static uint16 color = 0;
+  if (opnDown)
   {
-    if(color + 1 <= 3)
+    if (color + 1 <= 3)
       color += 1;
     else
       color = 0;
     opnDown = false;
   }
-  if(opnUp)
+  if (opnUp)
   {
-    if(color - 1 >= 0)
+    if (color - 1 >= 0)
       color -= 1;
     else
       color = 3;
     opnUp = false;
   }
-	EasyUIDrawBox(0, 0, SCREEN_WIDTH - 1, SCREEN_HEIGHT - 1, color);
+  EasyUIDrawBox(0, 0, SCREEN_WIDTH - 1, SCREEN_HEIGHT - 1, color);
 }
 
 UserInfo_t *pUserInfo;
@@ -155,51 +317,51 @@ static bool firstsave = true;
 void SaveInfo()
 {
   HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_SET);
-	xSemaphoreTake(flashMutex, portMAX_DELAY);
-	taskENTER_CRITICAL();
-	STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)pUserInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
-	taskEXIT_CRITICAL();
-	xSemaphoreGive(flashMutex);
+  xSemaphoreTake(flashMutex, portMAX_DELAY);
+  taskENTER_CRITICAL();
+  STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)pUserInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
+  taskEXIT_CRITICAL();
+  xSemaphoreGive(flashMutex);
   HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_RESET);
-	if(firstsave)
-	{
-		firstsave = false;
-		SaveInfo();
-	}
+  if (firstsave)
+  {
+    firstsave = false;
+    SaveInfo();
+  }
 }
 
 void InitInfo()
 {
-	flashMutex = xSemaphoreCreateMutex();
+  flashMutex = xSemaphoreCreateMutex();
 }
 
-void EventChangeValue(EasyUIItem_t* item)
+void EventChangeValue(EasyUIItem_t *item)
 {
-  if(opnDown)
+  if (opnDown)
   {
-    if(*item->param + 1 <= item->paramMax)
+    if (*item->param + 1 <= item->paramMax)
       *item->param += 1;
     else
       *item->param = 0;
     opnDown = false;
   }
-  if(opnUp)
+  if (opnUp)
   {
-    if(*item->param - 1 >= 0)
+    if (*item->param - 1 >= 0)
       *item->param -= 1;
     else
       *item->param = item->paramMax;
     opnUp = false;
   }
 
-  if(opnEnter)
+  if (opnEnter)
   {
     item->paramBackup = *item->param;
     EasyUIBackgroundBlur();
     functionIsRunning = false;
     opnEnter = false;
   }
-  if(opnExit) 
+  if (opnExit)
   {
     *item->param = item->paramBackup;
     EasyUIBackgroundBlur();
@@ -212,41 +374,57 @@ void EventChangeValue(EasyUIItem_t* item)
 
 bool UserInfo_AutoSave()
 {
-    static UserInfo_t last;
-    static bool inited = false;
+  static UserInfo_t last;
+  static bool inited = false;
 
-    if (!inited)
-    {
-        memcpy(&last, pUserInfo, sizeof(UserInfo_t));
-        inited = true;
-        return false; 
-    }
-
-    if (memcmp(&last, pUserInfo, sizeof(UserInfo_t)) != 0)
-    {
-        memcpy(&last, pUserInfo, sizeof(UserInfo_t));
-        SaveInfo();
-        return true;   
-    }
-
+  if (!inited)
+  {
+    memcpy(&last, pUserInfo, sizeof(UserInfo_t));
+    inited = true;
     return false;
+  }
+
+  if (memcmp(&last, pUserInfo, sizeof(UserInfo_t)) != 0)
+  {
+    memcpy(&last, pUserInfo, sizeof(UserInfo_t));
+    SaveInfo();
+    return true;
+  }
+
+  return false;
 }
 
+typedef enum
+{
+  DISP_MODE_CLOCK = 0,
+  DISP_MODE_FFT,
+  DISP_MODE_SNAKE,
+  DISP_MODE_MOTION,
+  DISP_MODE_MENU,
+} SysDisplayMode_e;
+
+static SysDisplayMode_e last_disp_mode = DISP_MODE_MOTION;
+static SysDisplayMode_e disp_mode = DISP_MODE_MOTION;
 void AppGUI_Init(UserInfo_t *userinfo)
 {
-	InitInfo();
+  InitInfo();
   pUserInfo = userinfo;
+	
+	last_disp_mode = pUserInfo->defaultfunc;
+	disp_mode = pUserInfo->defaultfunc;
+	
   EasyUIAddPage(&pageMain, GUI_DEFAULT_DISPLAY_FONT, PAGE_LIST);
   EasyUIAddPage(&pageSetting, GUI_DEFAULT_DISPLAY_FONT, PAGE_LIST);
-//  EasyUIAddPage(&pageUSBForm, GUI_DEFAULT_DISPLAY_FONT, PAGE_CUSTOM, PageUSBForm);
-//  EasyUIAddPage(&pageDialog, GUI_6X8_FONT, PAGE_LIST);
+  //  EasyUIAddPage(&pageUSBForm, GUI_DEFAULT_DISPLAY_FONT, PAGE_CUSTOM, PageUSBForm);
+  //  EasyUIAddPage(&pageDialog, GUI_6X8_FONT, PAGE_LIST);
   EasyUIAddPage(&pageSensor, GUI_DEFAULT_DISPLAY_FONT, PAGE_CUSTOM, PageSensor);
   EasyUIAddPage(&pageAnimation, GUI_DEFAULT_DISPLAY_FONT, PAGE_LIST);
   EasyUIAddPage(&pageDiagnostic, GUI_DEFAULT_DISPLAY_FONT, PAGE_CUSTOM, PageDiagnostic);
   EasyUIAddPage(&pageAbout, GUI_DEFAULT_DISPLAY_FONT, PAGE_CUSTOM, PageAbout);
+  EasyUIAddPage(&pageSetTime, GUI_DEFAULT_DISPLAY_FONT, PAGE_CUSTOM, PageSetTime);
 
-//  EasyUIAddItem(&pageMain, &itemUSBForm, "USBForm", ITEM_JUMP_PAGE, pageUSBForm.id);
-//  EasyUIAddItem(&pageMain, &itemDebug, "Debug", ITEM_JUMP_PAGE, pageDialog.id);
+  //  EasyUIAddItem(&pageMain, &itemUSBForm, "USBForm", ITEM_JUMP_PAGE, pageUSBForm.id);
+  //  EasyUIAddItem(&pageMain, &itemDebug, "Debug", ITEM_JUMP_PAGE, pageDialog.id);
   EasyUIAddItem(&pageMain, &itemSensor, "Sensor", ITEM_JUMP_PAGE, pageSensor.id);
   EasyUIAddItem(&pageMain, &itemAnimation, "Animation", ITEM_JUMP_PAGE, pageAnimation.id);
   EasyUIAddItem(&pageMain, &itemSetting, "Setting", ITEM_JUMP_PAGE, pageSetting.id);
@@ -254,19 +432,21 @@ void AppGUI_Init(UserInfo_t *userinfo)
   EasyUIAddItem(&pageMain, &itemAbout, "<About>", ITEM_JUMP_PAGE, pageAbout.id);
 
   EasyUIAddItem(&pageSetting, &titleSetting, "[Setting]", ITEM_PAGE_DESCRIPTION);
-	
+
+  EasyUIAddItem(&pageSetting, &itemSetTime, "Set Time", ITEM_JUMP_PAGE, pageSetTime.id);
   EasyUIAddItem(&pageSetting, &itemMusicTheme, "FFT Theme", ITEM_PROGRESS_BAR, &pUserInfo->musictheme, 7, EventChangeValue);
   EasyUIAddItem(&pageSetting, &itemClockTheme, "Clock Theme", ITEM_PROGRESS_BAR, &pUserInfo->clocktheme, 3, EventChangeValue);
+  EasyUIAddItem(&pageSetting, &itemDefaultFunc, "Default Func", ITEM_PROGRESS_BAR, &pUserInfo->defaultfunc, 3, EventChangeValue);
 
   EasyUIAddItem(&pageAnimation, &titleAnimation, "[Animation]", ITEM_PAGE_DESCRIPTION);
   EasyUIAddItem(&pageAnimation, &itemMind, "Mind", ITEM_CHECKBOX, &pUserInfo->effectswitch.enMind);
   EasyUIAddItem(&pageAnimation, &itemCircle, "Circle", ITEM_CHECKBOX, &pUserInfo->effectswitch.enCircle);
   EasyUIAddItem(&pageAnimation, &itemSnowflake, "Snowflake", ITEM_CHECKBOX, &pUserInfo->effectswitch.enSnowflake);
-//  EasyUIAddItem(&pageAnimation, &itemMeteo, "Meteo", ITEM_CHECKBOX, &pUserInfo->effectswitch.enMeteo);
+  //  EasyUIAddItem(&pageAnimation, &itemMeteo, "Meteo", ITEM_CHECKBOX, &pUserInfo->effectswitch.enMeteo);
   EasyUIAddItem(&pageAnimation, &itemPlanet, "Planet", ITEM_CHECKBOX, &pUserInfo->effectswitch.enPlanet);
   EasyUIAddItem(&pageAnimation, &itemTriangle, "Triangle", ITEM_CHECKBOX, &pUserInfo->effectswitch.enTriangle);
   EasyUIAddItem(&pageAnimation, &itemStarwar, "Starwar", ITEM_CHECKBOX, &pUserInfo->effectswitch.enStarwar);
-//  EasyUIAddItem(&pageAnimation, &itemGCircle, "GCircle", ITEM_CHECKBOX, &pUserInfo->effectswitch.enGCircle);
+  //  EasyUIAddItem(&pageAnimation, &itemGCircle, "GCircle", ITEM_CHECKBOX, &pUserInfo->effectswitch.enGCircle);
   EasyUIAddItem(&pageAnimation, &itemFirework, "Firework", ITEM_CHECKBOX, &pUserInfo->effectswitch.enFirework);
 
   // Key init
@@ -274,7 +454,7 @@ void AppGUI_Init(UserInfo_t *userinfo)
   EasyKeyInit(&keyDown, GPIOB, KEY_SW2_Pin);
   EasyUIInit(1);
   clock_init();
-	setSnakeWidth(pUserInfo->snakewidth);
+  setSnakeWidth(pUserInfo->snakewidth);
   beginSnake();
   Motion_Init();
 }
@@ -298,29 +478,19 @@ void Motion_Run(EffectSwitch_t *effectswitch)
     Motion_Circle();
   if (effectswitch->enSnowflake)
     Motion_Snowflake();
-//  if (effectswitch->enMeteo)
-//    Motion_Movmeteor();
+  //  if (effectswitch->enMeteo)
+  //    Motion_Movmeteor();
   if (effectswitch->enPlanet)
     Motion_Planet();
   if (effectswitch->enTriangle)
     Motion_TriangleF();
   if (effectswitch->enStarwar)
     Motion_StarWar();
-//  if (effectswitch->enGCircle)
-//    Motion_GCFireworks();
+  //  if (effectswitch->enGCircle)
+  //    Motion_GCFireworks();
   if (effectswitch->enFirework)
     Motion_Firework();
 }
-
-typedef enum
-{
-		DISP_MODE_CLOCK = 0,
-		DISP_MODE_FFT,
-		DISP_MODE_SNAKE,
-		DISP_MODE_MOTION,
-		DISP_MODE_MENU,
-} SysDisplayMode_e;
-
 extern char timeStr[10];
 const ClockTheme_t clockTheme[4] = {
     {Red, WhiteWithCyan, 0},
@@ -330,13 +500,11 @@ const ClockTheme_t clockTheme[4] = {
 
 void AppGUI_Loop(uint8_t timer)
 {
-	static SysDisplayMode_e last_disp_mode = DISP_MODE_MOTION;
-	static SysDisplayMode_e disp_mode = DISP_MODE_MOTION;
   switch (disp_mode)
   {
   case DISP_MODE_CLOCK:
     clear_gram(White);
-		draw_str_3x5((SCREEN_WIDTH/3-(3*5))/2 - 3, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
+    draw_str_3x5((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 3, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
     roll_all_long_str();
     refrash_gram();
     break;
@@ -360,7 +528,7 @@ void AppGUI_Loop(uint8_t timer)
     EasyUIEvent(5);
     break;
   }
-	UserInfo_AutoSave();
+  UserInfo_AutoSave();
 
   if (disp_mode != DISP_MODE_MENU)
   {
@@ -369,44 +537,45 @@ void AppGUI_Loop(uint8_t timer)
       disp_mode++;
       if (disp_mode > DISP_MODE_MOTION)
         disp_mode = DISP_MODE_CLOCK;
-			EasyUITransitionAnim();
+      EasyUITransitionAnim();
       opnUp = false;
     }
-    if (opnDown) 
+    if (opnDown)
     {
       if (disp_mode == DISP_MODE_CLOCK)
         disp_mode = DISP_MODE_MOTION;
       else
         disp_mode--;
-			EasyUITransitionAnim();
+      EasyUITransitionAnim();
       opnDown = false;
     }
     if (opnEnter)
     {
-			last_disp_mode = disp_mode;
-			EasyUITransitionAnim();
+      last_disp_mode = disp_mode;
+      EasyUITransitionAnim();
       disp_mode = DISP_MODE_MENU;
       opnEnter = false;
     }
-		if (opnExit)
-		{
-			if(disp_mode == DISP_MODE_FFT)
-				pUserInfo->musictheme = (pUserInfo->musictheme + 1) % 8;
-			else if(disp_mode == DISP_MODE_CLOCK)
-				pUserInfo->clocktheme = (pUserInfo->clocktheme + 1) % 4;
-			else if(disp_mode == DISP_MODE_SNAKE)
-			{
-				pUserInfo->snakewidth = (pUserInfo->snakewidth + 1) % 5;
-				if(pUserInfo->snakewidth == 0) pUserInfo->snakewidth = 1;
-				setSnakeWidth(pUserInfo->snakewidth);
-			}
-			opnExit = false;
-		}
+    if (opnExit)
+    {
+      if (disp_mode == DISP_MODE_FFT)
+        pUserInfo->musictheme = (pUserInfo->musictheme + 1) % 8;
+      else if (disp_mode == DISP_MODE_CLOCK)
+        pUserInfo->clocktheme = (pUserInfo->clocktheme + 1) % 4;
+      else if (disp_mode == DISP_MODE_SNAKE)
+      {
+        pUserInfo->snakewidth = (pUserInfo->snakewidth + 1) % 5;
+        if (pUserInfo->snakewidth == 0)
+          pUserInfo->snakewidth = 1;
+        setSnakeWidth(pUserInfo->snakewidth);
+      }
+      opnExit = false;
+    }
   }
-	else if (layer == 0 && opnExit)
+  else if (layer == 0 && opnExit)
   {
     disp_mode = last_disp_mode;
     opnExit = false;
-		EasyUITransitionAnim();
+    EasyUITransitionAnim();
   }
 }

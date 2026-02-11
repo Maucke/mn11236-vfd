@@ -117,7 +117,7 @@ void Motion_MindInit(void)
 
 void Motion_Mind(void)
 {
-  int i, j;
+  int i;
   for(i = 0; i < ani_len.Mind; i++)
   {
     if(MovMind(i) == IDLE)
@@ -466,7 +466,7 @@ void Motion_PlanetInit(void)
 void Motion_Planet(void)
 {
 
-  int i, j;
+  int i;
   for(i = 0; i < ani_len.Planet; i++)
   {
     if(Planet(i) == IDLE)
