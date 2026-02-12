@@ -17,7 +17,7 @@ uint8_t layer = 0;
 
 uint8_t opnEnter, opnExit, opnUp, opnDown;
 
-char *EasyUIVersion = "Ver. 1.0.1";
+char *EasyUIVersion = "Ver. 1.2.0";
 bool functionIsRunning = false, listLoop = true, errorOccurred = false, batteryMonitor = true;
 
 void EasyUIAddItem(EasyUIPage_t *page, EasyUIItem_t *item, char *_title, EasyUIItem_e func, ...)

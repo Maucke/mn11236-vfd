@@ -133,19 +133,19 @@ void PageSetTime(EasyUIPage_t *page)
     }
 
     EasyUIDrawFrame(10, 0, 4 * 6 + 1, 8 + 1, GUI_DEFAULT_ACTCOLOR);
-    if (opnUp)
+    if (opnDown)
     {
       tm_setting.tm_year += 1;
       if (tm_setting.tm_year > 99)
         tm_setting.tm_year = 99;
-      opnUp = false;
+      opnDown = false;
     }
-    if (opnDown)
+    if (opnUp)
     {
       tm_setting.tm_year -= 1;
       if (tm_setting.tm_year < 0)
         tm_setting.tm_year = 0;
-      opnDown = false;
+      opnUp = false;
     }
     if (opnEnter)
     {
@@ -155,19 +155,19 @@ void PageSetTime(EasyUIPage_t *page)
     break;
   case SetMonth:
     EasyUIDrawFrame(10 + 4 * 6 + 6, 0, 2 * 6 + 1, 8 + 1, GUI_DEFAULT_ACTCOLOR);
-    if (opnUp)
+    if (opnDown)
     {
       tm_setting.tm_mon += 1;
       if (tm_setting.tm_mon > 11)
         tm_setting.tm_mon = 11;
-      opnUp = false;
+      opnDown = false;
     }
-    if (opnDown)
+    if (opnUp)
     {
       tm_setting.tm_mon -= 1;
       if (tm_setting.tm_mon < 0)
         tm_setting.tm_mon = 0;
-      opnDown = false;
+      opnUp = false;
     }
     if (opnEnter)
     {
@@ -177,19 +177,19 @@ void PageSetTime(EasyUIPage_t *page)
     break;
   case SetDay:
     EasyUIDrawFrame(10 + 4 * 6 + 2 * 6 + 6 * 2, 0, 2 * 6 + 1, 8 + 1, GUI_DEFAULT_ACTCOLOR);
-    if (opnUp)
+    if (opnDown)
     {
       tm_setting.tm_mday += 1;
       if (tm_setting.tm_mday > 31)
         tm_setting.tm_mday = 31;
-      opnUp = false;
+      opnDown = false;
     }
-    if (opnDown)
+    if (opnUp)
     {
       tm_setting.tm_mday -= 1;
       if (tm_setting.tm_mday < 1)
         tm_setting.tm_mday = 1;
-      opnDown = false;
+      opnUp = false;
     }
     if (opnEnter)
     {
@@ -199,15 +199,15 @@ void PageSetTime(EasyUIPage_t *page)
     break;
   case SetWeek:
     EasyUIDrawFrame(10 + 4 * 6 + 2 * 6 + 6 * 4 + 2 * 6, 0, 3 * 6 + 1, 8 + 1, GUI_DEFAULT_ACTCOLOR);
-    if (opnUp)
-    {
-      tm_setting.tm_wday = (tm_setting.tm_wday + 1) % 7;
-      opnUp = false;
-    }
     if (opnDown)
     {
-      tm_setting.tm_wday = (tm_setting.tm_wday + 6) % 7;
+      tm_setting.tm_wday = (tm_setting.tm_wday + 1) % 7;
       opnDown = false;
+    }
+    if (opnUp)
+    {
+      tm_setting.tm_wday = (tm_setting.tm_wday + 6) % 7;
+      opnUp = false;
     }
     if (opnEnter)
     {
@@ -218,15 +218,15 @@ void PageSetTime(EasyUIPage_t *page)
 
   case SetHour:
     EasyUIDrawFrame(10, 0 + 9, 2 * 6 + 1, 8 + 1, GUI_DEFAULT_ACTCOLOR);
-    if (opnUp)
-    {
-      tm_setting.tm_hour = (tm_setting.tm_hour + 1) % 24;
-      opnUp = false;
-    }
     if (opnDown)
     {
-      tm_setting.tm_hour = (tm_setting.tm_hour + 23) % 24;
+      tm_setting.tm_hour = (tm_setting.tm_hour + 1) % 24;
       opnDown = false;
+    }
+    if (opnUp)
+    {
+      tm_setting.tm_hour = (tm_setting.tm_hour + 23) % 24;
+      opnUp = false;
     }
     if (opnEnter)
     {
@@ -236,15 +236,15 @@ void PageSetTime(EasyUIPage_t *page)
     break;
   case SetMin:
     EasyUIDrawFrame(10 + 3 * 6, 0 + 9, 2 * 6 + 1, 8 + 1, GUI_DEFAULT_ACTCOLOR);
-    if (opnUp)
-    {
-      tm_setting.tm_min = (tm_setting.tm_min + 1) % 60;
-      opnUp = false;
-    }
     if (opnDown)
     {
-      tm_setting.tm_min = (tm_setting.tm_min + 59) % 60;
+      tm_setting.tm_min = (tm_setting.tm_min + 1) % 60;
       opnDown = false;
+    }
+    if (opnUp)
+    {
+      tm_setting.tm_min = (tm_setting.tm_min + 59) % 60;
+      opnUp = false;
     }
     if (opnEnter)
     {
@@ -409,10 +409,10 @@ void AppGUI_Init(UserInfo_t *userinfo)
 {
   InitInfo();
   pUserInfo = userinfo;
-	
-	last_disp_mode = (SysDisplayMode_e)pUserInfo->defaultfunc;
-	disp_mode = (SysDisplayMode_e)pUserInfo->defaultfunc;
-	
+
+  last_disp_mode = (SysDisplayMode_e)pUserInfo->defaultfunc;
+  disp_mode = (SysDisplayMode_e)pUserInfo->defaultfunc;
+
   EasyUIAddPage(&pageMain, GUI_DEFAULT_DISPLAY_FONT, PAGE_LIST);
   EasyUIAddPage(&pageSetting, GUI_DEFAULT_DISPLAY_FONT, PAGE_LIST);
   //  EasyUIAddPage(&pageUSBForm, GUI_DEFAULT_DISPLAY_FONT, PAGE_CUSTOM, PageUSBForm);
@@ -500,15 +500,15 @@ const ClockTheme_t clockTheme[4] = {
 
 void AppGUI_Loop(uint8_t timer)
 {
-	static char timeupdateflag;
+  static char timeupdateflag;
   switch (disp_mode)
   {
   case DISP_MODE_CLOCK:
-		if (timeupdateflag != timeStr[4])
-		{
-			EasyUITransitionAnim();
-			timeupdateflag = timeStr[4];
-		}
+    if (timeupdateflag != timeStr[4])
+    {
+      EasyUITransitionAnim();
+      timeupdateflag = timeStr[4];
+    }
     clear_gram(White);
     draw_str_3x5((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 3, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
     roll_all_long_str();
