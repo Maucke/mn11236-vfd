@@ -32,9 +32,11 @@
 #define CMD_FRAME_DATA      0x0401
 #define CMD_FRAME_END       0x0402
 
-#define EVT_FRAME_BEGIN     0x0480
-#define EVT_FRAME_DATA      0x0481
-#define EVT_FRAME_END       0x0482
+#define CMD_FRAME_GET       0x0403
+
+#define EVT_FRAME_UPLOAD_BEGIN    0x0404
+#define EVT_FRAME_UPLOAD_DATA    0x0405
+#define EVT_FRAME_UPLOAD_END    0x0406
 
 typedef enum {
     NL_PKT_CMD   = 0x01,
@@ -223,8 +225,6 @@ enum
     Pa1 = 253,
     OemClear = 254
 }ConsoleKey;
-
-
 
 enum 
 {

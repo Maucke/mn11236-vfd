@@ -24,7 +24,7 @@ static uint64_t mcu_time_ms(void)
 static void send_resp_internal(
     uint16_t cmd,
     uint16_t seq,
-    uint8_t  status,
+    uint8_t status,
     const void *payload,
     uint16_t len)
 {
@@ -33,7 +33,7 @@ static void send_resp_internal(
         return;
 
     uint16_t payload_len = 1 + len;
-    uint16_t frame_len   = HEAD_LEN + payload_len;
+    uint16_t frame_len = HEAD_LEN + payload_len;
 
     if (frame_len > TX_BUF_SIZE)
         return;
@@ -43,10 +43,10 @@ static void send_resp_internal(
         return;
 
     nl_packet_t *pkt = (nl_packet_t *)tx;
-    pkt->magic  = NL_MAGIC;
-    pkt->type   = NL_PKT_RESP;
-    pkt->cmd    = cmd;
-    pkt->seq    = seq;
+    pkt->magic = NL_MAGIC;
+    pkt->type = NL_PKT_RESP;
+    pkt->cmd = cmd;
+    pkt->seq = seq;
     pkt->length = payload_len;
 
     uint8_t *p = pkt->payload;
@@ -75,7 +75,7 @@ static void send_resp_ok(
     send_resp_internal(cmd, seq, NL_ERR_OK, payload, len);
 }
 
-static void send_event(
+void send_event(
     uint16_t cmd,
     const void *payload,
     uint16_t len)
@@ -92,10 +92,10 @@ static void send_event(
         return;
 
     nl_packet_t *pkt = (nl_packet_t *)tx;
-    pkt->magic  = NL_MAGIC;
-    pkt->type   = NL_PKT_EVENT;
-    pkt->cmd    = cmd;
-    pkt->seq    = 0;
+    pkt->magic = NL_MAGIC;
+    pkt->type = NL_PKT_EVENT;
+    pkt->cmd = cmd;
+    pkt->seq = 0;
     pkt->length = len;
 
     if (len && payload)
@@ -138,29 +138,27 @@ static void nexlink_cmd_loopback(const nl_packet_t *req)
 }
 
 static const nl_display_info_t g_display_info =
-{
-    .display_count = 1,
-    .displays =
     {
-        {
-            .width   = VFD_WIDTH,
-            .height  = VFD_HEIGHT,
-            .bpp     = Dual2Color,
-            .refresh = 60,
-        }
-    }
-};
+        .display_count = 1,
+        .displays =
+            {
+                {
+                    .width = VFD_WIDTH,
+                    .height = VFD_HEIGHT,
+                    .bpp = Dual2Color,
+                    .refresh = 60,
+                }}};
 
 extern uint8_t opnEnter, opnExit, opnUp, opnDown;
 
 static uint16_t frame_width = 0;
 static uint16_t frame_height = 0;
-static uint8_t  frame_bpp = 0;
+static uint8_t frame_bpp = 0;
 
 static uint32_t frame_expected_size = 0;
 static uint32_t frame_received = 0;
 
-#define MAX_FRAME_SIZE 1024   
+#define MAX_FRAME_SIZE 1024
 static uint8_t frame_buffer[MAX_FRAME_SIZE];
 
 static void handle_frame_start(nl_packet_t *pkt)
@@ -170,8 +168,8 @@ static void handle_frame_start(nl_packet_t *pkt)
         send_resp_err(pkt->cmd, pkt->seq, NL_ERR_INVALID_PARAM);
         return;
     }
-		ExternUI_Init();
-    memcpy(&frame_width,  pkt->payload + 0, 2);
+    ExternUI_Init();
+    memcpy(&frame_width, pkt->payload + 0, 2);
     memcpy(&frame_height, pkt->payload + 2, 2);
     frame_bpp = pkt->payload[4];
 
@@ -181,10 +179,9 @@ static void handle_frame_start(nl_packet_t *pkt)
         return;
     }
 
-
     frame_expected_size = ((frame_width + 3) / 4) * frame_height;
     frame_received = 0;
-	// nexlink_log("frame_expected_size: %d, frame_width: %d, frame_height: %d",frame_expected_size,frame_width,frame_height);
+    // nexlink_log("frame_expected_size: %d, frame_width: %d, frame_height: %d",frame_expected_size,frame_width,frame_height);
 
     if (frame_expected_size > MAX_FRAME_SIZE)
     {
@@ -197,7 +194,7 @@ static void handle_frame_start(nl_packet_t *pkt)
 
 static void handle_frame_data(nl_packet_t *pkt)
 {
-	// nexlink_log("frame_expected_size: %d, frame_received: %d, pkt->length: %d",frame_expected_size,frame_received,pkt->length);
+    // nexlink_log("frame_expected_size: %d, frame_received: %d, pkt->length: %d",frame_expected_size,frame_received,pkt->length);
     if (frame_received + pkt->length > frame_expected_size)
     {
         send_resp_err(pkt->cmd, pkt->seq, NL_ERR_INVALID_PARAM);
@@ -210,7 +207,44 @@ static void handle_frame_data(nl_packet_t *pkt)
 
     frame_received += pkt->length;
 
-//    send_resp_ok(pkt->cmd, pkt->seq, NULL, 0);
+    //    send_resp_ok(pkt->cmd, pkt->seq, NULL, 0);
+}
+
+int pack_frame_buffer(uint8_t *frame_buffer,
+                      uint16_t frame_width,
+                      uint16_t frame_height)
+{
+    uint32_t index = 0;
+
+    for (uint16_t y = 0; y < frame_height; y++)
+    {
+        for (uint16_t x = 0; x < frame_width; x += 4)
+        {
+            uint8_t out_byte = 0;
+
+            for (int i = 0; i < 4; i++)
+            {
+                uint16_t px = x + i;
+                uint8_t color = 0;
+
+                if (px < frame_width)
+                {
+                    uint8_t red = mn11236_read_pixel(px, y, MN11236_COLOR_RED);
+                    uint8_t blue = mn11236_read_pixel(px, y, MN11236_COLOR_BLUE);
+
+                    if (red)
+                        color |= 0x01;
+                    if (blue)
+                        color |= 0x02;
+                }
+
+                out_byte |= (color & 0x03) << (6 - i * 2);
+            }
+
+            frame_buffer[index++] = out_byte;
+        }
+    }
+    return index;
 }
 
 static void handle_frame_end(nl_packet_t *pkt)
@@ -220,7 +254,7 @@ static void handle_frame_end(nl_packet_t *pkt)
         send_resp_err(pkt->cmd, pkt->seq, NL_ERR_INVALID_PARAM);
         return;
     }
-		mn11236_clear_buffers();
+    mn11236_clear_buffers();
     uint32_t index = 0;
 
     for (uint16_t y = 0; y < frame_height; y++)
@@ -236,24 +270,77 @@ static void handle_frame_end(nl_packet_t *pkt)
                 uint16_t px = x + i;
                 if (px < frame_width)
                 {
-									if(color)
-									{
-										if(color&1)
-											mn11236_draw_pixel(px, y, MN11236_COLOR_RED);
-										if(color&2)
-											mn11236_draw_pixel(px, y, MN11236_COLOR_BLUE);
-									}
-									else
-									{
-                    mn11236_clear_pixel(px, y, MN11236_COLOR_RED);
-                    mn11236_clear_pixel(px, y, MN11236_COLOR_BLUE);
-									}
+                    if (color)
+                    {
+                        if (color & 1)
+                            mn11236_draw_pixel(px, y, MN11236_COLOR_RED);
+                        if (color & 2)
+                            mn11236_draw_pixel(px, y, MN11236_COLOR_BLUE);
+                    }
+                    else
+                    {
+                        mn11236_clear_pixel(px, y, MN11236_COLOR_RED);
+                        mn11236_clear_pixel(px, y, MN11236_COLOR_BLUE);
+                    }
                 }
             }
         }
     }
-		mn11236_send_buffer();
+    mn11236_send_buffer();
     send_resp_ok(pkt->cmd, pkt->seq, NULL, 0);
+}
+
+static uint8_t uploadframeflag = 0;
+
+static void handle_frame_get(nl_packet_t *pkt)
+{
+    uploadframeflag = pkt->payload[0];
+
+    send_resp_ok(pkt->cmd, pkt->seq, NULL, 0);
+}
+
+void upload_frame_upload()
+{
+    uint32_t offset = 0;
+    uint32_t chunk_size = 1000;
+    uint8_t startPayload[5];
+
+    uint16_t width = VFD_WIDTH;
+    uint16_t height = VFD_HEIGHT;
+    uint8_t bpp = Dual2Color;
+
+    if (uploadframeflag == 0)
+        return;
+    if (uploadframeflag < 0xFF)
+        uploadframeflag--;
+
+    /* Little Endian */
+    startPayload[0] = (uint8_t)(width & 0xFF);
+    startPayload[1] = (uint8_t)((width >> 8) & 0xFF);
+
+    startPayload[2] = (uint8_t)(height & 0xFF);
+    startPayload[3] = (uint8_t)((height >> 8) & 0xFF);
+
+    startPayload[4] = bpp;
+
+    send_event(EVT_FRAME_UPLOAD_BEGIN, startPayload,
+               sizeof startPayload);
+
+    frame_expected_size = pack_frame_buffer(frame_buffer, width, height);
+    while (offset < frame_expected_size)
+    {
+        uint32_t size = frame_expected_size - offset;
+        if (size > chunk_size)
+            size = chunk_size;
+        //				nexlink_log("frame_buffer: %d, size: %d, offset: %d",frame_buffer,size, offset);
+        send_event(EVT_FRAME_UPLOAD_DATA, frame_buffer + offset,
+                   size);
+
+        offset += size;
+    }
+
+    send_event(EVT_FRAME_UPLOAD_END, NULL,
+               0);
 }
 
 static void handle_cmd(nl_packet_t *pkt)
@@ -262,7 +349,7 @@ static void handle_cmd(nl_packet_t *pkt)
     {
     case CMD_HW_RESET:
         send_resp_ok(pkt->cmd, pkt->seq, NULL, 0);
-				HAL_NVIC_SystemReset();
+        HAL_NVIC_SystemReset();
         break;
     case CMD_PING:
         send_resp_ok(pkt->cmd, pkt->seq, NULL, 0);
@@ -283,9 +370,9 @@ static void handle_cmd(nl_packet_t *pkt)
 
         struct tm *tm_local;
         long timestamp_s;
-				timestamp_s = pc_time / 1000;
+        timestamp_s = pc_time / 1000;
         timestamp_s += 3600 * 8;
-        tm_local = localtime((const time_t *)&timestamp_s); 
+        tm_local = localtime((const time_t *)&timestamp_s);
         RX8900_SetTime(tm_local);
         send_resp_ok(pkt->cmd, pkt->seq, &mcu_time, sizeof(mcu_time));
         break;
@@ -304,34 +391,46 @@ static void handle_cmd(nl_packet_t *pkt)
     }
 
     case CMD_KEY:
-				switch(pkt->payload[0])
-				{
-					case UpArrow:opnUp = true;break;
-					case DownArrow:opnDown = true;break;
-					case RightArrow:opnEnter = true;break;
-					case LeftArrow:opnExit = true;break;
-					default:
-						send_resp_err(pkt->cmd, pkt->seq, NL_ERR_INVALID_PARAM);
-					return;
-				}
+        switch (pkt->payload[0])
+        {
+        case UpArrow:
+            opnUp = true;
+            break;
+        case DownArrow:
+            opnDown = true;
+            break;
+        case RightArrow:
+            opnEnter = true;
+            break;
+        case LeftArrow:
+            opnExit = true;
+            break;
+        default:
+            send_resp_err(pkt->cmd, pkt->seq, NL_ERR_INVALID_PARAM);
+            return;
+        }
         send_resp_ok(pkt->cmd, pkt->seq, NULL, 0);
         break;
 
     case CMD_GET_DISPLAY_INFO:
         send_resp_ok(pkt->cmd, pkt->seq, &g_display_info, sizeof g_display_info);
         break;
-		
-		case CMD_FRAME_BEGIN:
-				handle_frame_start(pkt);
-				break;
 
-		case CMD_FRAME_DATA:
-				handle_frame_data(pkt);
-				break;
+    case CMD_FRAME_BEGIN:
+        handle_frame_start(pkt);
+        break;
 
-		case CMD_FRAME_END:
-				handle_frame_end(pkt);
-				break;
+    case CMD_FRAME_DATA:
+        handle_frame_data(pkt);
+        break;
+
+    case CMD_FRAME_END:
+        handle_frame_end(pkt);
+        break;
+
+    case CMD_FRAME_GET:
+        handle_frame_get(pkt);
+        break;
 
     default:
         send_resp_err(pkt->cmd, pkt->seq, NL_ERR_UNSUPPORTED);

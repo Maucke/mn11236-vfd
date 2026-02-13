@@ -24,6 +24,8 @@
 #include "cmsis_os.h"
 #include "stmflash.h"
 #include "semphr.h"
+#include "nexlink_app.h"
+
 // Pages
 EasyUIPage_t pageMain, pageUSBForm, pageDialog, pageSensor, pageAnimation, pageSetting, pageDiagnostic, pageAbout, pageSetTime;
 
@@ -501,7 +503,12 @@ const ClockTheme_t clockTheme[4] = {
 
 void ExternUI_Init()
 {
-	disp_mode = DISP_MODE_EXTERN;
+  disp_mode = DISP_MODE_EXTERN;
+}
+
+void UploadFrame()
+{
+  upload_frame_upload();
 }
 
 void AppGUI_Loop(uint8_t timer)
@@ -536,13 +543,14 @@ void AppGUI_Loop(uint8_t timer)
     Motion_Run(&pUserInfo->effectswitch);
     refrash_gram();
     break;
-	case DISP_MODE_EXTERN:
-		
+  case DISP_MODE_EXTERN:
+
     break;
   default:
     EasyUIEvent(5);
     break;
   }
+  UploadFrame();
   UserInfo_AutoSave();
 
   if (disp_mode != DISP_MODE_MENU)

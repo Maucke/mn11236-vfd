@@ -2,7 +2,7 @@
 #include <stdint.h>
 
 #define TX_BUF_SIZE   1024    // 每个 TX buffer 的大小
-#define TX_BUF_COUNT  2       // TX buffer 数量
+#define TX_BUF_COUNT  4      // TX buffer 数量
 
 typedef struct
 {
