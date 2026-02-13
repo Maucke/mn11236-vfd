@@ -299,9 +299,11 @@ static void handle_frame_get(nl_packet_t *pkt)
     send_resp_ok(pkt->cmd, pkt->seq, NULL, 0);
 }
 
+static uint32_t upload_frame_expected_size = 0;
+static uint8_t upload_frame_buffer[MAX_FRAME_SIZE];
 void upload_frame_upload()
 {
-    uint32_t offset = 0;
+    uint32_t upload_offset = 0;
     uint32_t chunk_size = 1000;
     uint8_t startPayload[5];
 
@@ -326,17 +328,17 @@ void upload_frame_upload()
     send_event(EVT_FRAME_UPLOAD_BEGIN, startPayload,
                sizeof startPayload);
 
-    frame_expected_size = pack_frame_buffer(frame_buffer, width, height);
-    while (offset < frame_expected_size)
+    upload_frame_expected_size = pack_frame_buffer(upload_frame_buffer, width, height);
+    while (upload_offset < upload_frame_expected_size)
     {
-        uint32_t size = frame_expected_size - offset;
+        uint32_t size = upload_frame_expected_size - upload_offset;
         if (size > chunk_size)
             size = chunk_size;
         //				nexlink_log("frame_buffer: %d, size: %d, offset: %d",frame_buffer,size, offset);
-        send_event(EVT_FRAME_UPLOAD_DATA, frame_buffer + offset,
+        send_event(EVT_FRAME_UPLOAD_DATA, upload_frame_buffer + upload_offset,
                    size);
 
-        offset += size;
+        upload_offset += size;
     }
 
     send_event(EVT_FRAME_UPLOAD_END, NULL,
