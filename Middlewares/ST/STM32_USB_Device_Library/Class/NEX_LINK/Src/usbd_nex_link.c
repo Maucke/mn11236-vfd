@@ -35,7 +35,7 @@ THE SOFTWARE.
 #include "queue.h"
 #include "usart.h"
 #include "cmsis_os.h"
-
+#include "nexlink_rampool.h"
 #include "nexlink_usb_if.h"
 
 typedef struct
@@ -336,7 +336,7 @@ static uint8_t USBD_NEX_LINK_DataIn(USBD_HandleTypeDef *pdev, uint8_t epnum)
 	USBD_NEX_LINK_HandleTypeDef *hnex = (USBD_NEX_LINK_HandleTypeDef *)pdev->pClassData;
 	if (hnex->cur_tx_buf)
 	{
-//		buf_free(hnex->cur_tx_buf);
+		buf_free(hnex->cur_tx_buf);
 		hnex->cur_tx_buf = NULL;
 	}
 	hnex->txstate = 0;

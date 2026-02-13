@@ -1,6 +1,7 @@
 #include "nexlink_app.h"
 #include "nexlink_proto.h"
 #include "nexlink_tx.h"
+#include "nexlink_rampool.h"
 #include <string.h>
 #include "FreeRTOS.h"
 #include "task.h"
@@ -35,10 +36,10 @@ static void send_resp_internal(
     uint16_t payload_len = 1 + len;
     uint16_t frame_len = HEAD_LEN + payload_len;
 
-    if (frame_len > TX_BUF_SIZE)
+    if (frame_len > BUF_SIZE)
         return;
-
-    uint8_t *tx = tx_buf_alloc();
+		
+    uint8_t *tx = buf_alloc(frame_len);
     if (!tx)
         return;
 
@@ -84,10 +85,10 @@ void send_event(
         return;
 
     uint16_t frame_len = HEAD_LEN + len;
-    if (frame_len > TX_BUF_SIZE)
+    if (frame_len > BUF_SIZE)
         return;
-
-    uint8_t *tx = tx_buf_alloc();
+		
+    uint8_t *tx = buf_alloc(frame_len);
     if (!tx)
         return;
 
