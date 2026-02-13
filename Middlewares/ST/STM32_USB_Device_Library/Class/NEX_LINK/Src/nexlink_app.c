@@ -7,6 +7,8 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include "stm32_rx8900.h"
+#include "mn11236.h"
+#include "easy_ui_user_app.h"
 
 #define NEXLINK_LOG_MAX_LEN 96
 
@@ -18,7 +20,6 @@ static uint64_t mcu_time_ms(void)
     TickType_t tick = xTaskGetTickCount();
     return (uint64_t)tick * (1000 / configTICK_RATE_HZ);
 }
-
 
 static void send_resp_internal(
     uint16_t cmd,
@@ -136,154 +137,124 @@ static void nexlink_cmd_loopback(const nl_packet_t *req)
                  req->payload, req->length);
 }
 
-extern uint8_t opnEnter, opnExit, opnUp, opnDown;
-enum 
+static const nl_display_info_t g_display_info =
 {
-    Backspace = 8,
-    Tab = 9,
-    Clear = 12,
-    Enter = 13,
-    Pause = 19,
-    Escape = 27,
-    Spacebar = 32,
-    PageUp = 33,
-    PageDown = 34,
-    End = 35,
-    Home = 36,
-    LeftArrow = 37,
-    UpArrow = 38,
-    RightArrow = 39,
-    DownArrow = 40,
-    Select = 41,
-    Print = 42,
-    Execute = 43,
-    PrintScreen = 44,
-    Insert = 45,
-    Delete = 46,
-    Help = 47,
-    D0 = 48,
-    D1 = 49,
-    D2 = 50,
-    D3 = 51,
-    D4 = 52,
-    D5 = 53,
-    D6 = 54,
-    D7 = 55,
-    D8 = 56,
-    D9 = 57,
-    A = 65,
-    B = 66,
-    C = 67,
-    D = 68,
-    E = 69,
-    F = 70,
-    G = 71,
-    H = 72,
-    I = 73,
-    J = 74,
-    K = 75,
-    L = 76,
-    M = 77,
-    N = 78,
-    O = 79,
-    P = 80,
-    Q = 81,
-    R = 82,
-    S = 83,
-    T = 84,
-    U = 85,
-    V = 86,
-    W = 87,
-    X = 88,
-    Y = 89,
-    Z = 90,
-    LeftWindows = 91,
-    RightWindows = 92,
-    Applications = 93,
-    Sleep = 95,
-    NumPad0 = 96,
-    NumPad1 = 97,
-    NumPad2 = 98,
-    NumPad3 = 99,
-    NumPad4 = 100,
-    NumPad5 = 101,
-    NumPad6 = 102,
-    NumPad7 = 103,
-    NumPad8 = 104,
-    NumPad9 = 105,
-    Multiply = 106,
-    Add = 107,
-    Separator = 108,
-    Subtract = 109,
-    Decimal = 110,
-    Divide = 111,
-    F1 = 112,
-    F2 = 113,
-    F3 = 114,
-    F4 = 115,
-    F5 = 116,
-    F6 = 117,
-    F7 = 118,
-    F8 = 119,
-    F9 = 120,
-    F10 = 121,
-    F11 = 122,
-    F12 = 123,
-    F13 = 124,
-    F14 = 125,
-    F15 = 126,
-    F16 = 127,
-    F17 = 128,
-    F18 = 129,
-    F19 = 130,
-    F20 = 131,
-    F21 = 132,
-    F22 = 133,
-    F23 = 134,
-    F24 = 135,
-    BrowserBack = 166,
-    BrowserForward = 167,
-    BrowserRefresh = 168,
-    BrowserStop = 169,
-    BrowserSearch = 170,
-    BrowserFavorites = 171,
-    BrowserHome = 172,
-    VolumeMute = 173,
-    VolumeDown = 174,
-    VolumeUp = 175,
-    MediaNext = 176,
-    MediaPrevious = 177,
-    MediaStop = 178,
-    MediaPlay = 179,
-    LaunchMail = 180,
-    LaunchMediaSelect = 181,
-    LaunchApp1 = 182,
-    LaunchApp2 = 183,
-    Oem1 = 186,
-    OemPlus = 187,
-    OemComma = 188,
-    OemMinus = 189,
-    OemPeriod = 190,
-    Oem2 = 191,
-    Oem3 = 192,
-    Oem4 = 219,
-    Oem5 = 220,
-    Oem6 = 221,
-    Oem7 = 222,
-    Oem8 = 223,
-    Oem102 = 226,
-    Process = 229,
-    Packet = 231,
-    Attention = 246,
-    CrSel = 247,
-    ExSel = 248,
-    EraseEndOfFile = 249,
-    Play = 250,
-    Zoom = 251,
-    NoName = 252,
-    Pa1 = 253,
-    OemClear = 254
-}ConsoleKey;
+    .display_count = 1,
+    .displays =
+    {
+        {
+            .width   = VFD_WIDTH,
+            .height  = VFD_HEIGHT,
+            .bpp     = Dual2Color,
+            .refresh = 60,
+        }
+    }
+};
+
+extern uint8_t opnEnter, opnExit, opnUp, opnDown;
+
+static uint16_t frame_width = 0;
+static uint16_t frame_height = 0;
+static uint8_t  frame_bpp = 0;
+
+static uint32_t frame_expected_size = 0;
+static uint32_t frame_received = 0;
+
+#define MAX_FRAME_SIZE 1024   
+static uint8_t frame_buffer[MAX_FRAME_SIZE];
+
+static void handle_frame_start(nl_packet_t *pkt)
+{
+    if (pkt->length < 5)
+    {
+        send_resp_err(pkt->cmd, pkt->seq, NL_ERR_INVALID_PARAM);
+        return;
+    }
+		ExternUI_Init();
+    memcpy(&frame_width,  pkt->payload + 0, 2);
+    memcpy(&frame_height, pkt->payload + 2, 2);
+    frame_bpp = pkt->payload[4];
+
+    if (frame_bpp != Dual2Color)
+    {
+        send_resp_err(pkt->cmd, pkt->seq, NL_ERR_INVALID_PARAM);
+        return;
+    }
+
+
+    frame_expected_size = ((frame_width + 3) / 4) * frame_height;
+    frame_received = 0;
+	// nexlink_log("frame_expected_size: %d, frame_width: %d, frame_height: %d",frame_expected_size,frame_width,frame_height);
+
+    if (frame_expected_size > MAX_FRAME_SIZE)
+    {
+        send_resp_err(pkt->cmd, pkt->seq, NL_ERR_NO_MEM);
+        return;
+    }
+
+    send_resp_ok(pkt->cmd, pkt->seq, NULL, 0);
+}
+
+static void handle_frame_data(nl_packet_t *pkt)
+{
+	// nexlink_log("frame_expected_size: %d, frame_received: %d, pkt->length: %d",frame_expected_size,frame_received,pkt->length);
+    if (frame_received + pkt->length > frame_expected_size)
+    {
+        send_resp_err(pkt->cmd, pkt->seq, NL_ERR_INVALID_PARAM);
+        return;
+    }
+
+    memcpy(frame_buffer + frame_received,
+           pkt->payload,
+           pkt->length);
+
+    frame_received += pkt->length;
+
+//    send_resp_ok(pkt->cmd, pkt->seq, NULL, 0);
+}
+
+static void handle_frame_end(nl_packet_t *pkt)
+{
+    if (frame_received != frame_expected_size)
+    {
+        send_resp_err(pkt->cmd, pkt->seq, NL_ERR_INVALID_PARAM);
+        return;
+    }
+		mn11236_clear_buffers();
+    uint32_t index = 0;
+
+    for (uint16_t y = 0; y < frame_height; y++)
+    {
+        for (uint16_t x = 0; x < frame_width; x += 4)
+        {
+            uint8_t byte = frame_buffer[index++];
+
+            for (int i = 0; i < 4; i++)
+            {
+                uint8_t color = (byte >> (6 - i * 2)) & 0x03;
+
+                uint16_t px = x + i;
+                if (px < frame_width)
+                {
+									if(color)
+									{
+										if(color&1)
+											mn11236_draw_pixel(px, y, MN11236_COLOR_RED);
+										if(color&2)
+											mn11236_draw_pixel(px, y, MN11236_COLOR_BLUE);
+									}
+									else
+									{
+                    mn11236_clear_pixel(px, y, MN11236_COLOR_RED);
+                    mn11236_clear_pixel(px, y, MN11236_COLOR_BLUE);
+									}
+                }
+            }
+        }
+    }
+		mn11236_send_buffer();
+    send_resp_ok(pkt->cmd, pkt->seq, NULL, 0);
+}
 
 static void handle_cmd(nl_packet_t *pkt)
 {
@@ -345,6 +316,23 @@ static void handle_cmd(nl_packet_t *pkt)
 				}
         send_resp_ok(pkt->cmd, pkt->seq, NULL, 0);
         break;
+
+    case CMD_GET_DISPLAY_INFO:
+        send_resp_ok(pkt->cmd, pkt->seq, &g_display_info, sizeof g_display_info);
+        break;
+		
+		case CMD_FRAME_BEGIN:
+				handle_frame_start(pkt);
+				break;
+
+		case CMD_FRAME_DATA:
+				handle_frame_data(pkt);
+				break;
+
+		case CMD_FRAME_END:
+				handle_frame_end(pkt);
+				break;
+
     default:
         send_resp_err(pkt->cmd, pkt->seq, NL_ERR_UNSUPPORTED);
         break;

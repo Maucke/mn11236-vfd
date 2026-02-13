@@ -400,6 +400,7 @@ typedef enum
   DISP_MODE_FFT,
   DISP_MODE_SNAKE,
   DISP_MODE_MOTION,
+  DISP_MODE_EXTERN,
   DISP_MODE_MENU,
 } SysDisplayMode_e;
 
@@ -498,6 +499,11 @@ const ClockTheme_t clockTheme[4] = {
     {Red, WhiteWithCyan, 1},
     {Cyan, WhiteWithRed, 1}};
 
+void ExternUI_Init()
+{
+	disp_mode = DISP_MODE_EXTERN;
+}
+
 void AppGUI_Loop(uint8_t timer)
 {
   static char timeupdateflag;
@@ -529,6 +535,9 @@ void AppGUI_Loop(uint8_t timer)
     clear_gram(White);
     Motion_Run(&pUserInfo->effectswitch);
     refrash_gram();
+    break;
+	case DISP_MODE_EXTERN:
+		
     break;
   default:
     EasyUIEvent(5);

@@ -296,8 +296,8 @@ __weak void StartClockTask(void *argument)
   {
     if (RX8900_GetTime(&tm_local))
     {
-      nexlink_log("%02d:%02d:%02d\r\n", tm_local.tm_hour, tm_local.tm_min, tm_local.tm_sec);
-      nexlink_log("20%02d-%02d-%02d %d\r\n", tm_local.tm_year, tm_local.tm_mon, tm_local.tm_mday, tm_local.tm_wday);
+//      nexlink_log("%02d:%02d:%02d\r\n", tm_local.tm_hour, tm_local.tm_min, tm_local.tm_sec);
+//      nexlink_log("20%02d-%02d-%02d %d\r\n", tm_local.tm_year, tm_local.tm_mon, tm_local.tm_mday, tm_local.tm_wday);
       flash = !flash;
       if (flash)
         snprintf(timeStr, sizeof timeStr, "%02d:%02d", tm_local.tm_hour, tm_local.tm_min);
