@@ -41,6 +41,7 @@ THE SOFTWARE.
 typedef struct
 {
 	__IO uint8_t txstate;
+	uint8_t *cur_tx_buf;
 
 } USBD_NEX_LINK_HandleTypeDef __attribute__((aligned(4)));
 
@@ -333,6 +334,11 @@ static uint8_t USBD_NEX_LINK_Setup(USBD_HandleTypeDef *pdev, USBD_SetupReqTypede
 static uint8_t USBD_NEX_LINK_DataIn(USBD_HandleTypeDef *pdev, uint8_t epnum)
 {
 	USBD_NEX_LINK_HandleTypeDef *hnex = (USBD_NEX_LINK_HandleTypeDef *)pdev->pClassData;
+	if (hnex->cur_tx_buf)
+	{
+//		buf_free(hnex->cur_tx_buf);
+		hnex->cur_tx_buf = NULL;
+	}
 	hnex->txstate = 0;
 	return USBD_OK;
 }
@@ -376,6 +382,7 @@ uint8_t USBD_NEX_LINK_Transmit(USBD_HandleTypeDef *pdev, uint8_t *buf, uint16_t 
 	if (hnex->txstate == 0)
 	{
 		hnex->txstate = 1;
+		hnex->cur_tx_buf = buf;
 		USBD_LL_Transmit(pdev, GSUSB_ENDPOINT_IN, buf, len);
 		return USBD_OK;
 	}
