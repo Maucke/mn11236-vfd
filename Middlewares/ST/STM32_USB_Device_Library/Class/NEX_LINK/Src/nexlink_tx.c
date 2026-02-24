@@ -12,7 +12,7 @@ static QueueHandle_t txq;
 
 void nexlink_tx_init(void)
 {
-    txq = xQueueCreate(BUF_COUNT, sizeof(tx_item_t));
+    txq = xQueueCreate(BUF_COUNT + SMALL_BUF_COUNT, sizeof(tx_item_t));
 }
 
 void nexlink_tx_send(const void *buf, uint16_t len)
