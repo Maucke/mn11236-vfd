@@ -5,13 +5,18 @@
 #include "spi.h"
 
 // 用户绘制的像素缓冲区
-static uint8_t display_buffer[VFD_HEIGHT][2][VFD_WIDTH / 8]; // [y][color][x]
+static uint8_t display_buffer[VFD_WIDTH][VFD_HEIGHT][2]; // [x][y][color]
 
 // DMA传输缓冲区（当前正在传输的行）
-static uint8_t dma_tx_buffer[VFD_FRAMES][DMA_BUFFER_SIZE];
+#define GRAY_BITS 3
+#define GRAY_PLANES ((1 << GRAY_BITS) - 1)   // =7
+
+static uint8_t dma_tx_buffer[VFD_FRAMES][GRAY_BITS][DMA_BUFFER_SIZE];
 
 // 当前扫描行号
 static volatile uint8_t current_grid = 0;
+static volatile uint8_t current_plane = 0;
+static volatile uint8_t plane_repeat = 0;
 
 /**
  * 设置Bit位
@@ -46,9 +51,12 @@ void init_grids_template(void)
     // T0 = G1+G2、T1 = G2+G3 .....
     for (uint8_t t = 0; t < VFD_FRAMES; t++)
     {
-        uint8_t *buf = dma_tx_buffer[t];
-        set_bit(buf, GRIDS_OFFSET - t);
-        set_bit(buf, GRIDS_OFFSET - (t + 1));
+			for (uint8_t g = 0; g < GRAY_BITS; g++)
+			{
+					uint8_t *buf = dma_tx_buffer[t][g];
+					set_bit(buf, GRIDS_OFFSET - t);
+					set_bit(buf, GRIDS_OFFSET - (t + 1));
+			}
     }
 }
 
@@ -99,9 +107,11 @@ void mn11236_init(void)
     mn11236_clear_buffers();
 
     current_grid = 0;
+		current_plane = 0;
+		plane_repeat = 0;
     HAL_SPI_Transmit_DMA(
         &hspi2,
-        (uint8_t *)dma_tx_buffer[current_grid],
+        (uint8_t *)dma_tx_buffer[current_grid][current_plane],
         DMA_BUFFER_SIZE);
 }
 
@@ -115,12 +125,25 @@ void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
     HAL_GPIO_WritePin(VFD_LAT_GPIO_Port, VFD_LAT_Pin, GPIO_PIN_SET);
     HAL_GPIO_WritePin(VFD_LAT_GPIO_Port, VFD_LAT_Pin, GPIO_PIN_RESET);
 		   
-    current_grid = (current_grid + 1) % VFD_FRAMES;
-		if(current_grid == 0)
-			fps++;
+		plane_repeat++;
+
+		if (plane_repeat >= (1 << current_plane))
+		{
+				plane_repeat = 0;
+				current_plane++;
+
+				if (current_plane >= GRAY_BITS)
+				{
+						current_plane = 0;
+						current_grid = (current_grid + 1) % VFD_FRAMES;
+						if(current_grid == 0)
+							fps++;
+				}
+		}
+		
     HAL_SPI_Transmit_DMA(
         &hspi2,
-        (uint8_t *)dma_tx_buffer[current_grid],
+        (uint8_t *)dma_tx_buffer[current_grid][current_plane],
         DMA_BUFFER_SIZE);
 }
 
@@ -138,6 +161,7 @@ void mn11236_clear_buffers(void)
  */
 void mn11236_send_buffer(void)
 {
+	uint8_t blue = 0, red = 0;
     /**
      * 一帧点3个像素段： T0 = abc, T1 = def, T2 = ghi ...
      * 每个像素段包含红蓝两种颜色数据
@@ -189,24 +213,38 @@ void mn11236_send_buffer(void)
                 }
 
                 // 蓝色像素：根据display_buffer状态设置或清除bit
-                if (get_bit(display_buffer[y][MN11236_COLOR_BLUE], x))
-                {
-                    set_bit(dma_tx_buffer[frame], line_offset + bit_idx);
-                }
+								blue = display_buffer[x][y][MN11236_COLOR_BLUE];
+								if(blue&1)
+                    set_bit(dma_tx_buffer[frame][0], line_offset + bit_idx);
                 else
-                {
-                    reset_bit(dma_tx_buffer[frame], line_offset + bit_idx);
-                }
+                    reset_bit(dma_tx_buffer[frame][0], line_offset + bit_idx);
+								
+								if(blue&2)
+                    set_bit(dma_tx_buffer[frame][1], line_offset + bit_idx);
+                else
+                    reset_bit(dma_tx_buffer[frame][1], line_offset + bit_idx);
+								
+								if(blue&4)
+                    set_bit(dma_tx_buffer[frame][2], line_offset + bit_idx);
+                else
+                    reset_bit(dma_tx_buffer[frame][2], line_offset + bit_idx);
 
                 // 红色像素：根据display_buffer状态设置或清除bit
-                if (get_bit(display_buffer[y][MN11236_COLOR_RED], x))
-                {
-                    set_bit(dma_tx_buffer[frame], line_offset + VFD_COLOR_OFFSET + bit_idx);
-                }
+								red = display_buffer[x][y][MN11236_COLOR_RED];
+								if(red&1)
+                    set_bit(dma_tx_buffer[frame][0], line_offset + VFD_COLOR_OFFSET + bit_idx);
                 else
-                {
-                    reset_bit(dma_tx_buffer[frame], line_offset + VFD_COLOR_OFFSET + bit_idx);
-                }
+                    reset_bit(dma_tx_buffer[frame][0], line_offset + VFD_COLOR_OFFSET + bit_idx);
+								
+								if(red&2)
+                    set_bit(dma_tx_buffer[frame][1], line_offset + VFD_COLOR_OFFSET + bit_idx);
+                else
+                    reset_bit(dma_tx_buffer[frame][1], line_offset + VFD_COLOR_OFFSET + bit_idx);
+								
+								if(red&4)
+                    set_bit(dma_tx_buffer[frame][2], line_offset + VFD_COLOR_OFFSET + bit_idx);
+                else
+                    reset_bit(dma_tx_buffer[frame][2], line_offset + VFD_COLOR_OFFSET + bit_idx);
             }
         }
     }
@@ -221,7 +259,21 @@ void mn11236_draw_pixel(uint8_t x, uint8_t y, mn11236_color_t color)
     {
         return; // 超出范围
     }
-    set_bit(display_buffer[y][color], x);
+		display_buffer[x][y][color] = 7;
+}
+
+void mn11236_draw_pixel_gray(uint8_t x,
+                             uint8_t y,
+                             mn11236_color_t color,
+                             uint8_t gray)
+{
+    if (x >= VFD_WIDTH || y >= VFD_HEIGHT)
+        return;
+
+    if (gray > 7)
+        gray = 7;
+
+    display_buffer[x][y][color] = gray;
 }
 
 /**
@@ -233,7 +285,7 @@ void mn11236_clear_pixel(uint8_t x, uint8_t y, mn11236_color_t color)
     {
         return; // 超出范围
     }
-    reset_bit(display_buffer[y][color], x);
+		display_buffer[x][y][color] = 0;
 }
 
 /**
@@ -245,9 +297,48 @@ uint8_t mn11236_read_pixel(uint8_t x, uint8_t y, mn11236_color_t color)
     {
         return 0; // 超出范围
     }
-    return get_bit(display_buffer[y][color], x);
+    return display_buffer[x][y][color];
 }
 
+void mn11236_gray_test(void)
+{
+    uint8_t x, y;
+
+    mn11236_clear_buffers();
+
+    uint8_t block_width = VFD_WIDTH / 16;  // 16个灰度块
+
+    for (x = 0; x < VFD_WIDTH; x++)
+    {
+        uint8_t block = x / block_width;
+
+        for (y = 0; y < VFD_HEIGHT; y++)
+        {
+            if (block < 8)
+            {
+                /* 蓝色 0~7 */
+                mn11236_draw_pixel_gray(
+                    x,
+                    y,
+                    MN11236_COLOR_BLUE,
+                    block   // 灰度 0~7
+                );
+            }
+            else if (block < 16)
+            {
+                /* 红色 0~7 */
+                mn11236_draw_pixel_gray(
+                    x,
+                    y,
+                    MN11236_COLOR_RED,
+                    block - 8
+                );
+            }
+        }
+    }
+
+    mn11236_send_buffer();
+}
 /**
  * 开发测试函数 - 动画效果测试
  */

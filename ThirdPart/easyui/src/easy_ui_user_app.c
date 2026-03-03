@@ -514,8 +514,11 @@ void UploadFrame()
 void AppGUI_Loop(uint8_t timer)
 {
   static char timeupdateflag;
+//	mn11236_gray_test();
+//	osDelay(5000);
+//	return;
   switch (disp_mode)
-  {
+  { 
   case DISP_MODE_CLOCK:
     if (timeupdateflag != timeStr[4])
     {

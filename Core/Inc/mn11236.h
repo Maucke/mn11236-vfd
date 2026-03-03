@@ -53,6 +53,7 @@ uint8_t mn11236_read_pixel(uint8_t x, uint8_t y, mn11236_color_t color);
 /* Development test function */
 void mn11236_development_test(void);
 
+void mn11236_gray_test(void);
 
 
 #endif
