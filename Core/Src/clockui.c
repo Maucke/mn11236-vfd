@@ -620,6 +620,31 @@ void draw_point(int x, int y, Color color)
     }
 }
 
+void draw_point_gray(int x, int y, Color color,
+                             uint8_t gray)
+{
+    if (x < MAX_X && y < MAX_Y && x >= 0 && y >= 0)
+    {
+        if (color)
+				{
+					if (color & 1)
+							mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, gray);
+					if (color & 2)
+							mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, gray);
+				}
+        else
+            mn11236_clear_pixel(x, y, MN11236_COLOR_RED);
+
+        if (x + 1 < MAX_X)
+        {
+            if (color & 4)
+                mn11236_draw_pixel_gray(x + 1, y, MN11236_COLOR_BLUE, gray);
+            if (color & 8)
+                mn11236_draw_pixel_gray(x + 1, y, MN11236_COLOR_RED, gray);
+        }
+    }
+}
+
 void refrash_gram()
 {
     mn11236_send_buffer();
@@ -826,26 +851,70 @@ void initFood(Food_t *food, Snake_t *snake)
     } while (!valid);
 }
 // 打印游戏界面
-static inline void draw_snake_block(int x, int y, uint8_t color)
+static inline void draw_snake_block_gray(int x, int y, uint8_t color, uint8_t gray)
 {
     int px = x * g_snakeWidth;
     int py = y * g_snakeWidth;
 
     for (int dx = 0; dx < g_snakeWidth; dx++)
         for (int dy = 0; dy < g_snakeWidth; dy++)
-            draw_point(px + dx, py + dy, (Color)color);
+            draw_point_gray(px + dx, py + dy, (Color)color, gray);
 }
-
 
 void printBoard(Snake_t *snake, Food_t *food)
 {
-    draw_snake_block(snake->body[0].x, snake->body[0].y, SNAKE_HEAD);
+    int len = snake->length;
 
-    for (int i = 1; i < snake->length; i++)
-        draw_snake_block(snake->body[i].x, snake->body[i].y, SNAKE_BODY);
+    for (int i = 0; i < len; i++)
+    {
+        float t = (float)i / (len - 1);   // 0 → 1
 
-    draw_snake_block(food->x, food->y, FOOD_DOT);
-} 
+        uint8_t orange = 0;
+        uint8_t cyan = 0;
+
+        if (i == 0)
+        {
+            // 头：纯白
+            orange = 7;
+            cyan   = 7;
+        }
+        else
+        {
+            if (t < 0.4f)
+            {
+                // 白 → 青蓝
+                float k = t / 0.4f;  // 0~1
+                orange = (uint8_t)(7 * (1.0f - k));
+                cyan   = 7;
+            }
+            else
+            {
+                // 青蓝 → 渐灭
+                float k = (t - 0.4f) / 0.6f; // 0~1
+                orange = 0;
+                cyan   = (uint8_t)(7 * (1.0f - k));
+            }
+        }
+
+        if (cyan < 1 && i != 0)
+            cyan = 1;   // 保证不完全熄灭（可删）
+
+        draw_snake_block_gray(
+            snake->body[i].x,
+            snake->body[i].y,
+						Red,
+            orange
+        );
+        draw_snake_block_gray(
+            snake->body[i].x,
+            snake->body[i].y,
+						Cyan,
+            cyan
+        );
+    }
+
+    draw_snake_block_gray(food->x, food->y, FOOD_DOT, 7);
+}
 
 // 辅助函数：返回给定方向的相反方向
 int oppositeDirection(int dir)
@@ -989,26 +1058,76 @@ int checkCollision(Snake_t *snake)
             return 1;
     }
     return 0;
-}
-
-void drawSnakeDying(Snake_t *snake)
+}void drawSnakeDying(Snake_t *snake)
 {
-    for (int i = 0; i < snake->length; i++)
+    int len = snake->length;
+
+    if (len <= 0)
+        return;
+
+    for (int i = 0; i < len; i++)
     {
+        uint8_t redLevel = 0;
+        uint8_t cyanLevel = 0;
+
         if (i <= deathIndex)
         {
-            draw_snake_block(
-                snake->body[i].x,
-                snake->body[i].y,
-                Red     // 已“死亡”的部分
-            );
+            /* ---------- 已扩散到的位置 ---------- */
+
+            /* 计算相对扩散位置 */
+            int d = deathIndex - i;   // 距离“爆点”的距离
+
+            if (d < 0) d = 0;
+            if (d > 7) d = 7;
+
+            /* 红色从7递减 */
+            redLevel = 7 - d;
+
+            if (redLevel < 1)
+                redLevel = 1;
+
+            cyanLevel = 0;   // 被红覆盖
         }
         else
         {
-            draw_snake_block(
+            /* ---------- 还没扩散到 ---------- */
+            /* 保持原来的蓝色渐暗 */
+
+            int t = i * 100 / (len - 1);
+
+            if (t < 50)
+            {
+                cyanLevel = 7;
+            }
+            else
+            {
+                cyanLevel = 7 - ((t - 50) * 7 / 50);
+            }
+
+            if (cyanLevel < 1)
+                cyanLevel = 1;
+
+            redLevel = 0;
+        }
+
+        /* 绘制 */
+        if (redLevel > 0)
+        {
+            draw_snake_block_gray(
                 snake->body[i].x,
                 snake->body[i].y,
-                SNAKE_BODY
+                Red,
+                redLevel
+            );
+        }
+
+        if (cyanLevel > 0)
+        {
+            draw_snake_block_gray(
+                snake->body[i].x,
+                snake->body[i].y,
+                Cyan,
+                cyanLevel
             );
         }
     }
@@ -1055,32 +1174,44 @@ void refrashSnake()
         return;
     }
 
-    /* ====== 2. 全红等待阶段 ====== */
-    if (snakeState == SNAKE_DEAD_WAIT)
-    {
-        /* 整条蛇保持红色 */
-        for (int i = 0; i < snake.length; i++)
-        {
-            draw_snake_block(
-                snake.body[i].x,
-                snake.body[i].y,
-                Red
-            );
-        }
+		/* ====== 2. 红色渐暗阶段 ====== */
+		if (snakeState == SNAKE_DEAD_WAIT)
+		{
+				uint8_t redLevel;
 
-        deadWaitCnt++;
+				if (deadWaitCnt <= 7)
+						redLevel = deadWaitCnt;
+				else
+						redLevel = 0;
 
-        if (deadWaitCnt >= 10)   // ★ 等待 10 个周期
-        {
-            deathIndex = 0;
-            deadWaitCnt = 0;
-            snakeState = SNAKE_ALIVE;
+				for (int i = 0; i < snake.length; i++)
+				{
+						if (redLevel > 0)
+						{
+								draw_snake_block_gray(
+										snake.body[i].x,
+										snake.body[i].y,
+										Red,
+										redLevel
+								);
+						}
+				}
 
-            initSnake(&snake);
-            initFood(&food, &snake);
-        }
-        return;
-    }
+				deadWaitCnt++;
+
+				if (deadWaitCnt > 7)
+				{
+						/* 完全熄灭后重生 */
+						deathIndex = 0;
+						deadWaitCnt = 0;
+						snakeState = SNAKE_ALIVE;
+
+						initSnake(&snake);
+						initFood(&food, &snake);
+				}
+
+				return;
+		}
 
     /* ====== 3. 正常游戏阶段 ====== */
     printBoard(&snake, &food);
