@@ -232,7 +232,8 @@ enum
 	Rgb565,
 	Gray8,
 	Mono1,
-	Dual2Color
+	Dual2Color,
+	Dual2ColorGray8
 } TargetPixelFormat;
 
 typedef struct __attribute__((packed))

@@ -40,6 +40,10 @@ void mn11236_send_buffer(void);
  */
 void mn11236_draw_pixel(uint8_t x, uint8_t y, mn11236_color_t color);
 
+void mn11236_draw_pixel_gray(uint8_t x,
+                             uint8_t y,
+                             mn11236_color_t color,
+                             uint8_t gray);
 /**
  * 清一个点,起点从0,0开始
  */

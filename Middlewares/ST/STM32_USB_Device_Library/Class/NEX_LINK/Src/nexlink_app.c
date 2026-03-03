@@ -146,7 +146,7 @@ static const nl_display_info_t g_display_info =
                 {
                     .width = VFD_WIDTH,
                     .height = VFD_HEIGHT,
-                    .bpp = Dual2Color,
+                    .bpp = Dual2ColorGray8,
                     .refresh = 35,
                 }}};
 
@@ -159,7 +159,7 @@ static uint8_t frame_bpp = 0;
 static uint32_t frame_expected_size = 0;
 static uint32_t frame_received = 0;
 
-#define MAX_FRAME_SIZE 1024
+#define MAX_FRAME_SIZE 2016
 static uint8_t frame_buffer[MAX_FRAME_SIZE];
 
 static void handle_frame_start(nl_packet_t *pkt)
@@ -169,18 +169,18 @@ static void handle_frame_start(nl_packet_t *pkt)
         send_resp_err(pkt->cmd, pkt->seq, NL_ERR_INVALID_PARAM);
         return;
     }
-    ExternUI_Init();
     memcpy(&frame_width, pkt->payload + 0, 2);
     memcpy(&frame_height, pkt->payload + 2, 2);
     frame_bpp = pkt->payload[4];
 
-    if (frame_bpp != Dual2Color)
+    if (frame_bpp != Dual2ColorGray8)
     {
         send_resp_err(pkt->cmd, pkt->seq, NL_ERR_INVALID_PARAM);
         return;
     }
 
-    frame_expected_size = ((frame_width + 3) / 4) * frame_height;
+		frame_expected_size = frame_width * frame_height;
+		
     frame_received = 0;
     // nexlink_log("frame_expected_size: %d, frame_width: %d, frame_height: %d",frame_expected_size,frame_width,frame_height);
 
@@ -191,6 +191,7 @@ static void handle_frame_start(nl_packet_t *pkt)
     }
 
     send_resp_ok(pkt->cmd, pkt->seq, NULL, 0);
+    ExternUI_Init();
 }
 
 static void handle_frame_data(nl_packet_t *pkt)
@@ -210,6 +211,47 @@ static void handle_frame_data(nl_packet_t *pkt)
 
     //    send_resp_ok(pkt->cmd, pkt->seq, NULL, 0);
 }
+static void handle_frame_end(nl_packet_t *pkt)
+{
+    if (frame_received != frame_expected_size)
+    {
+        send_resp_err(pkt->cmd, pkt->seq, NL_ERR_INVALID_PARAM);
+        return;
+    }
+
+    mn11236_clear_buffers();
+
+    uint32_t index = 0;
+
+    for (uint16_t y = 0; y < frame_height; y++)
+    {
+        for (uint16_t x = 0; x < frame_width; x++)
+        {
+            uint8_t value = frame_buffer[index++];
+
+            uint8_t orange_gray = (value >> 4) & 0x07;
+            uint8_t cyan_gray   = value & 0x07;
+
+            if (orange_gray > 0)
+            {
+                mn11236_draw_pixel_gray(x, y,
+                                        MN11236_COLOR_RED,
+                                        orange_gray);
+            }
+
+            if (cyan_gray > 0)
+            {
+                mn11236_draw_pixel_gray(x, y,
+                                        MN11236_COLOR_BLUE,
+                                        cyan_gray);
+            }
+        }
+    }
+
+    mn11236_send_buffer();
+
+    send_resp_ok(pkt->cmd, pkt->seq, NULL, 0);
+}
 
 int pack_frame_buffer(uint8_t *frame_buffer,
                       uint16_t frame_width,
@@ -219,78 +261,19 @@ int pack_frame_buffer(uint8_t *frame_buffer,
 
     for (uint16_t y = 0; y < frame_height; y++)
     {
-        for (uint16_t x = 0; x < frame_width; x += 4)
+        for (uint16_t x = 0; x < frame_width; x++)
         {
-            uint8_t out_byte = 0;
+            uint8_t red_gray  = mn11236_read_pixel(x, y, MN11236_COLOR_RED);
+            uint8_t blue_gray = mn11236_read_pixel(x, y, MN11236_COLOR_BLUE);
 
-            for (int i = 0; i < 4; i++)
-            {
-                uint16_t px = x + i;
-                uint8_t color = 0;
-
-                if (px < frame_width)
-                {
-                    uint8_t red = mn11236_read_pixel(px, y, MN11236_COLOR_RED);
-                    uint8_t blue = mn11236_read_pixel(px, y, MN11236_COLOR_BLUE);
-
-                    if (red)
-                        color |= 0x01;
-                    if (blue)
-                        color |= 0x02;
-                }
-
-                out_byte |= (color & 0x03) << (6 - i * 2);
-            }
+            uint8_t out_byte = ((red_gray & 0x07) << 4) | (blue_gray & 0x07);
 
             frame_buffer[index++] = out_byte;
         }
     }
+
     return index;
 }
-
-static void handle_frame_end(nl_packet_t *pkt)
-{
-    if (frame_received != frame_expected_size)
-    {
-        send_resp_err(pkt->cmd, pkt->seq, NL_ERR_INVALID_PARAM);
-        return;
-    }
-    mn11236_clear_buffers();
-    uint32_t index = 0;
-
-    for (uint16_t y = 0; y < frame_height; y++)
-    {
-        for (uint16_t x = 0; x < frame_width; x += 4)
-        {
-            uint8_t byte = frame_buffer[index++];
-
-            for (int i = 0; i < 4; i++)
-            {
-                uint8_t color = (byte >> (6 - i * 2)) & 0x03;
-
-                uint16_t px = x + i;
-                if (px < frame_width)
-                {
-                    if (color)
-                    {
-                        if (color & 1)
-                            mn11236_draw_pixel(px, y, MN11236_COLOR_RED);
-                        if (color & 2)
-                            mn11236_draw_pixel(px, y, MN11236_COLOR_BLUE);
-                    }
-                    else
-                    {
-                        mn11236_clear_pixel(px, y, MN11236_COLOR_RED);
-                        mn11236_clear_pixel(px, y, MN11236_COLOR_BLUE);
-                    }
-                }
-            }
-        }
-    }
-    mn11236_send_buffer();
-    send_resp_ok(pkt->cmd, pkt->seq, NULL, 0);
-}
-
 static uint8_t uploadframeflag = 0;
 
 static void handle_frame_get(nl_packet_t *pkt)
@@ -310,7 +293,7 @@ void upload_frame_upload()
 
     uint16_t width = VFD_WIDTH;
     uint16_t height = VFD_HEIGHT;
-    uint8_t bpp = Dual2Color;
+    uint8_t bpp = Dual2ColorGray8;
 
     if (uploadframeflag == 0)
         return;
@@ -330,6 +313,7 @@ void upload_frame_upload()
                sizeof startPayload);
 
     upload_frame_expected_size = pack_frame_buffer(upload_frame_buffer, width, height);
+//		nexlink_log("upload_frame_expected_size: %d", upload_frame_expected_size);
     while (upload_offset < upload_frame_expected_size)
     {
         uint32_t size = upload_frame_expected_size - upload_offset;

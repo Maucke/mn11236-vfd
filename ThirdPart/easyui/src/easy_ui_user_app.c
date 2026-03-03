@@ -47,7 +47,7 @@ EasyKey_t keyUp, keyDown;
  * @param   void
  * @return  void
  */
-void EasyUIKeyActionMonitor() // Interrupt trigger, No HAL_Delay(xx)
+void EasyUIKeyActionMonitor() // Interrupt trigger, No EasyUIDelay_ms(xx)
 {
   if (keyUp.isPressed)
   {
@@ -289,24 +289,114 @@ void PageSensor(EasyUIPage_t *page)
 
 void PageDiagnostic(EasyUIItem_t *page)
 {
-  static uint16 color = 0;
-  if (opnDown)
-  {
-    if (color + 1 <= 3)
-      color += 1;
-    else
-      color = 0;
-    opnDown = false;
-  }
-  if (opnUp)
-  {
-    if (color - 1 >= 0)
-      color -= 1;
-    else
-      color = 3;
-    opnUp = false;
-  }
-  EasyUIDrawBox(0, 0, SCREEN_WIDTH - 1, SCREEN_HEIGHT - 1, color);
+    static uint8_t mode = 0;
+    static uint8_t gray = 0;
+    static int8_t  dir  = 1;
+    static uint32_t last_tick = 0;
+
+    // ==========================
+    // 上下键都切换 mode
+    // ==========================
+    if (opnUp)
+    {
+        mode++;
+        if (mode > 3)
+            mode = 0;
+        opnUp = false;
+    }
+
+    if (opnDown)
+    {
+        if (mode == 0)
+            mode = 3;
+        else
+            mode--;
+        opnDown = false;
+    }
+
+    uint32_t now = HAL_GetTick();
+
+    // 每40ms更新动画
+    if (now - last_tick >= 40)
+    {
+        last_tick = now;
+
+        gray += dir;
+
+        if (gray == 7 || gray == 0)
+            dir = -dir;
+    }
+
+    mn11236_clear_buffers();
+
+    // ====================================================
+    // mode 0：蓝色呼吸
+    // ====================================================
+    if (mode == 0)
+    {
+        for (uint8_t x = 0; x < SCREEN_WIDTH; x++)
+        {
+            for (uint8_t y = 0; y < SCREEN_HEIGHT; y++)
+            {
+                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, gray);
+            }
+        }
+    }
+
+    // ====================================================
+    // mode 1：红色呼吸
+    // ====================================================
+    else if (mode == 1)
+    {
+        for (uint8_t x = 0; x < SCREEN_WIDTH; x++)
+        {
+            for (uint8_t y = 0; y < SCREEN_HEIGHT; y++)
+            {
+                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, gray);
+            }
+        }
+    }
+
+    // ====================================================
+    // mode 2：横向蓝0~7 红0~7 渐变
+    // ====================================================
+    else if (mode == 2)
+    {
+        uint8_t section_width = SCREEN_WIDTH / 16;
+
+        for (uint8_t i = 0; i < 16; i++)
+        {
+            uint8_t color = (i < 8) ? MN11236_COLOR_BLUE : MN11236_COLOR_RED;
+            uint8_t g     = (i < 8) ? i : (i - 8);
+
+            for (uint8_t x = i * section_width; x < (i + 1) * section_width; x++)
+            {
+                for (uint8_t y = 0; y < SCREEN_HEIGHT; y++)
+                {
+                    mn11236_draw_pixel_gray(x, y, (mn11236_color_t)color, g);
+                }
+            }
+        }
+    }
+
+    // ====================================================
+    // mode 3：动态棋盘灰度
+    // ====================================================
+    else if (mode == 3)
+    {
+        for (uint8_t x = 0; x < SCREEN_WIDTH; x++)
+        {
+            for (uint8_t y = 0; y < SCREEN_HEIGHT; y++)
+            {
+                uint8_t g = ((x / 4 + y / 4 + gray) % 8);
+                uint8_t c = (x / 8) % 2;
+
+                mn11236_draw_pixel_gray(x, y, (mn11236_color_t)c, g);
+            }
+        }
+    }
+
+    mn11236_send_buffer();
 }
 
 UserInfo_t *pUserInfo;
@@ -513,6 +603,7 @@ void UploadFrame()
 
 void AppGUI_Loop(uint8_t timer)
 {
+	static int rolling = 0;
   static char timeupdateflag;
 //	mn11236_gray_test();
 //	osDelay(5000);
@@ -553,7 +644,8 @@ void AppGUI_Loop(uint8_t timer)
     EasyUIEvent(5);
     break;
   }
-  UploadFrame();
+	if((rolling++)%2)
+		UploadFrame();
   UserInfo_AutoSave();
 
   if (disp_mode != DISP_MODE_MENU)
