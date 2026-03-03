@@ -283,7 +283,7 @@ struct tm tm_local;
 const char *weekDays[7] = {
     "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
 
-
+extern int fps;
 __weak void StartClockTask(void *argument)
 {
 	static int flash = 0;
@@ -296,6 +296,7 @@ __weak void StartClockTask(void *argument)
   {
     if (RX8900_GetTime(&tm_local))
     {
+			nexlink_log("%d fps\r\n", fps);fps = 0;
 //      nexlink_log("%02d:%02d:%02d\r\n", tm_local.tm_hour, tm_local.tm_min, tm_local.tm_sec);
 //      nexlink_log("20%02d-%02d-%02d %d\r\n", tm_local.tm_year, tm_local.tm_mon, tm_local.tm_mday, tm_local.tm_wday);
       flash = !flash;

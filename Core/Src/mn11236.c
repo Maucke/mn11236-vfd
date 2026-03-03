@@ -105,6 +105,8 @@ void mn11236_init(void)
         DMA_BUFFER_SIZE);
 }
 
+int fps = 0;
+
 void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
 {
     if (hspi != &hspi2)
@@ -114,7 +116,8 @@ void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
     HAL_GPIO_WritePin(VFD_LAT_GPIO_Port, VFD_LAT_Pin, GPIO_PIN_RESET);
 		   
     current_grid = (current_grid + 1) % VFD_FRAMES;
-
+		if(current_grid == 0)
+			fps++;
     HAL_SPI_Transmit_DMA(
         &hspi2,
         (uint8_t *)dma_tx_buffer[current_grid],

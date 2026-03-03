@@ -147,7 +147,7 @@ static const nl_display_info_t g_display_info =
                     .width = VFD_WIDTH,
                     .height = VFD_HEIGHT,
                     .bpp = Dual2Color,
-                    .refresh = 60,
+                    .refresh = 70,
                 }}};
 
 extern uint8_t opnEnter, opnExit, opnUp, opnDown;
