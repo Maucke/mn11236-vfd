@@ -79,4 +79,5 @@ void refrashSnake(void);
 void setSnakeWidth(uint8_t width);
 void gradient_flow_frame_clock(void);
 
+void set_g_clockWidth(uint8_t width);
 #endif

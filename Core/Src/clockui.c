@@ -76,12 +76,12 @@ const uint8_t hex_codes_3x5[CHAR_COUNT][3] = {
     {0x12, 0x1F, 0x10}, /*"1", 49(ASCII)*/
     {0x1D, 0x15, 0x17}, /*"2", 50(ASCII)*/
     {0x11, 0x15, 0x1F}, /*"3", 51(ASCII)*/
-    {0x07, 0x04, 0x1F}, /*"4", 52(ASCII)*/
+    {0x07, 0x04, 0x1E}, /*"4", 52(ASCII)*/
     {0x17, 0x15, 0x1D}, /*"5", 53(ASCII)*/
-    {0x1E, 0x15, 0x1D}, /*"6", 54(ASCII)*/
+    {0x1F, 0x15, 0x1C}, /*"6", 54(ASCII)*/
     {0x01, 0x1D, 0x03}, /*"7", 55(ASCII)*/
     {0x1F, 0x15, 0x1F}, /*"8", 56(ASCII)*/
-    {0x17, 0x15, 0x0F}, /*"9", 57(ASCII)*/
+    {0x07, 0x15, 0x1F}, /*"9", 57(ASCII)*/
     {0x00, 0x0A, 0x00}, /*":", 58(ASCII)*/
     {0x00, 0x1A, 0x00}, /*";", 59(ASCII)*/
     {0x04, 0x0A, 0x11}, /*"<", 60(ASCII)*/
@@ -341,7 +341,7 @@ void draw_point_wave(int x, int y, Color color)
             uint8_t red = (p >> 4) & 0x07;
             uint8_t blue = p & 0x07;
 
-            if (color == Red || color == Cyan)
+            if (color == Red)
             {
                 if (red > blue)
 								{
@@ -354,10 +354,15 @@ void draw_point_wave(int x, int y, Color color)
                     mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, 7);
 								}
             }
-            else
+            else if (color == Cyan)
             {
                 mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, red);
                 mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, blue);
+            }
+            else
+            {
+                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, 6);
+                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, 7);
             }
         }
         else
@@ -368,6 +373,12 @@ void draw_point_wave(int x, int y, Color color)
     }
 }
 static uint8_t g_clockWidth = 3;
+
+void set_g_clockWidth(uint8_t width)
+{
+	g_clockWidth = width;
+}
+
 static inline void draw_clock_block_wave(int x, int y, uint8_t color)
 {
     int px = x * g_clockWidth;
@@ -378,13 +389,13 @@ static inline void draw_clock_block_wave(int x, int y, uint8_t color)
             draw_point_wave(px + dx, py + dy, (Color)color);
 }
 
-static void draw_bits_wave(uint8_t bit_mask, int x, Color color)
+static void draw_bits_wave(uint8_t bit_mask, int x, int y, Color color)
 {
     for (int bit = 0; bit < 8; bit++)
     {
         if (bit_mask & (1 << bit))
         {
-            draw_clock_block_wave(x, bit, color);
+            draw_clock_block_wave(x, bit + y, color);
         }
     }
 }
@@ -399,13 +410,13 @@ static inline void draw_clock_block(int x, int y, uint8_t color)
             draw_point(px + dx, py + dy, (Color)color);
 }
 
-static void draw_bits(uint8_t bit_mask, int x, Color color)
+static void draw_bits(uint8_t bit_mask, int x, int y, Color color)
 {
     for (int bit = 0; bit < 8; bit++)
     {
         if (bit_mask & (1 << bit))
         {
-            draw_clock_block(x, bit, color);
+            draw_clock_block(x, bit + y, color);
         }
     }
 }
@@ -424,20 +435,20 @@ static int roll_long_str(LongStr_t *s)
 
             // 颜色掩码1：青，原x坐标 → 调用封装函数
             if (s->color & 1)
-                draw_bits(bit_mask, x, Cyan);
+                draw_bits(bit_mask, x, 0, Cyan);
             // 颜色掩码2：红，原x坐标 → 调用封装函数
             if (s->color & 2)
-                draw_bits(bit_mask, x, Red);
+                draw_bits(bit_mask, x, 0, Red);
 
             // x+1不越界时，处理偏移坐标
             if (x + 1 < MAX_X)
             {
                 // 颜色掩码4：青，x+1坐标 → 调用封装函数
                 if (s->color & 4)
-                    draw_bits(bit_mask, x + 1, Cyan);
+                    draw_bits(bit_mask, x + 1, 0, Cyan);
                 // 颜色掩码8：红，x+1坐标 → 调用封装函数
                 if (s->color & 8)
-                    draw_bits(bit_mask, x + 1, Red);
+                    draw_bits(bit_mask, x + 1, 0, Red);
             }
         }
 
@@ -525,25 +536,25 @@ void draw_char(int x, int y, char ch, Color color)
     {
         if ((i + x) < MAX_X && ((i + x) >= 0))
         {
-            uint8_t bit_mask = hex_codes[ch - ' '][i] << y;
+            uint8_t bit_mask = hex_codes[ch - ' '][i];
             if (bit_mask == 0)
                 continue; // 无点可绘，直接跳过
             // 颜色掩码1：青，原x坐标 → 调用封装函数
             if (color & 1)
-                draw_bits(bit_mask, i + x, Cyan);
+                draw_bits(bit_mask, i + x, y, Cyan);
             // 颜色掩码2：红，原x坐标 → 调用封装函数
             if (color & 2)
-                draw_bits(bit_mask, i + x, Red);
+                draw_bits(bit_mask, i + x, y, Red);
 
             // x+1不越界时，处理偏移坐标
             if (x + 1 < MAX_X)
             {
                 // 颜色掩码4：青，x+1坐标 → 调用封装函数
                 if (color & 4)
-                    draw_bits(bit_mask, i + x + 1, Cyan);
+                    draw_bits(bit_mask, i + x + 1, y, Cyan);
                 // 颜色掩码8：红，x+1坐标 → 调用封装函数
                 if (color & 8)
-                    draw_bits(bit_mask, i + x + 1, Red);
+                    draw_bits(bit_mask, i + x + 1, y, Red);
             }
         }
     }
@@ -561,15 +572,15 @@ void draw_char_3x5_wave(int x, int y, char ch, Color color)
     {
         if ((i + x) < MAX_X && ((i + x) >= 0))
         {
-            uint8_t bit_mask = hex_codes_3x5[ch - ' '][i] << (y + 1);
+            uint8_t bit_mask = hex_codes_3x5[ch - ' '][i];
             if (bit_mask == 0)
                 continue;
-            draw_bits_wave(bit_mask, i + x, color);
+            draw_bits_wave(bit_mask, i + x, y + 1, color);
 						
             // x+1不越界时，处理偏移坐标
             if (x + 1 < MAX_X)
             {
-							draw_bits_wave(bit_mask, i + x + 1, None);
+							draw_bits_wave(bit_mask, i + x + 1, y + 1, None);
             }
         }
     }
@@ -583,25 +594,25 @@ void draw_char_3x5(int x, int y, char ch, Color color)
     {
         if ((i + x) < MAX_X && ((i + x) >= 0))
         {
-            uint8_t bit_mask = hex_codes_3x5[ch - ' '][i] << (y + 1);
+            uint8_t bit_mask = hex_codes_3x5[ch - ' '][i];
             if (bit_mask == 0)
                 continue; // 无点可绘，直接跳过
             // 颜色掩码1：青，原x坐标 → 调用封装函数
             if (color & 1)
-                draw_bits(bit_mask, i + x, Cyan);
+                draw_bits(bit_mask, i + x, y + 1, Cyan);
             // 颜色掩码2：红，原x坐标 → 调用封装函数
             if (color & 2)
-                draw_bits(bit_mask, i + x, Red);
+                draw_bits(bit_mask, i + x, y + 1, Red);
 
             // x+1不越界时，处理偏移坐标
             if (x + 1 < MAX_X)
             {
                 // 颜色掩码4：青，x+1坐标 → 调用封装函数
                 if (color & 4)
-                    draw_bits(bit_mask, i + x + 1, Cyan);
+                    draw_bits(bit_mask, i + x + 1, y + 1, Cyan);
                 // 颜色掩码8：红，x+1坐标 → 调用封装函数
                 if (color & 8)
-                    draw_bits(bit_mask, i + x + 1, Red);
+                    draw_bits(bit_mask, i + x + 1, y + 1, Red);
             }
         }
     }
@@ -637,20 +648,20 @@ void draw_num(int x, int y, char ch, uint8_t height, Color color)
                 continue; // 无点可绘，直接跳过
             // 颜色掩码1：青，原x坐标 → 调用封装函数
             if (color & 1)
-                draw_bits(bit_mask, i + x, Cyan);
+                draw_bits(bit_mask, i + x, y, Cyan);
             // 颜色掩码2：红，原x坐标 → 调用封装函数
             if (color & 2)
-                draw_bits(bit_mask, i + x, Red);
+                draw_bits(bit_mask, i + x, y, Red);
 
             // x+1不越界时，处理偏移坐标
             if (x + 1 < MAX_X)
             {
                 // 颜色掩码4：青，x+1坐标 → 调用封装函数
                 if (color & 4)
-                    draw_bits(bit_mask, i + x + 1, Cyan);
+                    draw_bits(bit_mask, i + x + 1, y, Cyan);
                 // 颜色掩码8：红，x+1坐标 → 调用封装函数
                 if (color & 8)
-                    draw_bits(bit_mask, i + x + 1, Red);
+                    draw_bits(bit_mask, i + x + 1, y, Red);
             }
         }
     }

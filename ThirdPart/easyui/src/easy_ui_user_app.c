@@ -689,7 +689,7 @@ void AppGUI_Init(UserInfo_t *userinfo)
 
   EasyUIAddItem(&pageSetting, &itemSetTime, "Set Time", ITEM_JUMP_PAGE, pageSetTime.id);
   EasyUIAddItem(&pageSetting, &itemMusicTheme, "FFT Theme", ITEM_PROGRESS_BAR, &pUserInfo->musictheme, 7, EventChangeValue);
-  EasyUIAddItem(&pageSetting, &itemClockTheme, "Clock Theme", ITEM_PROGRESS_BAR, &pUserInfo->clocktheme, 3, EventChangeValue);
+  EasyUIAddItem(&pageSetting, &itemClockTheme, "Clock Theme", ITEM_PROGRESS_BAR, &pUserInfo->clocktheme, 4, EventChangeValue);
   EasyUIAddItem(&pageSetting, &itemDefaultFunc, "Default Func", ITEM_PROGRESS_BAR, &pUserInfo->defaultfunc, 3, EventChangeValue);
 
   EasyUIAddItem(&pageAnimation, &titleAnimation, "[Animation]", ITEM_PAGE_DESCRIPTION);
@@ -746,8 +746,12 @@ void Motion_Run(EffectSwitch_t *effectswitch)
     Motion_Firework();
 }
 extern char timeStr[10];
-const ClockTheme_t clockTheme[4] = {
+extern char date[10];
+extern char week[10];
+
+const ClockTheme_t clockTheme[5] = {
     {Red, Red, 0},
+    {Red, Cyan, 0},
     {Cyan, White, 0},
     {Red, WhiteWithCyan, 1},
     {Cyan, WhiteWithRed, 1}};
@@ -779,13 +783,21 @@ void AppGUI_Loop(uint8_t timer)
     }
     clear_gram(White);
 		
-		if(pUserInfo->clocktheme < 2)
+		if(clockTheme[pUserInfo->clocktheme].type == 0)
 		{
 			gradient_flow_frame_clock();
+			set_g_clockWidth(3);
 			draw_str_3x5_wave((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 3, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
+			set_g_clockWidth(1);
+			draw_str_3x5_wave(SCREEN_WIDTH - 24, 12, date, clockTheme[pUserInfo->clocktheme].font);
 		}
 		else
+		{
+			set_g_clockWidth(3);
 			draw_str_3x5((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 3, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
+//			set_g_clockWidth(1);
+//			draw_str_3x5(SCREEN_WIDTH - 24, 12, date, clockTheme[pUserInfo->clocktheme].font);
+		}
 //		EasyUIDisplayStr(0,0,timeStr);
     roll_all_long_str();
     refrash_gram();
@@ -848,7 +860,7 @@ void AppGUI_Loop(uint8_t timer)
       if (disp_mode == DISP_MODE_FFT)
         pUserInfo->musictheme = (pUserInfo->musictheme + 1) % 8;
       else if (disp_mode == DISP_MODE_CLOCK)
-        pUserInfo->clocktheme = (pUserInfo->clocktheme + 1) % 4;
+        pUserInfo->clocktheme = (pUserInfo->clocktheme + 1) % 5;
       else if (disp_mode == DISP_MODE_SNAKE)
       {
         pUserInfo->snakewidth = (pUserInfo->snakewidth + 1) % 5;

@@ -76,6 +76,8 @@ static long lBufInArray[NPT];
 static long lBufOutArray[NPT];
 long lBufMagArray[NPT];
 char timeStr[10] = {0};
+char date[10] = {0};
+char week[10] = {0};
 char hourMinute[10] = {0};
 uint32_t backToDefaultTimestamp = 0;
 struct tm tm_set;
@@ -305,10 +307,13 @@ __weak void StartClockTask(void *argument)
       else
         snprintf(timeStr, sizeof timeStr, "%02d %02d", tm_local.tm_hour, tm_local.tm_min);
       snprintf(hourMinute, sizeof hourMinute, "%02d%02d", tm_local.tm_hour, tm_local.tm_min);
+      snprintf(date, sizeof date, "%02d-%02d", tm_local.tm_mon + 1, tm_local.tm_mday);
+      snprintf(week, sizeof week, "%s", weekDays[tm_local.tm_wday % 7]);
+			
 			if (count++ > 10)
 			{
 				count = 0;
-				snprintf(tempstr, sizeof tempstr, "20%02d-%02d-%02d %s", tm_local.tm_year, tm_local.tm_mon, tm_local.tm_mday, weekDays[tm_local.tm_wday % 7]);
+				snprintf(tempstr, sizeof tempstr, "20%02d-%02d-%02d %s", tm_local.tm_year, tm_local.tm_mon + 1, tm_local.tm_mday, weekDays[tm_local.tm_wday % 7]);
 				// draw_long_str(tempstr, Red, 0);
 			}
     }
