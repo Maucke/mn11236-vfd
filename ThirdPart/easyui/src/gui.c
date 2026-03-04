@@ -175,6 +175,127 @@ void GUI_ShowChar(int16 x, int16 y, const char dat)
       }
     }
     break;
+  case GUI_8X16_FONT:
+    for(i = 0; i < 8; i++)
+    {
+      // 减 32 因为是取模是从空格开始取得 空格在 ascii 中序号是 32
+      uint8 temp_top = ascii_default_8x16[dat - 32][i];
+      uint8 temp_bottom = ascii_default_8x16[dat - 32][i + 8];
+      for(j = 0; j < 8; j++)
+      {
+        if(temp_top & 0x01)
+        {
+          GUI_DrawPoint(x + i, y + j, GUI_penColor);
+        }
+        temp_top >>= 1;
+      }
+      for(j = 0; j < 8; j++)
+      {
+        if(temp_bottom & 0x01)
+        {
+          GUI_DrawPoint(x + i, y + j + 8, GUI_penColor);
+        }
+        temp_bottom >>= 1;
+      }
+    }
+    break;
+
+  case GUI_8X16_OCRB:
+    for(i = 0; i < 8; i++)
+    {
+      // 减 32 因为是取模是从空格开始取得 空格在 ascii 中序号是 32
+      uint8 temp_top = ascii_OCRB_8x16[dat - 32][i];
+      uint8 temp_bottom = ascii_OCRB_8x16[dat - 32][i + 8];
+      for(j = 0; j < 8; j++)
+      {
+        if(temp_top & 0x01)
+        {
+          GUI_DrawPoint(x + i, y + j, GUI_penColor);
+        }
+        temp_top >>= 1;
+      }
+      for(j = 0; j < 8; j++)
+      {
+        if(temp_bottom & 0x01)
+        {
+          GUI_DrawPoint(x + i, y + j + 8, GUI_penColor);
+        }
+        temp_bottom >>= 1;
+      }
+    }
+    break;
+  case GUI_10X16_OCR:
+    for(i = 0; i < 10; i++)
+    {
+      // 减 32 因为是取模是从空格开始取得 空格在 ascii 中序号是 32
+      uint8 temp_top = ascii_OCR_10x16[dat - 32][i];
+      uint8 temp_bottom = ascii_OCR_10x16[dat - 32][i + 10];
+      for(j = 0; j < 8; j++)
+      {
+        if(temp_top & 0x01)
+        {
+          GUI_DrawPoint(x + i, y + j, GUI_penColor);
+        }
+        temp_top >>= 1;
+      }
+      for(j = 0; j < 8; j++)
+      {
+        if(temp_bottom & 0x01)
+        {
+          GUI_DrawPoint(x + i, y + j + 8, GUI_penColor);
+        }
+        temp_bottom >>= 1;
+      }
+    }
+    break;
+  case GUI_12X16_OCR:
+    for(i = 0; i < 12; i++)
+    {
+      // 减 32 因为是取模是从空格开始取得 空格在 ascii 中序号是 32
+      uint8 temp_top = ascii_OCR_12x16[dat - 32][i];
+      uint8 temp_bottom = ascii_OCR_12x16[dat - 32][i + 12];
+      for(j = 0; j < 8; j++)
+      {
+        if(temp_top & 0x01)
+        {
+          GUI_DrawPoint(x + i, y + j, GUI_penColor);
+        }
+        temp_top >>= 1;
+      }
+      for(j = 0; j < 8; j++)
+      {
+        if(temp_bottom & 0x01)
+        {
+          GUI_DrawPoint(x + i, y + j + 8, GUI_penColor);
+        }
+        temp_bottom >>= 1;
+      }
+    }
+    break;
+  case GUI_12X16_OCRB:
+    for(i = 0; i < 12; i++)
+    {
+      // 减 32 因为是取模是从空格开始取得 空格在 ascii 中序号是 32
+      uint8 temp_top = ascii_OCRB_12x16[dat - 32][i];
+      uint8 temp_bottom = ascii_OCRB_12x16[dat - 32][i + 12];
+      for(j = 0; j < 8; j++)
+      {
+        if(temp_top & 0x01)
+        {
+          GUI_DrawPoint(x + i, y + j, GUI_penColor);
+        }
+        temp_top >>= 1;
+      }
+      for(j = 0; j < 8; j++)
+      {
+        if(temp_bottom & 0x01)
+        {
+          GUI_DrawPoint(x + i, y + j + 8, GUI_penColor);
+        }
+        temp_bottom >>= 1;
+      }
+    }
+    break;
   default:
     break;
   }

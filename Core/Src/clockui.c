@@ -1,6 +1,7 @@
 #include "clockui.h"
 #include <string.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include "llist.h"
 #include "nexlink_app.h"
 #include <math.h>
@@ -280,10 +281,10 @@ static void flush_frame(void)
         {
             uint8_t p = frame_wave[x][y];
 
-            uint8_t red  = (p >> 4) & 0x07;
-            uint8_t blue =  p       & 0x07;
+            uint8_t red = (p >> 4) & 0x07;
+            uint8_t blue = p & 0x07;
 
-            mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED,  red / 2);
+            mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, red / 2);
             mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, blue / 2);
         }
     }
@@ -300,32 +301,33 @@ void gradient_flow_frame_clock(void)
                 sinf(y * W2 + t2) +
                 sinf((x + y) * W3 + t3);
             // 归一化到 0~1
-						v = (v + 3.0f) / 6.0f;
+            v = (v + 3.0f) / 6.0f;
 
-						if (v < 0) v = 0;
-						if (v > 1) v = 1;
+            if (v < 0)
+                v = 0;
+            if (v > 1)
+                v = 1;
 
-						/* 增加对比度 */
-						v = powf(v, 0.6f);   // <1 提高对比度
+            /* 增加对比度 */
+            v = powf(v, 0.6f); // <1 提高对比度
 
             /* 映射 */
-            uint8_t blue = (uint8_t)(v * 7.0f);   // 3bit
-            uint8_t red  = (uint8_t)((1.0f - v) * 7.0f); // 3bit
+            uint8_t blue = (uint8_t)(v * 7.0f);         // 3bit
+            uint8_t red = (uint8_t)((1.0f - v) * 7.0f); // 3bit
 
             frame_wave[x][y] = (red << 4) | (blue & 0x07);
         }
     }
 
-		flush_frame();
+    flush_frame();
     t1 += SPEED1;
     t2 += SPEED2;
     t3 += SPEED3;
-		
 }
 void clock_init()
 {
     llist_init(&long_str_list);
-		clear_all_long_str();
+    clear_all_long_str();
 }
 
 void draw_point_wave(int x, int y, Color color)
@@ -333,33 +335,39 @@ void draw_point_wave(int x, int y, Color color)
     if (x < MAX_X && y < MAX_Y && x >= 0 && y >= 0)
     {
         if (color)
-				{
-					uint8_t p = frame_wave[x][y];
+        {
+            uint8_t p = frame_wave[x][y];
 
-					uint8_t red  = (p >> 4) & 0x07;
-					uint8_t blue =  p       & 0x07;
+            uint8_t red = (p >> 4) & 0x07;
+            uint8_t blue = p & 0x07;
 
-					if(color == Red || color == Cyan)
-					{
-						if(red > blue)
-							mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED,  6);
-						else
-							mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, 7);
-					}
-					else
-					{
-            mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED,  red);
-            mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, blue);
-					}
-				}
+            if (color == Red || color == Cyan)
+            {
+                if (red > blue)
+								{
+										mn11236_clear_pixel(x, y, MN11236_COLOR_BLUE);
+                    mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, 6);
+								}
+                else
+								{
+										mn11236_clear_pixel(x, y, MN11236_COLOR_RED);
+                    mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, 7);
+								}
+            }
+            else
+            {
+                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, red);
+                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, blue);
+            }
+        }
         else
-				{
+        {
             mn11236_clear_pixel(x, y, MN11236_COLOR_RED);
             mn11236_clear_pixel(x, y, MN11236_COLOR_BLUE);
-				}
+        }
     }
 }
-static uint8_t g_clockWidth = 3; 
+static uint8_t g_clockWidth = 3;
 static inline void draw_clock_block_wave(int x, int y, uint8_t color)
 {
     int px = x * g_clockWidth;
@@ -376,7 +384,7 @@ static void draw_bits_wave(uint8_t bit_mask, int x, Color color)
     {
         if (bit_mask & (1 << bit))
         {
-            draw_clock_block_wave(x, bit, color); 
+            draw_clock_block_wave(x, bit, color);
         }
     }
 }
@@ -397,21 +405,22 @@ static void draw_bits(uint8_t bit_mask, int x, Color color)
     {
         if (bit_mask & (1 << bit))
         {
-            draw_clock_block(x, bit, color); 
+            draw_clock_block(x, bit, color);
         }
     }
 }
 
 static int roll_long_str(LongStr_t *s)
 {
-    int position = s->current - s->str; 
+    int position = s->current - s->str;
     if (s->current != 0)
     {
         // 倒序遍历x轴，保留原逻辑
         for (int x = MAX_X - 1; x >= 0; x--)
         {
             uint8_t bit_mask = s->current[x];
-            if (bit_mask == 0) continue; // 无点可绘，直接跳过
+            if (bit_mask == 0)
+                continue; // 无点可绘，直接跳过
 
             // 颜色掩码1：青，原x坐标 → 调用封装函数
             if (s->color & 1)
@@ -456,7 +465,7 @@ static int roll_long_str(LongStr_t *s)
             else
             {
                 s->current = 0;
-                mn11236_clear_buffers(); 
+                mn11236_clear_buffers();
                 llist_remove(&long_str_list, s);
                 free(s);
                 return 1;
@@ -510,189 +519,203 @@ void clear_all_long_str()
 
 void draw_char(int x, int y, char ch, Color color)
 {
-	if (color == None)
-		return;
-	for (int i = 4; i >= 0; i--)
-	{
-		if ((i + x) < MAX_X && ((i + x) >= 0))
-		{
-			uint8_t bit_mask = hex_codes[ch - ' '][i] << y;
-			if (bit_mask == 0) continue; // 无点可绘，直接跳过
-			// 颜色掩码1：青，原x坐标 → 调用封装函数
-			if (color & 1)
-					draw_bits(bit_mask, i + x, Cyan);
-			// 颜色掩码2：红，原x坐标 → 调用封装函数
-			if (color & 2)
-					draw_bits(bit_mask, i + x, Red);
+    if (color == None)
+        return;
+    for (int i = 4; i >= 0; i--)
+    {
+        if ((i + x) < MAX_X && ((i + x) >= 0))
+        {
+            uint8_t bit_mask = hex_codes[ch - ' '][i] << y;
+            if (bit_mask == 0)
+                continue; // 无点可绘，直接跳过
+            // 颜色掩码1：青，原x坐标 → 调用封装函数
+            if (color & 1)
+                draw_bits(bit_mask, i + x, Cyan);
+            // 颜色掩码2：红，原x坐标 → 调用封装函数
+            if (color & 2)
+                draw_bits(bit_mask, i + x, Red);
 
-			// x+1不越界时，处理偏移坐标
-			if (x + 1 < MAX_X)
-			{
-					// 颜色掩码4：青，x+1坐标 → 调用封装函数
-					if (color & 4)
-							draw_bits(bit_mask, i + x + 1, Cyan);
-					// 颜色掩码8：红，x+1坐标 → 调用封装函数
-					if (color & 8)
-							draw_bits(bit_mask, i + x + 1, Red);
-			}
-		}
-	}
+            // x+1不越界时，处理偏移坐标
+            if (x + 1 < MAX_X)
+            {
+                // 颜色掩码4：青，x+1坐标 → 调用封装函数
+                if (color & 4)
+                    draw_bits(bit_mask, i + x + 1, Cyan);
+                // 颜色掩码8：红，x+1坐标 → 调用封装函数
+                if (color & 8)
+                    draw_bits(bit_mask, i + x + 1, Red);
+            }
+        }
+    }
 }
 
 void draw_char_3x5_wave(int x, int y, char ch, Color color)
 {
-	if (color == None)
-		return;
-	for (int i = 2; i >= 0; i--)
-	{
-		if ((i + x) < MAX_X && ((i + x) >= 0))
-		{
-			uint8_t bit_mask = hex_codes_3x5[ch - ' '][i] << (y + 1);
-			if (bit_mask == 0) continue;
-			draw_bits_wave(bit_mask, i + x, color);
-		}
-	}
+    if (color == None)
+        return;
+#if 0
+    for (int i = 2; i >= 0; i--)
+#else
+    for (int i = 0; i < 3; i++)
+#endif
+    {
+        if ((i + x) < MAX_X && ((i + x) >= 0))
+        {
+            uint8_t bit_mask = hex_codes_3x5[ch - ' '][i] << (y + 1);
+            if (bit_mask == 0)
+                continue;
+            draw_bits_wave(bit_mask, i + x, color);
+						
+            // x+1不越界时，处理偏移坐标
+            if (x + 1 < MAX_X)
+            {
+							draw_bits_wave(bit_mask, i + x + 1, None);
+            }
+        }
+    }
 }
 
 void draw_char_3x5(int x, int y, char ch, Color color)
 {
-	if (color == None)
-		return;
-	for (int i = 0; i < 3; i++)
-	{
-		if ((i + x) < MAX_X && ((i + x) >= 0))
-		{
-			uint8_t bit_mask = hex_codes_3x5[ch - ' '][i] << (y + 1);
-			if (bit_mask == 0) continue; // 无点可绘，直接跳过
-			// 颜色掩码1：青，原x坐标 → 调用封装函数
-			if (color & 1)
-					draw_bits(bit_mask, i + x, Cyan);
-			// 颜色掩码2：红，原x坐标 → 调用封装函数
-			if (color & 2)
-					draw_bits(bit_mask, i + x, Red);
+    if (color == None)
+        return;
+    for (int i = 0; i < 3; i++)
+    {
+        if ((i + x) < MAX_X && ((i + x) >= 0))
+        {
+            uint8_t bit_mask = hex_codes_3x5[ch - ' '][i] << (y + 1);
+            if (bit_mask == 0)
+                continue; // 无点可绘，直接跳过
+            // 颜色掩码1：青，原x坐标 → 调用封装函数
+            if (color & 1)
+                draw_bits(bit_mask, i + x, Cyan);
+            // 颜色掩码2：红，原x坐标 → 调用封装函数
+            if (color & 2)
+                draw_bits(bit_mask, i + x, Red);
 
-			// x+1不越界时，处理偏移坐标
-			if (x + 1 < MAX_X)
-			{
-					// 颜色掩码4：青，x+1坐标 → 调用封装函数
-					if (color & 4)
-							draw_bits(bit_mask, i + x + 1, Cyan);
-					// 颜色掩码8：红，x+1坐标 → 调用封装函数
-					if (color & 8)
-							draw_bits(bit_mask, i + x + 1, Red);
-			}
-		}
-	}
+            // x+1不越界时，处理偏移坐标
+            if (x + 1 < MAX_X)
+            {
+                // 颜色掩码4：青，x+1坐标 → 调用封装函数
+                if (color & 4)
+                    draw_bits(bit_mask, i + x + 1, Cyan);
+                // 颜色掩码8：红，x+1坐标 → 调用封装函数
+                if (color & 8)
+                    draw_bits(bit_mask, i + x + 1, Red);
+            }
+        }
+    }
 }
 
 void draw_num(int x, int y, char ch, uint8_t height, Color color)
 {
 
-	if (color == None)
-		return;
+    if (color == None)
+        return;
 
-	const uint8_t *codes;
-	if (height == 3)
-		codes = &hex_codes_3x3[0][0];
-	else if (height == 4)
-		codes = &hex_codes_3x4[0][0];
-	else if (height == 8)
-		codes = &hex_codes_4x8[0][0];
+    const uint8_t *codes;
+    if (height == 3)
+        codes = &hex_codes_3x3[0][0];
+    else if (height == 4)
+        codes = &hex_codes_3x4[0][0];
+    else if (height == 8)
+        codes = &hex_codes_4x8[0][0];
 
-	uint8_t width = 3;
-	if (height == 8)
-		width = 4;
-	for (int i = 0; i < width; i++)
-	{
-		uint8_t ind = ch - '0' + 1;
-		if (ch == ' ')
-			ind = 0;
+    uint8_t width = 3;
+    if (height == 8)
+        width = 4;
+    for (int i = 0; i < width; i++)
+    {
+        uint8_t ind = ch - '0' + 1;
+        if (ch == ' ')
+            ind = 0;
 
-		if ((i + x) < MAX_X && ((i + x) >= 0))
-		{
-			uint8_t bit_mask = codes[ind * width + i] << y;
-			if (bit_mask == 0) continue; // 无点可绘，直接跳过
-			// 颜色掩码1：青，原x坐标 → 调用封装函数
-			if (color & 1)
-					draw_bits(bit_mask, i + x, Cyan);
-			// 颜色掩码2：红，原x坐标 → 调用封装函数
-			if (color & 2)
-					draw_bits(bit_mask, i + x, Red);
+        if ((i + x) < MAX_X && ((i + x) >= 0))
+        {
+            uint8_t bit_mask = codes[ind * width + i] << y;
+            if (bit_mask == 0)
+                continue; // 无点可绘，直接跳过
+            // 颜色掩码1：青，原x坐标 → 调用封装函数
+            if (color & 1)
+                draw_bits(bit_mask, i + x, Cyan);
+            // 颜色掩码2：红，原x坐标 → 调用封装函数
+            if (color & 2)
+                draw_bits(bit_mask, i + x, Red);
 
-			// x+1不越界时，处理偏移坐标
-			if (x + 1 < MAX_X)
-			{
-					// 颜色掩码4：青，x+1坐标 → 调用封装函数
-					if (color & 4)
-							draw_bits(bit_mask, i + x + 1, Cyan);
-					// 颜色掩码8：红，x+1坐标 → 调用封装函数
-					if (color & 8)
-							draw_bits(bit_mask, i + x + 1, Red);
-			}
-		}
-	}
+            // x+1不越界时，处理偏移坐标
+            if (x + 1 < MAX_X)
+            {
+                // 颜色掩码4：青，x+1坐标 → 调用封装函数
+                if (color & 4)
+                    draw_bits(bit_mask, i + x + 1, Cyan);
+                // 颜色掩码8：红，x+1坐标 → 调用封装函数
+                if (color & 8)
+                    draw_bits(bit_mask, i + x + 1, Red);
+            }
+        }
+    }
 }
 
 void draw_num_str(int x, int y, char *str, uint8_t height, Color color)
 {
-	if (color == None)
-		return;
+    if (color == None)
+        return;
 
-	int len = strlen(str);
-	uint8_t width = 3;
-	if (height == 8)
-		width = 4;
-	for (int i = 0; i < len; i++)
-	{
-		draw_num(x + i * (width + 1), y, str[i], height, color);
-	}
+    int len = strlen(str);
+    uint8_t width = 3;
+    if (height == 8)
+        width = 4;
+    for (int i = 0; i < len; i++)
+    {
+        draw_num(x + i * (width + 1), y, str[i], height, color);
+    }
 }
 
 void draw_str(int x, int y, char *str, Color color)
 {
-	if (color == None)
-		return;
+    if (color == None)
+        return;
 
-	int len = strlen(str);
+    int len = strlen(str);
 
-	for (int i = 0; i < len; i++)
-	{
-		draw_char(x + i * 6, y, str[i], color);
-	}
+    for (int i = 0; i < len; i++)
+    {
+        draw_char(x + i * 6, y, str[i], color);
+    }
 }
 
 void draw_str_3x5(int x, int y, char *str, Color color)
 {
-	int delta = 0;
-	if (color == None)
-		return;
-	int len = strlen(str);
+    int delta = 0;
+    if (color == None)
+        return;
+    int len = strlen(str);
 
-	for (int i = 0; i < len; i++)
-	{
-		draw_char_3x5(x + delta, y, str[i], color);
-//		if (str[i] == ' ' || str[i] == ':')
-//			delta += 2;
-//		else
-			delta += 4;
-	}
+    for (int i = 0; i < len; i++)
+    {
+        draw_char_3x5(x + delta, y, str[i], color);
+        //		if (str[i] == ' ' || str[i] == ':')
+        //			delta += 2;
+        //		else
+        delta += 4;
+    }
 }
 
 void draw_str_3x5_wave(int x, int y, char *str, Color color)
 {
-	int delta = 0;
-	if (color == None)
-		return;
-	int len = strlen(str);
+    int delta = 0;
+    if (color == None)
+        return;
+    int len = strlen(str);
 
-	for (int i = 0; i < len; i++)
-	{
-		draw_char_3x5_wave(x + delta, y, str[i], color);
-//		if (str[i] == ' ' || str[i] == ':')
-//			delta += 2;
-//		else
-			delta += 4;
-	}
+    for (int i = 0; i < len; i++)
+    {
+        draw_char_3x5_wave(x + delta, y, str[i], color);
+        //		if (str[i] == ' ' || str[i] == ':')
+        //			delta += 2;
+        //		else
+        delta += 4;
+    }
 }
 
 void clear_gram(Color color)
@@ -748,12 +771,12 @@ void draw_point(int x, int y, Color color)
     if (x < MAX_X && y < MAX_Y && x >= 0 && y >= 0)
     {
         if (color)
-				{
-					if (color & 1)
-							mn11236_draw_pixel(x, y, MN11236_COLOR_BLUE);
-					if (color & 2)
-							mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, 5);
-				}
+        {
+            if (color & 1)
+                mn11236_draw_pixel(x, y, MN11236_COLOR_BLUE);
+            if (color & 2)
+                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, 5);
+        }
         else
             mn11236_clear_pixel(x, y, MN11236_COLOR_RED);
 
@@ -768,17 +791,17 @@ void draw_point(int x, int y, Color color)
 }
 
 void draw_point_gray(int x, int y, Color color,
-                             uint8_t gray)
+                     uint8_t gray)
 {
     if (x < MAX_X && y < MAX_Y && x >= 0 && y >= 0)
     {
         if (color)
-				{
-					if (color & 1)
-							mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, gray);
-					if (color & 2)
-							mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, gray);
-				}
+        {
+            if (color & 1)
+                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, gray);
+            if (color & 2)
+                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, gray);
+        }
         else
             mn11236_clear_pixel(x, y, MN11236_COLOR_RED);
 
@@ -891,7 +914,7 @@ void draw_fft(long *fft_result, int len, int delta, Color bar, Color dot)
     }
     draw_bar(bars, bar, dot);
 }
-static uint8_t g_snakeWidth = 2;   // 默认宽度
+static uint8_t g_snakeWidth = 2; // 默认宽度
 #define COLS (MAX_X / g_snakeWidth)
 #define ROWS (MAX_Y / g_snakeWidth)
 
@@ -924,8 +947,8 @@ typedef struct
 typedef enum
 {
     SNAKE_ALIVE = 0,
-    SNAKE_DYING,      // 正在从头到尾变红
-    SNAKE_DEAD_WAIT   // 已全红，等待重生
+    SNAKE_DYING,    // 正在从头到尾变红
+    SNAKE_DEAD_WAIT // 已全红，等待重生
 } SnakeState_t;
 
 SnakeState_t snakeState = SNAKE_ALIVE;
@@ -953,10 +976,18 @@ void initSnake(Snake_t *snake)
         int dx = 0, dy = 0;
         switch (snake->direction)
         {
-        case 0: dy = 1; break;  // 上 → 身体向下
-        case 1: dx = -1; break; // 右 → 身体向左
-        case 2: dy = -1; break; // 下 → 身体向上
-        case 3: dx = 1; break;  // 左 → 身体向右
+        case 0:
+            dy = 1;
+            break; // 上 → 身体向下
+        case 1:
+            dx = -1;
+            break; // 右 → 身体向左
+        case 2:
+            dy = -1;
+            break; // 下 → 身体向上
+        case 3:
+            dx = 1;
+            break; // 左 → 身体向右
         }
 
         /* 检查是否越界 */
@@ -1014,7 +1045,7 @@ void printBoard(Snake_t *snake, Food_t *food)
 
     for (int i = 0; i < len; i++)
     {
-        float t = (float)i / (len - 1);   // 0 → 1
+        float t = (float)i / (len - 1); // 0 → 1
 
         uint8_t orange = 0;
         uint8_t cyan = 0;
@@ -1023,41 +1054,39 @@ void printBoard(Snake_t *snake, Food_t *food)
         {
             // 头：纯白
             orange = 7;
-            cyan   = 7;
+            cyan = 7;
         }
         else
         {
             if (t < 0.4f)
             {
                 // 白 → 青蓝
-                float k = t / 0.4f;  // 0~1
+                float k = t / 0.4f; // 0~1
                 orange = (uint8_t)(7 * (1.0f - k));
-                cyan   = 7;
+                cyan = 7;
             }
             else
             {
                 // 青蓝 → 渐灭
                 float k = (t - 0.4f) / 0.6f; // 0~1
                 orange = 0;
-                cyan   = (uint8_t)(7 * (1.0f - k));
+                cyan = (uint8_t)(7 * (1.0f - k));
             }
         }
 
         if (cyan < 1 && i != 0)
-            cyan = 1;   // 保证不完全熄灭（可删）
+            cyan = 1; // 保证不完全熄灭（可删）
 
         draw_snake_block_gray(
             snake->body[i].x,
             snake->body[i].y,
-						Red,
-            orange
-        );
+            Red,
+            orange);
         draw_snake_block_gray(
             snake->body[i].x,
             snake->body[i].y,
-						Cyan,
-            cyan
-        );
+            Cyan,
+            cyan);
     }
 
     draw_snake_block_gray(food->x, food->y, FOOD_DOT, 7);
@@ -1119,10 +1148,14 @@ void autoTrackFood(Snake_t *snake, Food_t *food)
             continue;
 
         int nx = hx, ny = hy;
-        if (dir == 0) ny--;
-        if (dir == 1) nx++;
-        if (dir == 2) ny++;
-        if (dir == 3) nx--;
+        if (dir == 0)
+            ny--;
+        if (dir == 1)
+            nx++;
+        if (dir == 2)
+            ny++;
+        if (dir == 3)
+            nx--;
 
         /* ★ 边界检查 */
         if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS)
@@ -1165,10 +1198,18 @@ void moveSnake(Snake_t *snake)
 
     switch (snake->direction)
     {
-    case 0: snake->body[0].y--; break;
-    case 1: snake->body[0].x++; break;
-    case 2: snake->body[0].y++; break;
-    case 3: snake->body[0].x--; break;
+    case 0:
+        snake->body[0].y--;
+        break;
+    case 1:
+        snake->body[0].x++;
+        break;
+    case 2:
+        snake->body[0].y++;
+        break;
+    case 3:
+        snake->body[0].x--;
+        break;
     }
     /* ❌ 不允许取模 */
 }
@@ -1205,7 +1246,8 @@ int checkCollision(Snake_t *snake)
             return 1;
     }
     return 0;
-}void drawSnakeDying(Snake_t *snake)
+}
+void drawSnakeDying(Snake_t *snake)
 {
     int len = snake->length;
 
@@ -1222,10 +1264,12 @@ int checkCollision(Snake_t *snake)
             /* ---------- 已扩散到的位置 ---------- */
 
             /* 计算相对扩散位置 */
-            int d = deathIndex - i;   // 距离“爆点”的距离
+            int d = deathIndex - i; // 距离“爆点”的距离
 
-            if (d < 0) d = 0;
-            if (d > 7) d = 7;
+            if (d < 0)
+                d = 0;
+            if (d > 7)
+                d = 7;
 
             /* 红色从7递减 */
             redLevel = 7 - d;
@@ -1233,7 +1277,7 @@ int checkCollision(Snake_t *snake)
             if (redLevel < 1)
                 redLevel = 1;
 
-            cyanLevel = 0;   // 被红覆盖
+            cyanLevel = 0; // 被红覆盖
         }
         else
         {
@@ -1264,8 +1308,7 @@ int checkCollision(Snake_t *snake)
                 snake->body[i].x,
                 snake->body[i].y,
                 Red,
-                redLevel
-            );
+                redLevel);
         }
 
         if (cyanLevel > 0)
@@ -1274,8 +1317,7 @@ int checkCollision(Snake_t *snake)
                 snake->body[i].x,
                 snake->body[i].y,
                 Cyan,
-                cyanLevel
-            );
+                cyanLevel);
         }
     }
 }
@@ -1284,7 +1326,7 @@ void setSnakeWidth(uint8_t width)
 {
     if (width < 1)
         width = 1;
-    if (width > 8)          // 可按屏幕性能限制
+    if (width > 8) // 可按屏幕性能限制
         width = 8;
 
     g_snakeWidth = width;
@@ -1321,44 +1363,43 @@ void refrashSnake()
         return;
     }
 
-		/* ====== 2. 红色渐暗阶段 ====== */
-		if (snakeState == SNAKE_DEAD_WAIT)
-		{
-				uint8_t redLevel;
+    /* ====== 2. 红色渐暗阶段 ====== */
+    if (snakeState == SNAKE_DEAD_WAIT)
+    {
+        uint8_t redLevel;
 
-				if (deadWaitCnt <= 7)
-						redLevel = deadWaitCnt;
-				else
-						redLevel = 0;
+        if (deadWaitCnt <= 7)
+            redLevel = deadWaitCnt;
+        else
+            redLevel = 0;
 
-				for (int i = 0; i < snake.length; i++)
-				{
-						if (redLevel > 0)
-						{
-								draw_snake_block_gray(
-										snake.body[i].x,
-										snake.body[i].y,
-										Red,
-										redLevel
-								);
-						}
-				}
+        for (int i = 0; i < snake.length; i++)
+        {
+            if (redLevel > 0)
+            {
+                draw_snake_block_gray(
+                    snake.body[i].x,
+                    snake.body[i].y,
+                    Red,
+                    redLevel);
+            }
+        }
 
-				deadWaitCnt++;
+        deadWaitCnt++;
 
-				if (deadWaitCnt > 7)
-				{
-						/* 完全熄灭后重生 */
-						deathIndex = 0;
-						deadWaitCnt = 0;
-						snakeState = SNAKE_ALIVE;
+        if (deadWaitCnt > 7)
+        {
+            /* 完全熄灭后重生 */
+            deathIndex = 0;
+            deadWaitCnt = 0;
+            snakeState = SNAKE_ALIVE;
 
-						initSnake(&snake);
-						initFood(&food, &snake);
-				}
+            initSnake(&snake);
+            initFood(&food, &snake);
+        }
 
-				return;
-		}
+        return;
+    }
 
     /* ====== 3. 正常游戏阶段 ====== */
     printBoard(&snake, &food);
@@ -1378,3 +1419,4 @@ void refrashSnake()
         deathIndex = 0;
     }
 }
+ 

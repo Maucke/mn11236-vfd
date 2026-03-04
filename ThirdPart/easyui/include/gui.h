@@ -31,26 +31,6 @@ typedef enum
 	DMA_MEMINC_DISABLE
 } DMA_MEMINC_STATE;
      
-#define GUI_DEFAULT_PENCOLOR         (MN11236_COLOR_BLUE + 1)            
-#define GUI_DEFAULT_ACTCOLOR         (MN11236_COLOR_RED + 1)                           
-#define GUI_DEFAULT_DISPLAY_FONT     (GUI_6X8_FONT)                      
-
-#define CIRCLE_UPPER_RIGHT      0x01
-#define CIRCLE_UPPER_LEFT       0x02
-#define CIRCLE_LOWER_LEFT       0x04
-#define CIRCLE_LOWER_RIGHT      0x08
-#define CIRCLE_DRAW_ALL         (CIRCLE_UPPER_RIGHT | CIRCLE_UPPER_LEFT | CIRCLE_LOWER_LEFT | CIRCLE_LOWER_RIGHT)
-
-extern uint16 GUI_penColor;
-extern uint16 GUI_actColor;
-extern uint16 GUI_backgroundColor;
-
-typedef enum
-{
-    NORMAL = 1,
-    XOR
-} GUI_ColorMode_e;
-
 typedef enum
 {
     GUI_INVALID                      = -1,     
@@ -73,6 +53,27 @@ typedef enum
 		GUI_16X24_OCRB,      //不好看       
     GUI_NUM_FONT          
 }Font_Type_t;
+
+#define GUI_DEFAULT_PENCOLOR         (MN11236_COLOR_BLUE + 1)            
+#define GUI_DEFAULT_ACTCOLOR         (MN11236_COLOR_RED + 1)                           
+#define GUI_DEFAULT_DISPLAY_FONT     (GUI_12X16_OCR)                      
+
+#define CIRCLE_UPPER_RIGHT      0x01
+#define CIRCLE_UPPER_LEFT       0x02
+#define CIRCLE_LOWER_LEFT       0x04
+#define CIRCLE_LOWER_RIGHT      0x08
+#define CIRCLE_DRAW_ALL         (CIRCLE_UPPER_RIGHT | CIRCLE_UPPER_LEFT | CIRCLE_LOWER_LEFT | CIRCLE_LOWER_RIGHT)
+
+extern uint16 GUI_penColor;
+extern uint16 GUI_actColor;
+extern uint16 GUI_backgroundColor;
+
+typedef enum
+{
+    NORMAL = 1,
+    XOR
+} GUI_ColorMode_e;
+
 
 void GUI_SetFont(Font_Type_t font);
 void GUI_DrawBMP232(int16_t x, int16_t y, uint16_t width, uint16_t height, const uint8_t* pic);

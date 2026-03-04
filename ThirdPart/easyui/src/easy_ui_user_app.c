@@ -786,6 +786,7 @@ void AppGUI_Loop(uint8_t timer)
 		}
 		else
 			draw_str_3x5((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 3, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
+//		EasyUIDisplayStr(0,0,timeStr);
     roll_all_long_str();
     refrash_gram();
     break;
