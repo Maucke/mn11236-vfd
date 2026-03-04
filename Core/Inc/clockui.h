@@ -65,6 +65,7 @@ void clear_all_long_str(void);
 void clock_init(void);
 void draw_str(int x,int y, char *str, Color color);
 void draw_str_3x5(int x,int y, char *str, Color color);
+void draw_str_3x5_wave(int x, int y, char *str, Color color);
 void draw_num_str(int x, int y, char *str, uint8_t height, Color color);
 void clear_gram(Color color);
 LongStr_t *draw_long_str(char *str, Color color, int repeats);
@@ -76,5 +77,6 @@ void roll_all_long_str(void);
 void beginSnake(void);
 void refrashSnake(void);
 void setSnakeWidth(uint8_t width);
+void gradient_flow_frame_clock(void);
 
 #endif

@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include "llist.h"
 #include "nexlink_app.h"
+#include <math.h>
 
 //  Hexadecimal code corresponding to each character
 //  0123456789:
@@ -258,13 +259,128 @@ LList long_str_list;
 
 #define SINGLE_LONGSTR_MODE 1
 
+#define W1 0.06f
+#define W2 0.04f
+#define W3 0.03f
+
+#define SPEED1 0.05f
+#define SPEED2 0.03f
+#define SPEED3 0.05f
+
+static float t1 = 0;
+static float t2 = 0;
+static float t3 = 0;
+uint8_t frame_wave[MAX_X][MAX_Y]; // 6-4:red, 2-0:blue
+
+static void flush_frame(void)
+{
+    for (int y = 0; y < MAX_Y; y++)
+    {
+        for (int x = 0; x < MAX_X; x++)
+        {
+            uint8_t p = frame_wave[x][y];
+
+            uint8_t red  = (p >> 4) & 0x07;
+            uint8_t blue =  p       & 0x07;
+
+            mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED,  red / 2);
+            mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, blue / 2);
+        }
+    }
+}
+void gradient_flow_frame_clock(void)
+{
+    for (int y = 0; y < MAX_Y; y++)
+    {
+        for (int x = 0; x < MAX_X; x++)
+        {
+            // ===== 多波叠加 =====
+            float v =
+                sinf(x * W1 + t1) +
+                sinf(y * W2 + t2) +
+                sinf((x + y) * W3 + t3);
+            // 归一化到 0~1
+						v = (v + 3.0f) / 6.0f;
+
+						if (v < 0) v = 0;
+						if (v > 1) v = 1;
+
+						/* 增加对比度 */
+						v = powf(v, 0.6f);   // <1 提高对比度
+
+            /* 映射 */
+            uint8_t blue = (uint8_t)(v * 7.0f);   // 3bit
+            uint8_t red  = (uint8_t)((1.0f - v) * 7.0f); // 3bit
+
+            frame_wave[x][y] = (red << 4) | (blue & 0x07);
+        }
+    }
+
+		flush_frame();
+    t1 += SPEED1;
+    t2 += SPEED2;
+    t3 += SPEED3;
+		
+}
 void clock_init()
 {
     llist_init(&long_str_list);
 		clear_all_long_str();
 }
 
+void draw_point_wave(int x, int y, Color color)
+{
+    if (x < MAX_X && y < MAX_Y && x >= 0 && y >= 0)
+    {
+        if (color)
+				{
+					uint8_t p = frame_wave[x][y];
+
+					uint8_t red  = (p >> 4) & 0x07;
+					uint8_t blue =  p       & 0x07;
+
+					if(color == Red || color == Cyan)
+					{
+						if(red > blue)
+							mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED,  6);
+						else
+							mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, 7);
+					}
+					else
+					{
+            mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED,  red);
+            mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, blue);
+					}
+				}
+        else
+				{
+            mn11236_clear_pixel(x, y, MN11236_COLOR_RED);
+            mn11236_clear_pixel(x, y, MN11236_COLOR_BLUE);
+				}
+    }
+}
 static uint8_t g_clockWidth = 3; 
+static inline void draw_clock_block_wave(int x, int y, uint8_t color)
+{
+    int px = x * g_clockWidth;
+    int py = y * g_clockWidth;
+
+    for (int dx = 0; dx < g_clockWidth; dx++)
+        for (int dy = 0; dy < g_clockWidth; dy++)
+            draw_point_wave(px + dx, py + dy, (Color)color);
+}
+
+static void draw_bits_wave(uint8_t bit_mask, int x, Color color)
+{
+    for (int bit = 0; bit < 8; bit++)
+    {
+        if (bit_mask & (1 << bit))
+        {
+            draw_clock_block_wave(x, bit, color); 
+        }
+    }
+}
+
 static inline void draw_clock_block(int x, int y, uint8_t color)
 {
     int px = x * g_clockWidth;
@@ -396,7 +512,7 @@ void draw_char(int x, int y, char ch, Color color)
 {
 	if (color == None)
 		return;
-	for (int i = 0; i < 5; i++)
+	for (int i = 4; i >= 0; i--)
 	{
 		if ((i + x) < MAX_X && ((i + x) >= 0))
 		{
@@ -419,6 +535,21 @@ void draw_char(int x, int y, char ch, Color color)
 					if (color & 8)
 							draw_bits(bit_mask, i + x + 1, Red);
 			}
+		}
+	}
+}
+
+void draw_char_3x5_wave(int x, int y, char ch, Color color)
+{
+	if (color == None)
+		return;
+	for (int i = 2; i >= 0; i--)
+	{
+		if ((i + x) < MAX_X && ((i + x) >= 0))
+		{
+			uint8_t bit_mask = hex_codes_3x5[ch - ' '][i] << (y + 1);
+			if (bit_mask == 0) continue;
+			draw_bits_wave(bit_mask, i + x, color);
 		}
 	}
 }
@@ -535,12 +666,28 @@ void draw_str_3x5(int x, int y, char *str, Color color)
 	int delta = 0;
 	if (color == None)
 		return;
-
 	int len = strlen(str);
 
 	for (int i = 0; i < len; i++)
 	{
 		draw_char_3x5(x + delta, y, str[i], color);
+//		if (str[i] == ' ' || str[i] == ':')
+//			delta += 2;
+//		else
+			delta += 4;
+	}
+}
+
+void draw_str_3x5_wave(int x, int y, char *str, Color color)
+{
+	int delta = 0;
+	if (color == None)
+		return;
+	int len = strlen(str);
+
+	for (int i = 0; i < len; i++)
+	{
+		draw_char_3x5_wave(x + delta, y, str[i], color);
 //		if (str[i] == ' ' || str[i] == ':')
 //			delta += 2;
 //		else
@@ -605,7 +752,7 @@ void draw_point(int x, int y, Color color)
 					if (color & 1)
 							mn11236_draw_pixel(x, y, MN11236_COLOR_BLUE);
 					if (color & 2)
-							mn11236_draw_pixel(x, y, MN11236_COLOR_RED);
+							mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, 5);
 				}
         else
             mn11236_clear_pixel(x, y, MN11236_COLOR_RED);
@@ -615,7 +762,7 @@ void draw_point(int x, int y, Color color)
             if (color & 4)
                 mn11236_draw_pixel(x + 1, y, MN11236_COLOR_BLUE);
             if (color & 8)
-                mn11236_draw_pixel(x + 1, y, MN11236_COLOR_RED);
+                mn11236_draw_pixel_gray(x + 1, y, MN11236_COLOR_RED, 5);
         }
     }
 }

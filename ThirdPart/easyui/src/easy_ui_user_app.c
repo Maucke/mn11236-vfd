@@ -25,6 +25,7 @@
 #include "stmflash.h"
 #include "semphr.h"
 #include "nexlink_app.h"
+#include <math.h>
 
 // Pages
 EasyUIPage_t pageMain, pageUSBForm, pageDialog, pageSensor, pageAnimation, pageSetting, pageDiagnostic, pageAbout, pageSetTime;
@@ -139,14 +140,14 @@ void PageSetTime(EasyUIPage_t *page)
     {
       tm_setting.tm_year += 1;
       if (tm_setting.tm_year > 99)
-        tm_setting.tm_year = 99;
+        tm_setting.tm_year = 0;
       opnDown = false;
     }
     if (opnUp)
     {
       tm_setting.tm_year -= 1;
       if (tm_setting.tm_year < 0)
-        tm_setting.tm_year = 0;
+        tm_setting.tm_year = 99;
       opnUp = false;
     }
     if (opnEnter)
@@ -161,14 +162,14 @@ void PageSetTime(EasyUIPage_t *page)
     {
       tm_setting.tm_mon += 1;
       if (tm_setting.tm_mon > 11)
-        tm_setting.tm_mon = 11;
+        tm_setting.tm_mon = 0;
       opnDown = false;
     }
     if (opnUp)
     {
       tm_setting.tm_mon -= 1;
       if (tm_setting.tm_mon < 0)
-        tm_setting.tm_mon = 0;
+        tm_setting.tm_mon = 11;
       opnUp = false;
     }
     if (opnEnter)
@@ -183,14 +184,14 @@ void PageSetTime(EasyUIPage_t *page)
     {
       tm_setting.tm_mday += 1;
       if (tm_setting.tm_mday > 31)
-        tm_setting.tm_mday = 31;
+        tm_setting.tm_mday = 1;
       opnDown = false;
     }
     if (opnUp)
     {
       tm_setting.tm_mday -= 1;
       if (tm_setting.tm_mday < 1)
-        tm_setting.tm_mday = 1;
+        tm_setting.tm_mday = 31;
       opnUp = false;
     }
     if (opnEnter)
@@ -286,6 +287,157 @@ void PageSensor(EasyUIPage_t *page)
     EasyUIDisplayStr(10, screen_delta, tempstr);
   }
 }
+#define W1 0.06f
+#define W2 0.04f
+#define W3 0.03f
+
+#define SPEED1 0.15f
+#define SPEED2 0.10f
+#define SPEED3 0.07f
+
+static float t1 = 0;
+static float t2 = 0;
+static float t3 = 0;
+extern uint8_t frame_wave[MAX_X][MAX_Y]; // 6-4:red, 2-0:blue
+
+static void flush_frame(void)
+{
+    for (int y = 0; y < MAX_Y; y++)
+    {
+        for (int x = 0; x < MAX_X; x++)
+        {
+            uint8_t p = frame_wave[x][y];
+
+            uint8_t red  = (p >> 4) & 0x07;
+            uint8_t blue =  p       & 0x07;
+
+            mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED,  red);
+            mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, blue);
+        }
+    }
+}
+static void gradient_flow_frame(void)
+{
+    for (int y = 0; y < MAX_Y; y++)
+    {
+        for (int x = 0; x < MAX_X; x++)
+        {
+            // ===== 多波叠加 =====
+            float v =
+                sinf(x * W1 + t1) +
+                sinf(y * W2 + t2) +
+                sinf((x + y) * W3 + t3);
+            // 归一化到 0~1
+            v = (v + 3.0f) / 6.0f;
+
+            if (v < 0) v = 0;
+            if (v > 1) v = 1;
+
+            /* 映射 */
+            uint8_t blue = (uint8_t)(v * 7.0f);   // 3bit
+            uint8_t red  = (uint8_t)((1.0f - v) * 7.0f); // 3bit
+
+            frame_wave[x][y] = (red << 4) | (blue & 0x07);
+        }
+    }
+
+    t1 += SPEED1;
+    t2 += SPEED2;
+    t3 += SPEED3;
+		
+    flush_frame();
+}
+
+static uint8_t fire[MAX_Y][MAX_X]= {0};
+void fire_update(void)
+{
+    // ===== 1. 强化底部火源 =====
+    for (int x = 0; x < MAX_X; x++)
+    {
+        fire[MAX_Y - 1][x] = 5 + (rand() & 0x03);   // 5~7
+    }
+		if (rand() % 20 == 0)
+		{
+				int rx = rand() % MAX_X;
+				int ry = rand() % (MAX_Y / 2);
+				fire[ry][rx] = 7;
+		}
+    // ===== 2. 向上传播 =====
+    for (int y = 0; y < MAX_Y - 1; y++)
+    {
+        for (int x = 1; x < MAX_X - 1; x++)
+        {
+            int sum =
+                fire[y + 1][x] +
+                fire[y + 1][x - 1] +
+                fire[y + 1][x + 1] +
+                fire[y + 2 < MAX_Y ? y + 2 : y + 1][x];
+
+            uint8_t val = sum >> 2;   // 平均
+
+            // ===== 减少衰减 =====
+            if (val > 0 && (rand() & 4))
+                val--;
+
+            // ===== 左右漂移 =====
+            int shift = (rand() % 3) - 1;   // -1 0 +1
+            int nx = x + shift;
+
+            if (nx >= 0 && nx < MAX_X)
+                fire[y][nx] = val;
+        }
+    }
+}
+void fire_draw(void)
+{
+    for (int y = 0; y < MAX_Y; y++)
+    {
+        for (int x = 0; x < MAX_X; x++)
+        {
+            uint8_t v = fire[y][x];  // 原始温度
+
+            if (v == 0)
+                continue;
+
+            // ===== 计算高度冷却 =====
+            // 顶部冷却最大，底部冷却为0
+						uint8_t cool = ((MAX_Y - 1 - y) * 2) / MAX_Y;
+
+            uint8_t effective = (v > cool) ? (v - cool) : 0;
+
+            if (effective == 0)
+                continue;
+
+            uint8_t redGray = 0;
+            uint8_t cyanGray = 0;
+
+            // ===== 灰度渐变映射 =====
+            uint8_t t = effective * 2;  // 0~14
+
+            if (t <= 7)
+            {
+                // 蓝 → 红
+                cyanGray = 7 - t;
+                redGray  = t;
+            }
+            else
+            {
+                // 红 → 白
+                cyanGray = t - 7;
+                redGray  = 7;
+            }
+
+            if (cyanGray > 7) cyanGray = 7;
+            if (redGray > 7) redGray = 7;
+
+            if (cyanGray)
+                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, cyanGray);
+
+            if (redGray)
+                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, redGray);
+        }
+    }
+}
 
 void PageDiagnostic(EasyUIItem_t *page)
 {
@@ -300,7 +452,7 @@ void PageDiagnostic(EasyUIItem_t *page)
     if (opnUp)
     {
         mode++;
-        if (mode > 3)
+        if (mode > 5)
             mode = 0;
         opnUp = false;
     }
@@ -308,7 +460,7 @@ void PageDiagnostic(EasyUIItem_t *page)
     if (opnDown)
     {
         if (mode == 0)
-            mode = 3;
+            mode = 5;
         else
             mode--;
         opnDown = false;
@@ -395,6 +547,15 @@ void PageDiagnostic(EasyUIItem_t *page)
             }
         }
     }
+    else if (mode == 4)
+		{    
+			fire_update();
+			fire_draw();
+		}
+    else if (mode == 5)
+		{    
+			gradient_flow_frame();
+		}
 
     mn11236_send_buffer();
 }
@@ -586,8 +747,8 @@ void Motion_Run(EffectSwitch_t *effectswitch)
 }
 extern char timeStr[10];
 const ClockTheme_t clockTheme[4] = {
-    {Red, WhiteWithCyan, 0},
-    {Cyan, WhiteWithRed, 0},
+    {Red, Red, 0},
+    {Cyan, White, 0},
     {Red, WhiteWithCyan, 1},
     {Cyan, WhiteWithRed, 1}};
 
@@ -617,7 +778,14 @@ void AppGUI_Loop(uint8_t timer)
       timeupdateflag = timeStr[4];
     }
     clear_gram(White);
-    draw_str_3x5((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 3, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
+		
+		if(pUserInfo->clocktheme < 2)
+		{
+			gradient_flow_frame_clock();
+			draw_str_3x5_wave((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 3, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
+		}
+		else
+			draw_str_3x5((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 3, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
     roll_all_long_str();
     refrash_gram();
     break;
