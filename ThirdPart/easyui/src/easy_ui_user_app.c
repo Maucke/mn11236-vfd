@@ -688,7 +688,7 @@ void AppGUI_Init(UserInfo_t *userinfo)
   EasyUIAddItem(&pageSetting, &titleSetting, "[Setting]", ITEM_PAGE_DESCRIPTION);
 
   EasyUIAddItem(&pageSetting, &itemSetTime, "Set Time", ITEM_JUMP_PAGE, pageSetTime.id);
-  EasyUIAddItem(&pageSetting, &itemMusicTheme, "FFT Theme", ITEM_PROGRESS_BAR, &pUserInfo->musictheme, 7, EventChangeValue);
+  EasyUIAddItem(&pageSetting, &itemMusicTheme, "FFT Theme", ITEM_PROGRESS_BAR, &pUserInfo->musictheme, 11, EventChangeValue);
   EasyUIAddItem(&pageSetting, &itemClockTheme, "Clock Theme", ITEM_PROGRESS_BAR, &pUserInfo->clocktheme, 4, EventChangeValue);
   EasyUIAddItem(&pageSetting, &itemDefaultFunc, "Default Func", ITEM_PROGRESS_BAR, &pUserInfo->defaultfunc, 3, EventChangeValue);
 
@@ -713,15 +713,20 @@ void AppGUI_Init(UserInfo_t *userinfo)
   Motion_Init();
 }
 
-const MusicTheme_t musicTheme[8] = {
+const MusicTheme_t musicTheme[12] = {
     {Cyan, Red},
     {Cyan, White},
+		{Red, Red},
     {Red, White},
     {White, Red},
+    {White, Cyan},
+		
     {CyanWithCyan, RedWithRed},
     {CyanWithCyan, WhiteWithWhite},
+    {RedWithRed, CyanWithCyan},
     {RedWithRed, WhiteWithWhite},
     {WhiteWithWhite, RedWithRed},
+    {WhiteWithWhite, CyanWithCyan},
 };
 
 void Motion_Run(EffectSwitch_t *effectswitch)
@@ -858,7 +863,7 @@ void AppGUI_Loop(uint8_t timer)
     if (opnExit)
     {
       if (disp_mode == DISP_MODE_FFT)
-        pUserInfo->musictheme = (pUserInfo->musictheme + 1) % 8;
+        pUserInfo->musictheme = (pUserInfo->musictheme + 1) % 12;
       else if (disp_mode == DISP_MODE_CLOCK)
         pUserInfo->clocktheme = (pUserInfo->clocktheme + 1) % 5;
       else if (disp_mode == DISP_MODE_SNAKE)

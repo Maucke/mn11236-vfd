@@ -1378,7 +1378,8 @@ void draw_bar(FFTDisplay_t *fft, Color bar, Color dot)
         int height = (int)bars[i].output;
         for (j = 0; j < (bars[i].output); j++)
         {
-            int brightness = (height - j) * 7 / height;
+            int brightness = (height - j) * 7 / height + 2;
+					
 						draw_point_gray(i, MAX_Y - 1 - j, bar, brightness);
         }
         draw_point(i, MAX_Y - 1 - bars[i].maximum, dot);
