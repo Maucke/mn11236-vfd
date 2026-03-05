@@ -58,7 +58,9 @@ void GUI_SetDrawColor(GUI_ColorMode_e mode)
 // 0 无颜色，1 红色，2 蓝色
 __inline void GUI_DrawPoint(int16 x, int16 y, const uint16 color)
 {
-	mn11236_color_t color_ = (mn11236_color_t)((color - 1)&1);
+	uint8_t red = (color >> 4) & 0x07;
+	uint8_t blue = color & 0x07;
+	
   if (x < GUI_x_max && y < GUI_y_max && x >= 0 && y >= 0)
   {
 		
@@ -69,7 +71,12 @@ __inline void GUI_DrawPoint(int16 x, int16 y, const uint16 color)
       else if (mn11236_read_pixel(x, y, MN11236_COLOR_BLUE))
         mn11236_clear_pixel(x, y, MN11236_COLOR_BLUE);
       else
-        mn11236_draw_pixel(x, y, color_);
+			{
+				if(blue)
+					mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, blue);
+				if(red)
+					mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, red);
+			}
     }
     else
 		{
@@ -78,14 +85,12 @@ __inline void GUI_DrawPoint(int16 x, int16 y, const uint16 color)
         mn11236_clear_pixel(x, y, MN11236_COLOR_BLUE);
         mn11236_clear_pixel(x, y, MN11236_COLOR_RED);
 			}
-			else if(color < 3)
-			{
-				mn11236_draw_pixel(x, y, color_);
-			}
 			else
 			{
-        mn11236_draw_pixel(x, y, MN11236_COLOR_BLUE);
-        mn11236_draw_pixel(x, y, MN11236_COLOR_RED);
+				if(blue)
+					mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, blue);
+				if(red)
+					mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, red);
 			}
 		}
   }

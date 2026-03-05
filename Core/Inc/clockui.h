@@ -50,12 +50,14 @@ typedef struct
 
 typedef struct
 {
-	float output;	  // 当前显示值
-	float last_error; // 上一次误差
+    float output;
+    float target;
 
-	float last_realval;
-	float maximum;
-	uint8_t remain;
+    float last_realval;
+    float last_error;
+
+    int maximum;
+    int remain;
 } FFTDisplay_t;
 
 void draw_char_3x5(int x,int y, char ch, Color color);

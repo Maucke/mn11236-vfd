@@ -308,9 +308,6 @@ void gradient_flow_frame_clock(void)
             if (v > 1)
                 v = 1;
 
-            /* 增加对比度 */
-            v = powf(v, 0.6f); // <1 提高对比度
-
             /* 映射 */
             uint8_t blue = (uint8_t)(v * 7.0f);         // 3bit
             uint8_t red = (uint8_t)((1.0f - v) * 7.0f); // 3bit
@@ -831,100 +828,6 @@ void refrash_gram()
     mn11236_send_buffer();
 }
 
-#define BAR_COUNT MAX_X
-#define BAR_MAX MAX_Y
-FFTDisplay_t bars[BAR_COUNT];
-
-void update_display(FFTDisplay_t *fft, float target, float dt)
-{
-    const float Kp = 1.0f; // 比例增益
-                           //	const float Kd = 0.001f; // 微分增益
-                           //	target-=0.5f;
-    float error = (fft->last_realval * 0.8f + target * 0.2f) - fft->output;
-
-    float derivative = (error - fft->last_error) / dt;
-    float delta = Kp * error /* + Kd * derivative*/;
-
-    if (delta >= 1)
-        fft->output += 1;
-    else if (delta <= -1)
-        fft->output -= 1;
-
-    if (fft->output > BAR_MAX - 1)
-        fft->output = BAR_MAX - 1;
-    else if (fft->output < 0)
-        fft->output = 0;
-    fft->last_error = error;
-    if (fft->maximum < fft->output)
-    {
-        fft->maximum = fft->output;
-        fft->remain = 10;
-    }
-    else if (fft->remain)
-        fft->remain--;
-    else if (fft->maximum >= 1)
-        fft->maximum--;
-    fft->last_realval = target;
-}
-
-void draw_bar(FFTDisplay_t *fft, Color bar, Color dot)
-{
-    int j = 0;
-    for (int i = 0; i < BAR_COUNT; i++)
-    {
-        for (j = 0; j < (bars[i].output); j++)
-        {
-            draw_point(i, MAX_Y - 1 - j, bar);
-        }
-        draw_point(i, MAX_Y - 1 - bars[i].maximum, dot);
-        if (bar > White)
-            i++;
-    }
-}
-
-void draw_fft(long *fft_result, int len, int delta, Color bar, Color dot)
-{
-    static uint32_t last_time = 0;
-    uint32_t current_time = HAL_GetTick();
-    float dt = (current_time - last_time) / 1000.0f; // 转换为秒
-    last_time = current_time;
-
-    // 确保有足够的数据点（至少3个才能排除首尾）
-    if (len <= 2)
-        return;
-
-    // 防止除零错误
-    if (delta == 0)
-        delta = 1;
-
-    for (int i = 0; i < BAR_COUNT; i++)
-    {
-        // 映射到排除首尾的数据范围 [1, len-2]
-        float mapped_pos = 1.0f + (float)i / BAR_COUNT * (len - 3);
-        int index_low = (int)mapped_pos;
-        int index_high = (index_low + 1 < len - 1) ? index_low + 1 : index_low;
-        float fraction = mapped_pos - index_low;
-
-        // 线性插值获取映射后的值
-        long interpolated_value;
-        if (index_low == index_high)
-        {
-            interpolated_value = fft_result[index_low];
-        }
-        else
-        {
-            interpolated_value = (long)((1.0f - fraction) * fft_result[index_low] +
-                                        fraction * fft_result[index_high]);
-        }
-
-        // 应用delta除法
-        long adjusted_value = interpolated_value / delta;
-
-        // 更新并绘制
-        update_display(&bars[i], adjusted_value, dt);
-    }
-    draw_bar(bars, bar, dot);
-}
 static uint8_t g_snakeWidth = 2; // 默认宽度
 #define COLS (MAX_X / g_snakeWidth)
 #define ROWS (MAX_Y / g_snakeWidth)
@@ -1430,4 +1333,101 @@ void refrashSnake()
         deathIndex = 0;
     }
 }
- 
+
+#define BAR_COUNT MAX_X
+#define BAR_MAX MAX_Y
+FFTDisplay_t bars[BAR_COUNT];
+
+void update_display(FFTDisplay_t *fft, float target, float dt)
+{
+    const float Kp = 1.0f; // 比例增益
+                           //	const float Kd = 0.001f; // 微分增益
+                           //	target-=0.5f;
+    float error = (fft->last_realval * 0.8f + target * 0.2f) - fft->output;
+
+    float derivative = (error - fft->last_error) / dt;
+    float delta = Kp * error /* + Kd * derivative*/;
+
+    if (delta >= 1)
+        fft->output += 1;
+    else if (delta <= -1)
+        fft->output -= 1;
+
+    if (fft->output > BAR_MAX - 1)
+        fft->output = BAR_MAX - 1;
+    else if (fft->output < 0)
+        fft->output = 0;
+    fft->last_error = error;
+    if (fft->maximum < fft->output)
+    {
+        fft->maximum = fft->output;
+        fft->remain = 10;
+    }
+    else if (fft->remain)
+        fft->remain--;
+    else if (fft->maximum >= 1)
+        fft->maximum--;
+    fft->last_realval = target;
+}
+
+void draw_bar(FFTDisplay_t *fft, Color bar, Color dot)
+{
+    int j = 0;
+    for (int i = 0; i < BAR_COUNT; i++)
+    {
+        int height = (int)bars[i].output;
+        for (j = 0; j < (bars[i].output); j++)
+        {
+            int brightness = (height - j) * 7 / height;
+						draw_point_gray(i, MAX_Y - 1 - j, bar, brightness);
+        }
+        draw_point(i, MAX_Y - 1 - bars[i].maximum, dot);
+        if (bar > White)
+            i++;
+    }
+}
+
+void draw_fft(long *fft_result, int len, int delta, Color bar, Color dot)
+{
+    static uint32_t last_time = 0;
+    uint32_t current_time = HAL_GetTick();
+    float dt = (current_time - last_time) / 1000.0f; // 转换为秒
+    last_time = current_time;
+
+    // 确保有足够的数据点（至少3个才能排除首尾）
+    if (len <= 2)
+        return;
+
+    // 防止除零错误
+    if (delta == 0)
+        delta = 1;
+
+    for (int i = 0; i < BAR_COUNT; i++)
+    {
+        // 映射到排除首尾的数据范围 [1, len-2]
+        float mapped_pos = 1.0f + (float)i / BAR_COUNT * (len - 3);
+        int index_low = (int)mapped_pos;
+        int index_high = (index_low + 1 < len - 1) ? index_low + 1 : index_low;
+        float fraction = mapped_pos - index_low;
+
+        // 线性插值获取映射后的值
+        long interpolated_value;
+        if (index_low == index_high)
+        {
+            interpolated_value = fft_result[index_low];
+        }
+        else
+        {
+            interpolated_value = (long)((1.0f - fraction) * fft_result[index_low] +
+                                        fraction * fft_result[index_high]);
+        }
+
+        // 应用delta除法
+        long adjusted_value = interpolated_value / delta;
+
+        // 更新并绘制
+        update_display(&bars[i], adjusted_value, dt);
+    }
+    draw_bar(bars, bar, dot);
+}
+

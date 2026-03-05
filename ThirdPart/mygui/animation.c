@@ -12,7 +12,7 @@ EffectSwitch_t g_EffectSwitch;
 
 uint16_t randomColor()
 {
-  return rand() % 2 + 1;
+  return 0x7<<((rand() % 2)*4);
 }
 
 typedef struct
@@ -883,172 +883,262 @@ void Motion_GCFireworks(void)
     }
   }
 }
-
 #define FIREWORKFLASHL 20
 #define FIREWORKMAX 1
 
 #define FIREWORKSINGLE 20
 #define FIREWORKTUOYING 10
+
 uint8_t FireworkNum = 1;
+
 typedef struct
 {
-	float spd[FIREWORKSINGLE];				   // 减速
-	float xspd[FIREWORKSINGLE];			   // 减速
-	float yspd[FIREWORKSINGLE];			   // 匀速
-	float x[FIREWORKSINGLE][FIREWORKTUOYING]; // X
-	float y[FIREWORKSINGLE][FIREWORKTUOYING]; // Y
-	float yup[FIREWORKTUOYING];
-	int states; // 0,上升；2,爆炸下落
-	int runtimes;
-	int upruntimes;
-	uint16_t color[FIREWORKSINGLE]; //
+    float spd[FIREWORKSINGLE];
+    float xspd[FIREWORKSINGLE];
+    float yspd[FIREWORKSINGLE];
+    float x[FIREWORKSINGLE][FIREWORKTUOYING];
+    float y[FIREWORKSINGLE][FIREWORKTUOYING];
+    float yup[FIREWORKTUOYING];
+
+    int states; 
+    int runtimes;
+    int upruntimes;
+
+    uint16_t color[FIREWORKSINGLE];
 
 } MTFIREWORK;
 
 typedef struct
 {
-	int ange;						// 0-360
-	int r[FIREWORKSINGLE];		//
-	uint16_t color[FIREWORKSINGLE]; //
+    int ange;
+    int r[FIREWORKSINGLE];
+    uint16_t color[FIREWORKSINGLE];
 
 } MTFIREWORKC;
 
 MTFIREWORK mtfirework[FIREWORKMAX];
 MTFIREWORKC mtfireworkc[FIREWORKMAX];
+
+
+
+/* =========================
+   颜色渐变函数
+   ========================= */
+
+static inline uint16_t colorFade(uint16_t color, int step)
+{
+    uint8_t red = (color >> 4) & 0x07;
+    uint8_t blue = color & 0x07;
+
+    if(red)
+    {
+        if(red > step)
+            red -= step;
+        else
+            red = 0;
+    }
+
+    if(blue)
+    {
+        if(blue > step)
+            blue -= step;
+        else
+            blue = 0;
+    }
+
+    return (red << 4) | blue;
+}
+
+
+
 ANI_STATUS Firework(uint8_t Index)
 {
-	if (mtfirework[Index].states == 2)
-	{
-		for (int i = 0; i < FIREWORKSINGLE; i++)
-		{
-			for (int j = FIREWORKTUOYING - 2; j >= 0; j--)
-			{
-				mtfirework[Index].x[i][j + 1] = mtfirework[Index].x[i][j];
-				mtfirework[Index].y[i][j + 1] = mtfirework[Index].y[i][j];
-			}
-			mtfirework[Index].x[i][0] += mtfirework[Index].xspd[i];
-			mtfirework[Index].y[i][0] += mtfirework[Index].yspd[i];
-			mtfirework[Index].yspd[i] = mtfirework[Index].yspd[i] + 0.015f * mtfirework[Index].runtimes;
-		}
+    if (mtfirework[Index].states == 2)
+    {
+        for (int i = 0; i < FIREWORKSINGLE; i++)
+        {
+            for (int j = FIREWORKTUOYING - 2; j >= 0; j--)
+            {
+                mtfirework[Index].x[i][j + 1] = mtfirework[Index].x[i][j];
+                mtfirework[Index].y[i][j + 1] = mtfirework[Index].y[i][j];
+            }
 
-		if (mtfirework[Index].runtimes++ > 80)
-		{
-			return IDLE;
-		}
-	}
-	else
-	{
-		for (int j = FIREWORKTUOYING - 2; j >= 0; j--)
-		{
-			mtfirework[Index].yup[j + 1] = mtfirework[Index].yup[j];
-		}
-		mtfirework[Index].yup[0] -= (mtfirework[Index].yup[0] - mtfirework[Index].y[0][0]) * 0.08f + 0.08f;
+            mtfirework[Index].x[i][0] += mtfirework[Index].xspd[i];
+            mtfirework[Index].y[i][0] += mtfirework[Index].yspd[i];
 
-		if (mtfirework[Index].yup[0] < mtfirework[Index].y[0][0])
-			mtfirework[Index].states = 2;
+            mtfirework[Index].yspd[i] = mtfirework[Index].yspd[i] + 0.015f * mtfirework[Index].runtimes;
+        }
 
-		if (mtfirework[Index].upruntimes++ > 100)
-		{
-			return IDLE;
-		}
-	}
-	return BUSY;
+        if (mtfirework[Index].runtimes++ > 80)
+        {
+            return IDLE;
+        }
+    }
+    else
+    {
+        for (int j = FIREWORKTUOYING - 2; j >= 0; j--)
+        {
+            mtfirework[Index].yup[j + 1] = mtfirework[Index].yup[j];
+        }
+
+        mtfirework[Index].yup[0] -= (mtfirework[Index].yup[0] - mtfirework[Index].y[0][0]) * 0.08f + 0.08f;
+
+        if (mtfirework[Index].yup[0] < mtfirework[Index].y[0][0])
+            mtfirework[Index].states = 2;
+
+        if (mtfirework[Index].upruntimes++ > 100)
+        {
+            return IDLE;
+        }
+    }
+
+    return BUSY;
 }
+
+
 
 void Motion_FireworkInit(void)
 {
-	for (int p = 0; p < FIREWORKMAX; p++)
-	{
-		int x = rand() % (SCR_WIDTH / 2) + SCR_WIDTH / 4;
-		int y = rand() % (SCR_HEIGHT / 2) + SCR_HEIGHT / 6;
-		for (int i = 0; i < FIREWORKSINGLE; i++)
-		{
-			for (int j = 1; j < FIREWORKTUOYING; j++)
-			{
-				mtfirework[p].x[i][j] = 0;
-				mtfirework[p].y[i][j] = 0;
-			}
-			mtfirework[p].x[i][0] = x;
-			mtfirework[p].y[i][0] = y;
-			mtfirework[p].yup[i] = SCR_HEIGHT;
-			mtfireworkc[p].r[i] = rand() % 1 + 1;
-			mtfireworkc[p].color[i] = randomColor();
-			mtfireworkc[p].ange = rand() % 360;
-			mtfirework[p].spd[i] = (rand() % 600) * 0.005 + 0.02;
+    for (int p = 0; p < FIREWORKMAX; p++)
+    {
+        int x = rand() % (SCR_WIDTH / 2) + SCR_WIDTH / 4;
+        int y = rand() % (SCR_HEIGHT / 2) + SCR_HEIGHT / 6;
 
-			mtfirework[p].xspd[i] = cos(mtfireworkc[p].ange) * mtfirework[p].spd[i];
-			mtfirework[p].yspd[i] = sin(mtfireworkc[p].ange) * mtfirework[p].spd[i];
-		}
-		mtfirework[p].states = 0;
-		mtfirework[p].runtimes = 0;
-		mtfirework[p].upruntimes = 0;
-	}
+        for (int i = 0; i < FIREWORKSINGLE; i++)
+        {
+            for (int j = 1; j < FIREWORKTUOYING; j++)
+            {
+                mtfirework[p].x[i][j] = 0;
+                mtfirework[p].y[i][j] = 0;
+            }
+
+            mtfirework[p].x[i][0] = x;
+            mtfirework[p].y[i][0] = y;
+
+            mtfirework[p].yup[i] = SCR_HEIGHT;
+
+            mtfireworkc[p].r[i] = rand() % 1 + 1;
+            mtfireworkc[p].color[i] = randomColor();
+
+            mtfireworkc[p].ange = rand() % 360;
+
+            mtfirework[p].spd[i] = (rand() % 600) * 0.005 + 0.02;
+
+            mtfirework[p].xspd[i] = cos(mtfireworkc[p].ange) * mtfirework[p].spd[i];
+            mtfirework[p].yspd[i] = sin(mtfireworkc[p].ange) * mtfirework[p].spd[i];
+        }
+
+        mtfirework[p].states = 0;
+        mtfirework[p].runtimes = 0;
+        mtfirework[p].upruntimes = 0;
+    }
 }
+
+
 
 void Motion_Firework(void)
 {
-	for (int p = 0; p < FireworkNum; p++)
-	{
-		if (Firework(p) == IDLE)
-		{
-			int x = rand() % (SCR_WIDTH / 2) + SCR_WIDTH / 4;
-			int y = rand() % (SCR_HEIGHT / 2) + SCR_HEIGHT / 6;
-			for (int i = 0; i < FIREWORKSINGLE; i++)
-			{
-				for (int j = 1; j < FIREWORKTUOYING; j++)
-				{
-					mtfirework[p].x[i][j] = 0;
-					mtfirework[p].y[i][j] = 0;
-				}
-				mtfirework[p].x[i][0] = x;
-				mtfirework[p].y[i][0] = y;
-				mtfirework[p].yup[i] = SCR_HEIGHT;
-				mtfireworkc[p].r[i] = rand() % 1 + 1;
-				mtfireworkc[p].color[i] = randomColor();
-				mtfireworkc[p].ange = rand() % 360;
-				mtfirework[p].spd[i] = (rand() % 600) * 0.005 + 0.02;
+    for (int p = 0; p < FireworkNum; p++)
+    {
+        if (Firework(p) == IDLE)
+        {
+            int x = rand() % (SCR_WIDTH / 2) + SCR_WIDTH / 4;
+            int y = rand() % (SCR_HEIGHT / 2) + SCR_HEIGHT / 6;
 
-				mtfirework[p].xspd[i] = cos(mtfireworkc[p].ange) * mtfirework[p].spd[i];
-				mtfirework[p].yspd[i] = sin(mtfireworkc[p].ange) * mtfirework[p].spd[i];
-			}
-			mtfirework[p].states = 0;
-			mtfirework[p].runtimes = 0;
-			mtfirework[p].upruntimes = 0;
-			if (FireworkNum < FIREWORKMAX)
-			{
-				FireworkNum++;
-			}
-		}
-		if (mtfirework[p].states == 2)
-		{
-			for (int i = 0; i < FIREWORKSINGLE; i++)
-			{
-				for (int j = FIREWORKTUOYING - 1; j > 0; j--)
-				{
-					if(rand()%FIREWORKFLASHL)
-					{
-						if(j < (FIREWORKTUOYING/2))
-							AniDrawDisc(mtfirework[p].x[i][j], mtfirework[p].y[i][j], mtfireworkc[p].r[i], mtfireworkc[p].color[i], CIRCLE_DRAW_ALL);
-						else
-							AniDrawDisc(mtfirework[p].x[i][j], mtfirework[p].y[i][j], 0, mtfireworkc[p].color[i], CIRCLE_DRAW_ALL);
-					}
-				}
-			}
-		}
-		else
-		{
-			for (int j = FIREWORKTUOYING - 1; j > 0; j--)
-			{
-				if(rand()%FIREWORKFLASHL)
-					AniDrawDisc(mtfirework[p].x[0][0], mtfirework[p].yup[j], 1, 2, CIRCLE_DRAW_ALL);
-				if(rand()%FIREWORKFLASHL)
-					AniDrawDisc(mtfirework[p].x[0][0], mtfirework[p].yup[j], 1, 1, CIRCLE_DRAW_ALL);
-			}
-		}
-	}
+            for (int i = 0; i < FIREWORKSINGLE; i++)
+            {
+                for (int j = 1; j < FIREWORKTUOYING; j++)
+                {
+                    mtfirework[p].x[i][j] = 0;
+                    mtfirework[p].y[i][j] = 0;
+                }
+
+                mtfirework[p].x[i][0] = x;
+                mtfirework[p].y[i][0] = y;
+
+                mtfirework[p].yup[i] = SCR_HEIGHT;
+
+                mtfireworkc[p].r[i] = rand() % 1 + 1;
+                mtfireworkc[p].color[i] = randomColor();
+
+                mtfireworkc[p].ange = rand() % 360;
+
+                mtfirework[p].spd[i] = (rand() % 600) * 0.005 + 0.02;
+
+                mtfirework[p].xspd[i] = cos(mtfireworkc[p].ange) * mtfirework[p].spd[i];
+                mtfirework[p].yspd[i] = sin(mtfireworkc[p].ange) * mtfirework[p].spd[i];
+            }
+
+            mtfirework[p].states = 0;
+            mtfirework[p].runtimes = 0;
+            mtfirework[p].upruntimes = 0;
+
+            if (FireworkNum < FIREWORKMAX)
+            {
+                FireworkNum++;
+            }
+        }
+
+
+
+        /* =====================
+           爆炸阶段
+           ===================== */
+
+        if (mtfirework[p].states == 2)
+        {
+            for (int i = 0; i < FIREWORKSINGLE; i++)
+            {
+                for (int j = FIREWORKTUOYING - 1; j > 0; j--)
+                {
+                    if(rand()%FIREWORKFLASHL)
+                    {
+                        uint16_t fadeColor = colorFade(mtfireworkc[p].color[i], j);
+
+                        if(j < (FIREWORKTUOYING/2))
+                            AniDrawDisc(mtfirework[p].x[i][j], mtfirework[p].y[i][j],
+                                        mtfireworkc[p].r[i],
+                                        fadeColor,
+                                        CIRCLE_DRAW_ALL);
+                        else
+                            AniDrawDisc(mtfirework[p].x[i][j], mtfirework[p].y[i][j],
+                                        0,
+                                        fadeColor,
+                                        CIRCLE_DRAW_ALL);
+                    }
+                }
+            }
+        }
+
+
+        /* =====================
+           上升阶段
+           ===================== */
+
+        else
+        {
+            for (int j = FIREWORKTUOYING - 1; j > 0; j--)
+            {
+                uint16_t fadeRed  = colorFade(0x70, j);
+                uint16_t fadeBlue = colorFade(0x07, j);
+
+                if(rand()%FIREWORKFLASHL)
+                    AniDrawDisc(mtfirework[p].x[0][0],
+                                mtfirework[p].yup[j],
+                                1,
+                                fadeRed,
+                                CIRCLE_DRAW_ALL);
+
+                if(rand()%FIREWORKFLASHL)
+                    AniDrawDisc(mtfirework[p].x[0][0],
+                                mtfirework[p].yup[j],
+                                1,
+                                fadeBlue,
+                                CIRCLE_DRAW_ALL);
+            }
+        }
+    }
 }
-
-
 #ifdef __cplusplus
 }
 #endif

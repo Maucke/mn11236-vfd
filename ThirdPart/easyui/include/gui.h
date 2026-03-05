@@ -54,8 +54,11 @@ typedef enum
     GUI_NUM_FONT          
 }Font_Type_t;
 
-#define GUI_DEFAULT_PENCOLOR         (MN11236_COLOR_BLUE + 1)            
-#define GUI_DEFAULT_ACTCOLOR         (MN11236_COLOR_RED + 1)                           
+//            uint8_t red = (p >> 4) & 0x07;
+//            uint8_t blue = p & 0x07;
+
+#define GUI_DEFAULT_PENCOLOR         (7)            
+#define GUI_DEFAULT_ACTCOLOR         (0x70)                           
 #define GUI_DEFAULT_DISPLAY_FONT     (GUI_6X8_FONT)                      
 
 #define CIRCLE_UPPER_RIGHT      0x01
