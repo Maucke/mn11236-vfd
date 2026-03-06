@@ -94,18 +94,52 @@ void EasyUIKeyActionMonitor() // Interrupt trigger, No EasyUIDelay_ms(xx)
 #endif
 }
 
+
+char *EasyUIVersion = "Ver. 1.3.2";
 void PageAbout(EasyUIPage_t *page)
 {
-  char tempstr[128];
-  int screen_delta = 0;
+    static uint8_t pageIndex = 0;
+    const uint8_t totalLines = 3;
+    const uint8_t linesPerPage = 2;
 
-  EasyUIDisplayStr(10, screen_delta, "Author: DPJ");
-  screen_delta += page->rowheight;
-  EasyUIDisplayStr(10, screen_delta, EasyUIVersion);
-  screen_delta += page->rowheight;
-  snprintf(tempstr, sizeof tempstr, "Rel. %s", __DATE__);
-  EasyUIDisplayStr(10, screen_delta, tempstr);
-  screen_delta += page->rowheight;
+    char tempstr[128];
+    const char *lines[3];
+
+    // 构建字符串
+    snprintf(tempstr, sizeof(tempstr), "Rel. %s", __DATE__);
+
+    lines[0] = "Author: DPJ";
+    lines[1] = EasyUIVersion;
+    lines[2] = tempstr;
+
+    // 按键翻页
+    if (opnDown)
+    {
+        if ((pageIndex + 1) * linesPerPage < totalLines)
+            pageIndex++;
+        opnDown = false;
+    }
+
+    if (opnUp)
+    {
+        if (pageIndex > 0)
+            pageIndex--;
+        opnUp = false;
+    }
+
+    // 显示当前页
+    int screen_delta = 0;
+
+    for (int i = 0; i < linesPerPage; i++)
+    {
+        int lineIndex = pageIndex * linesPerPage + i;
+
+        if (lineIndex >= totalLines)
+            break;
+
+        EasyUIDisplayStr(10, screen_delta, lines[lineIndex]);
+        screen_delta += page->rowheight;
+    }
 }
 typedef enum
 {
@@ -770,7 +804,8 @@ void UploadFrame()
 {
   upload_frame_upload();
 }
-
+static uint32_t last_key_tick = 0;
+#define MENU_TIMEOUT 10000
 void AppGUI_Loop(uint8_t timer)
 {
 	static int rolling = 0;
@@ -778,6 +813,14 @@ void AppGUI_Loop(uint8_t timer)
 //	mn11236_gray_test();
 //	osDelay(5000);
 //	return;
+
+	uint32_t now = HAL_GetTick();
+
+	if (opnUp || opnDown || opnEnter || opnExit)
+	{
+			last_key_tick = now;
+	}
+	
   switch (disp_mode)
   { 
   case DISP_MODE_CLOCK:
@@ -832,7 +875,18 @@ void AppGUI_Loop(uint8_t timer)
   }
 	if((rolling++)%2)
 		UploadFrame();
-  UserInfo_AutoSave();
+	UserInfo_AutoSave();
+
+	// 菜单超时退出
+	if (disp_mode == DISP_MODE_MENU)
+	{
+			if (now - last_key_tick > MENU_TIMEOUT)
+			{
+					disp_mode = last_disp_mode;
+					EasyUITransitionAnim();
+					last_key_tick = now;
+			}
+	}
 
   if (disp_mode != DISP_MODE_MENU)
   {
