@@ -35,10 +35,12 @@ EasyUIItem_t itemUSBForm;
 EasyUIItem_t itemDebug;
 EasyUIItem_t itemSensor;
 EasyUIItem_t itemAnimation;
-EasyUIItem_t itemSetting, titleSetting, itemMusicTheme, itemClockTheme, itemSetTime, itemDefaultFunc;
+EasyUIItem_t itemSetting, titleSetting, itemMusicTheme, itemClockTheme, itemSetTime, itemDefaultFunc, itemClockDimming;
 EasyUIItem_t itemDiagnostic;
 EasyUIItem_t itemAbout;
 EasyUIItem_t itemMind, itemCircle, itemSnowflake, itemMeteo, itemPlanet, itemTriangle, itemStarwar, itemBlast, itemGCircle, itemFirework, titleAnimation;
+EasyUIItem_t itemScreenOnHour;
+EasyUIItem_t itemScreenOffHour;
 
 EasyKey_t keyUp, keyDown;
 
@@ -95,7 +97,7 @@ void EasyUIKeyActionMonitor() // Interrupt trigger, No EasyUIDelay_ms(xx)
 }
 
 
-char *EasyUIVersion = "Ver. 1.3.2";
+char *EasyUIVersion = "Ver. 1.3.3";
 void PageAbout(EasyUIPage_t *page)
 {
     static uint8_t pageIndex = 0;
@@ -691,6 +693,12 @@ typedef enum
   DISP_MODE_MENU,
 } SysDisplayMode_e;
 
+static uint32_t last_key_tick = 0;
+#define MENU_TIMEOUT 10000
+
+static uint32_t wake_until_tick = 0;   // 临时亮屏截止时间
+#define WAKE_TIME_MS 10000             
+
 static SysDisplayMode_e last_disp_mode = DISP_MODE_MOTION;
 static SysDisplayMode_e disp_mode = DISP_MODE_MOTION;
 void AppGUI_Init(UserInfo_t *userinfo)
@@ -725,7 +733,17 @@ void AppGUI_Init(UserInfo_t *userinfo)
   EasyUIAddItem(&pageSetting, &itemMusicTheme, "FFT Theme", ITEM_PROGRESS_BAR, &pUserInfo->musictheme, 11, EventChangeValue);
   EasyUIAddItem(&pageSetting, &itemClockTheme, "Clock Theme", ITEM_PROGRESS_BAR, &pUserInfo->clocktheme, 4, EventChangeValue);
   EasyUIAddItem(&pageSetting, &itemDefaultFunc, "Default Func", ITEM_PROGRESS_BAR, &pUserInfo->defaultfunc, 3, EventChangeValue);
+  EasyUIAddItem(&pageSetting, &itemClockDimming, "Clock Dimming", ITEM_PROGRESS_BAR, &pUserInfo->clockdimming, 4, EventChangeValue);
+	EasyUIAddItem(&pageSetting, &itemScreenOnHour,
+								"Screen ON", ITEM_PROGRESS_BAR,
+								&pUserInfo->screen_on_hour, 23,
+								EventChangeValue);
 
+	EasyUIAddItem(&pageSetting, &itemScreenOffHour,
+								"Screen OFF", ITEM_PROGRESS_BAR,
+								&pUserInfo->screen_off_hour, 23,
+								EventChangeValue);
+								
   EasyUIAddItem(&pageAnimation, &titleAnimation, "[Animation]", ITEM_PAGE_DESCRIPTION);
   EasyUIAddItem(&pageAnimation, &itemMind, "Mind", ITEM_CHECKBOX, &pUserInfo->effectswitch.enMind);
   EasyUIAddItem(&pageAnimation, &itemCircle, "Circle", ITEM_CHECKBOX, &pUserInfo->effectswitch.enCircle);
@@ -736,7 +754,6 @@ void AppGUI_Init(UserInfo_t *userinfo)
   EasyUIAddItem(&pageAnimation, &itemStarwar, "Starwar", ITEM_CHECKBOX, &pUserInfo->effectswitch.enStarwar);
   //  EasyUIAddItem(&pageAnimation, &itemGCircle, "GCircle", ITEM_CHECKBOX, &pUserInfo->effectswitch.enGCircle);
   EasyUIAddItem(&pageAnimation, &itemFirework, "Firework", ITEM_CHECKBOX, &pUserInfo->effectswitch.enFirework);
-
   // Key init
   EasyKeyInit(&keyUp, GPIOB, KEY_SW1_Pin);
   EasyKeyInit(&keyDown, GPIOB, KEY_SW2_Pin);
@@ -745,6 +762,8 @@ void AppGUI_Init(UserInfo_t *userinfo)
   setSnakeWidth(pUserInfo->snakewidth);
   beginSnake();
   Motion_Init();
+	uint32_t now = HAL_GetTick();
+	wake_until_tick = now + WAKE_TIME_MS;
 }
 
 const MusicTheme_t musicTheme[12] = {
@@ -788,10 +807,11 @@ extern char timeStr[10];
 extern char date[10];
 extern char week[10];
 
-const ClockTheme_t clockTheme[5] = {
+const ClockTheme_t clockTheme[] = {
     {Red, Red, 0},
     {Red, Cyan, 0},
     {Cyan, White, 0},
+//    {Cyan, White, 2},
     {Red, WhiteWithCyan, 1},
     {Cyan, WhiteWithRed, 1}};
 
@@ -804,8 +824,31 @@ void UploadFrame()
 {
   upload_frame_upload();
 }
-static uint32_t last_key_tick = 0;
-#define MENU_TIMEOUT 10000
+
+bool ScreenShouldOn(void)
+{
+    uint8_t now = tm_local.tm_hour;
+
+    uint8_t on  = pUserInfo->screen_on_hour;
+    uint8_t off = pUserInfo->screen_off_hour;
+
+    if (on < off)
+    {
+        if (now >= on && now < off)
+            return true;
+        else
+            return false;
+    }
+    else
+    {
+        // 跨午夜
+        if (now >= on || now < off)
+            return true;
+        else
+            return false;
+    }
+}
+
 void AppGUI_Loop(uint8_t timer)
 {
 	static int rolling = 0;
@@ -816,10 +859,37 @@ void AppGUI_Loop(uint8_t timer)
 
 	uint32_t now = HAL_GetTick();
 
-	if (opnUp || opnDown || opnEnter || opnExit)
+	bool night = !ScreenShouldOn();
+
+	// 有按键 → 唤醒60秒
+	if(opnUp || opnDown || opnEnter || opnExit)
 	{
 			last_key_tick = now;
+
+			if(night)
+			{
+					wake_until_tick = now + WAKE_TIME_MS;
+			}
 	}
+
+	// 夜间且未唤醒
+	if(night && now > wake_until_tick && disp_mode != DISP_MODE_MENU)
+	{
+		if(HAL_GPIO_ReadPin(VFD_EN_GPIO_Port, VFD_EN_Pin))
+		{
+      EasyUITransitionAnim();
+		}
+		mn11236_clear_buffers();
+		mn11236_send_buffer();
+		HAL_GPIO_WritePin(VFD_EN_GPIO_Port, VFD_EN_Pin, GPIO_PIN_RESET);
+		osDelay(200);
+		return;
+	}
+	if(!HAL_GPIO_ReadPin(VFD_EN_GPIO_Port, VFD_EN_Pin))
+	{
+		opnUp = opnDown = opnEnter = opnExit = 0;
+	}
+  HAL_GPIO_WritePin(VFD_EN_GPIO_Port, VFD_EN_Pin, GPIO_PIN_SET);
 	
   switch (disp_mode)
   { 
@@ -831,6 +901,7 @@ void AppGUI_Loop(uint8_t timer)
     }
     clear_gram(White);
 		
+		set_g_maxGray(pUserInfo->clockdimming + 3);
 		if(clockTheme[pUserInfo->clocktheme].type == 0)
 		{
 			gradient_flow_frame_clock();
@@ -839,10 +910,17 @@ void AppGUI_Loop(uint8_t timer)
 			set_g_clockWidth(1);
 			draw_str_3x5_wave(SCREEN_WIDTH - 24, 12, date, clockTheme[pUserInfo->clocktheme].font);
 		}
-		else
+		else if(clockTheme[pUserInfo->clocktheme].type == 1)
 		{
 			set_g_clockWidth(3);
 			draw_str_3x5((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 3, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
+//			set_g_clockWidth(1);
+//			draw_str_3x5(SCREEN_WIDTH - 24, 12, date, clockTheme[pUserInfo->clocktheme].font);
+		}
+		else if(clockTheme[pUserInfo->clocktheme].type == 2)
+		{
+			set_g_clockWidth(3);
+			draw_str_3x5_wave((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 3, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
 //			set_g_clockWidth(1);
 //			draw_str_3x5(SCREEN_WIDTH - 24, 12, date, clockTheme[pUserInfo->clocktheme].font);
 		}

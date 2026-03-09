@@ -115,13 +115,16 @@ int main(void)
   /* USER CODE BEGIN 2 */
 	
   STMFLASH_Read(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
-  if (userInfo.valid != 4)
+  if (userInfo.valid != 5)
   {
 		userInfo.defaultfunc = 0;
     userInfo.clocktheme = 0;
     userInfo.musictheme = 2;
     userInfo.snakewidth = 2;
-    userInfo.valid = 4;
+    userInfo.valid = 5;
+    userInfo.clockdimming = 4;
+    userInfo.screen_on_hour = 7;
+    userInfo.screen_off_hour = 23;
 		
 		userInfo.effectswitch.enFirework = true;
 		userInfo.effectswitch.enCircle = false;
@@ -136,8 +139,9 @@ int main(void)
 		STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
   }
 
-  userInfo.clocktheme %= 4;
-  userInfo.musictheme %= 8;
+  userInfo.clockdimming %= 5;
+  userInfo.clocktheme %= 5;
+  userInfo.musictheme %= 12;
   HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 0, 0); //让扫描中断不被打断
   HAL_NVIC_EnableIRQ(DMA1_Stream4_IRQn);
 	HAL_TIM_Base_Start_IT(&htim3);

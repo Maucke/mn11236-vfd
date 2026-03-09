@@ -326,6 +326,12 @@ void clock_init()
     llist_init(&long_str_list);
     clear_all_long_str();
 }
+static uint8_t g_maxGray = 7; //(3-7)
+
+void set_g_maxGray(uint8_t gray)
+{
+	g_maxGray = gray;
+}
 
 void draw_point_wave(int x, int y, Color color)
 {
@@ -343,12 +349,12 @@ void draw_point_wave(int x, int y, Color color)
                 if (red > blue)
 								{
 										mn11236_clear_pixel(x, y, MN11236_COLOR_BLUE);
-                    mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, 6);
+                    mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, g_maxGray);
 								}
                 else
 								{
 										mn11236_clear_pixel(x, y, MN11236_COLOR_RED);
-                    mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, 7);
+                    mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, g_maxGray);
 								}
             }
             else if (color == Cyan)
@@ -358,8 +364,8 @@ void draw_point_wave(int x, int y, Color color)
             }
             else
             {
-                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, 6);
-                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, 7);
+                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, g_maxGray);
+                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, g_maxGray);
             }
         }
         else
@@ -781,9 +787,9 @@ void draw_point(int x, int y, Color color)
         if (color)
         {
             if (color & 1)
-                mn11236_draw_pixel(x, y, MN11236_COLOR_BLUE);
+                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, g_maxGray);
             if (color & 2)
-                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, 5);
+                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, g_maxGray - 2);
         }
         else
             mn11236_clear_pixel(x, y, MN11236_COLOR_RED);
@@ -791,9 +797,9 @@ void draw_point(int x, int y, Color color)
         if (x + 1 < MAX_X)
         {
             if (color & 4)
-                mn11236_draw_pixel(x + 1, y, MN11236_COLOR_BLUE);
+                mn11236_draw_pixel_gray(x + 1, y, MN11236_COLOR_BLUE, g_maxGray);
             if (color & 8)
-                mn11236_draw_pixel_gray(x + 1, y, MN11236_COLOR_RED, 5);
+                mn11236_draw_pixel_gray(x + 1, y, MN11236_COLOR_RED, g_maxGray - 2);
         }
     }
 }

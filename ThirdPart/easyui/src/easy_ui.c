@@ -300,15 +300,15 @@ void EasyUIDrawProgressBar(EasyUIPage_t *page, EasyUIItem_t *item)
   // Display information and draw box
   height = page->rowheight * 2 - 2;
   if (strlen(item->title) + 1 > 12)
-    width = (strlen(item->title) + 1) * page->font.width + 7;
+    width = (strlen(item->title) + 1) * page->font.width + 7 * 4;
   else
-    width = 12 * page->font.width + 7;
+    width = 12 * page->font.width + 7 * 4;
   if (width < 2 * SCREEN_WIDTH / 3)
-    width = 2 * SCREEN_WIDTH / 3;
+    width = 4 * SCREEN_WIDTH / 5;
   x = (SCREEN_WIDTH - width) / 2;
   y = (SCREEN_HEIGHT - height) / 2;
 
-  barWidth = width - 2 * page->font.width - 0;
+  barWidth = width - 2 * page->font.width - 0 - 8;
 
   EasyUIDrawFrame(x - 1, y - 1, width + 2, height + 2, GUI_penColor);
   EasyUIDrawBox(x, y, width, height, GUI_backgroundColor);
@@ -321,7 +321,7 @@ void EasyUIDrawProgressBar(EasyUIPage_t *page, EasyUIItem_t *item)
   EasyUIDisplayFloat(x + width - 5 * page->font.width - 4, y + page->rowheight + itemHeightOffset, *item->param, 3, 2);
 #else
 	snprintf(tempstr, sizeof tempstr, "%d", *item->param);
-	EasyUIDisplayStr(x + width - 2 * page->font.width + 4, y + page->rowheight + itemHeightOffset,
+	EasyUIDisplayStr(x + width - 2 * page->font.width - 2, y + page->rowheight + itemHeightOffset,
 										 tempstr); 
 #endif
   EasyUISendBuffer();
@@ -501,8 +501,12 @@ void EasyUIDisplayItem(EasyUIPage_t *page, EasyUIItem_t *item)
 //    else if (*item->param < 10000 && *item->param > -1000)
 //      EasyUIDisplayFloat(SCREEN_WIDTH - 0 - 7 * page->font.width - SCROLL_BAR_WIDTH, item->position,
 //                         *item->param, 4, 0);
-    else // Hide because it's too long
-      EasyUIDisplayStr(SCREEN_WIDTH - 7 - 5 * page->font.width - SCROLL_BAR_WIDTH, item->position, "**.**");
+    else if (*item->param < 100)
+		{
+			snprintf(tempstr, sizeof tempstr, "%2d", *item->param);
+      EasyUIDisplayStr(SCREEN_WIDTH - 0 - 3 * page->font.width - SCROLL_BAR_WIDTH, item->position,
+                         tempstr); 
+		}
     break;
   case ITEM_DETAIL:
     EasyUIDisplayStr(5 + page->font.width, item->position, item->title);

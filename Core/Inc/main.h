@@ -108,6 +108,9 @@ void Error_Handler(void);
     uint8_t musictheme;
     uint8_t snakewidth;
 		EffectSwitch_t effectswitch;
+    uint8_t clockdimming;
+		uint8_t screen_on_hour;   
+		uint8_t screen_off_hour;  
     uint8_t valid;
   } UserInfo_t;
 /* USER CODE END Private defines */
