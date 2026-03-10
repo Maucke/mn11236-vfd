@@ -951,7 +951,7 @@ void AppGUI_Loop(uint8_t timer)
     EasyUIEvent(5);
     break;
   }
-	if((rolling++)%2)
+//	if((rolling++)%2)
 		UploadFrame();
 	UserInfo_AutoSave();
 
