@@ -78,13 +78,13 @@ typedef __I uint8_t vuc8;   /*!< Read Only */
 // IO方向设置
 #define SDA_IN()                          \
     {                                     \
-        GPIOC->MODER &= ~(3 << (14 * 2)); \
-        GPIOC->MODER |= 0 << 14 * 2;      \
+        GPIOB->MODER &= ~(3 << (7 * 2)); \
+        GPIOB->MODER |= 0 << 7 * 2;      \
     } // PC14输入模式
 #define SDA_OUT()                         \
     {                                     \
-        GPIOC->MODER &= ~(3 << (14 * 2)); \
-        GPIOC->MODER |= 1 << 14 * 2;      \
+        GPIOB->MODER &= ~(3 << (7 * 2)); \
+        GPIOB->MODER |= 1 << 7 * 2;      \
     } // PC14输出模式
 
 #define PAout(n) BIT_ADDR(GPIOA_ODR_Addr, n) // 输出
@@ -120,9 +120,9 @@ typedef __I uint8_t vuc8;   /*!< Read Only */
 #define PKout(n) BIT_ADDR(GPIOK_ODR_Addr, n) // 输出
 #define PKin(n) BIT_ADDR(GPIOK_IDR_Addr, n)  // 输入
 // IO操作
-#define IIC_SCL PCout(15) // SCL
-#define IIC_SDA PCout(14) // SDA
-#define READ_SDA PCin(14) // 输入SDA
+#define IIC_SCL PBout(6) // SCL
+#define IIC_SDA PBout(7) // SDA
+#define READ_SDA PBin(7) // 输入SDA
 
 // IIC所有操作函数
 void IIC_Init(void);                 // 初始化IIC的IO口
