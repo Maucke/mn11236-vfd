@@ -93,9 +93,9 @@ static uint8_t abcdef_conversion(uint8_t idx)
 
 void mn11236_setbrightness(uint8_t bright)
 {
-//	if(bright)
-//		HAL_GPIO_WritePin(VFD_BLK_GPIO_Port, VFD_BLK_Pin, GPIO_PIN_RESET);
-//	else
+	if(bright)
+		HAL_GPIO_WritePin(VFD_BLK_GPIO_Port, VFD_BLK_Pin, GPIO_PIN_RESET);
+	else
 		HAL_GPIO_WritePin(VFD_BLK_GPIO_Port, VFD_BLK_Pin, GPIO_PIN_SET);
 }
 
