@@ -29,7 +29,6 @@
 #include "dma.h"
 #include "spi.h"
 #include "tim.h"
-#include "usart.h"
 #include "usb_device.h"
 #include "gpio.h"
 #include <stdarg.h>
@@ -174,7 +173,6 @@ __weak void StartDefaultTask(void *argument)
 			GUI_ShowStr(10, 1 + 8, "Complete");
 			GUI_SendBuffer();
       MX_USB_DEVICE_DeInit();
-			HAL_UART_MspDeInit(&huart1);
       for(int i = 0; i < 80; i++)
       {
         HAL_GPIO_TogglePin(SYS_LED_GPIO_Port, SYS_LED_Pin);

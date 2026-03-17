@@ -63,6 +63,8 @@ void Error_Handler(void);
 #define VFD_EN_GPIO_Port GPIOA
 #define VFD_LAT_Pin GPIO_PIN_12
 #define VFD_LAT_GPIO_Port GPIOB
+#define ESP_EN_Pin GPIO_PIN_9
+#define ESP_EN_GPIO_Port GPIOA
 #define VFD_BK_Pin GPIO_PIN_15
 #define VFD_BK_GPIO_Port GPIOA
 #define KEY_SW2_Pin GPIO_PIN_8

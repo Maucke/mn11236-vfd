@@ -2,7 +2,6 @@
 #define __BOOT_LOADER_H
 
 #include "stm32f4xx_hal.h"
-#include "usart.h"
 
 void JumpToApplication(void);
 void Flash_Erase(void);
