@@ -65,6 +65,8 @@ void Error_Handler(void);
 #define SPI1_SCS_EXTI_IRQn EXTI4_IRQn
 #define VFD_LAT_Pin GPIO_PIN_12
 #define VFD_LAT_GPIO_Port GPIOB
+#define ESP_EN_Pin GPIO_PIN_9
+#define ESP_EN_GPIO_Port GPIOA
 #define VFD_BLK_Pin GPIO_PIN_15
 #define VFD_BLK_GPIO_Port GPIOA
 #define BUS_SCL_Pin GPIO_PIN_6

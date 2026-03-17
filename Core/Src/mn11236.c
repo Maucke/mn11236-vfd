@@ -3,7 +3,6 @@
 #include <stdint.h>
 #include "spi.h"
 #include "tim.h"
-#include "usart.h"
 #include "stm32f4xx_it.h"
 
 // 用户绘制的像素缓冲区
@@ -124,22 +123,12 @@ void mn11236_init(void)
         &hspi2,
         (uint8_t *)dma_tx_buffer[current_grid][current_plane],
         DMA_BUFFER_SIZE);
-		HAL_UARTEx_ReceiveToIdle_DMA(&huart1, (uint8_t*)display_buffer, sizeof display_buffer);
 		HAL_SPI_Receive_DMA(&hspi1, (uint8_t*)display_buffer, sizeof display_buffer);
 }
 
 void Data_RxIntCpltCallback(uint8_t *recv_buff, int count)
 {
 	
-}
-
-void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
-{
-  if (&huart1 == huart)
-  {
-    Data_RxIntCpltCallback((uint8_t*)display_buffer, Size);
-    HAL_UARTEx_ReceiveToIdle_DMA(&huart1, (uint8_t*)display_buffer, BUFFER_SIZE);
-  }
 }
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)

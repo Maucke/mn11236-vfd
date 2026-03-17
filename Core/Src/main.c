@@ -23,7 +23,6 @@
 #include "i2c.h"
 #include "spi.h"
 #include "tim.h"
-#include "usart.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -89,7 +88,6 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_SPI1_Init();
-  MX_USART1_UART_Init();
   MX_ADC1_Init();
   MX_TIM3_Init();
   MX_SPI2_Init();
@@ -97,13 +95,14 @@ int main(void)
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
 	
-  HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 0, 0); //让扫描中断不被打断
+  HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 0, 0); //让扫描中断不被打�?
   HAL_NVIC_EnableIRQ(DMA1_Stream4_IRQn);
 	HAL_TIM_Base_Start_IT(&htim3);
 //  HAL_TIM_PWM_Start(&htim2,TIM_CHANNEL_1);
 	VFD_EN_Init();
 	mn11236_init();
-	mn11236_development_test();
+//	mn11236_development_test();
+  HAL_GPIO_WritePin(ESP_EN_GPIO_Port, ESP_EN_Pin, GPIO_PIN_SET);
   /* USER CODE END 2 */
 
   /* Infinite loop */
