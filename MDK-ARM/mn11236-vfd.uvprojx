@@ -337,7 +337,7 @@
               <MiscControls></MiscControls>
               <Define>USE_HAL_DRIVER,STM32F401xC,FUSB,ARM_MATH_CM4,ARM_MATH_CM4,__CC_ARM,__TARGET_FPU_VFP</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../USB_DEVICE/App;../USB_DEVICE/Target;../Drivers/STM32F4xx_HAL_Driver/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy;../Middlewares/Third_Party/FreeRTOS/Source/include;../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2;../Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F;../Middlewares/ST/STM32_USB_Device_Library/Core/Inc;../Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc;../Drivers/CMSIS/Device/ST/STM32F4xx/Include;../Drivers/CMSIS/Include;../Middlewares/ST/STM32_USB_Device_Library/Class/NEX_LINK/Inc;../ThirdPart/mygui;../ThirdPart/easyui/include;../Middlewares/ST/ARM/DSP/Inc;../ThirdPart/pixui</IncludePath>
+              <IncludePath>../Core/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F4xx/Include;../Drivers/CMSIS/Include;../Middlewares/ST/STM32_USB_Device_Library/Class/NEX_LINK/Inc;../ThirdPart/mygui;../ThirdPart/easyui/include;../Middlewares/ST/ARM/DSP/Inc;../ThirdPart/pixui</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -355,7 +355,7 @@
               <MiscControls></MiscControls>
               <Define></Define>
               <Undefine></Undefine>
-              <IncludePath>..\Core\Inc;../Drivers/CMSIS/Include</IncludePath>
+              <IncludePath></IncludePath>
             </VariousControls>
           </Aads>
           <LDads>
@@ -392,29 +392,9 @@
           <GroupName>Application/User/Core</GroupName>
           <Files>
             <File>
-              <FileName>llist.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\llist.c</FilePath>
-            </File>
-            <File>
               <FileName>mn11236.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Core\Src\mn11236.c</FilePath>
-            </File>
-            <File>
-              <FileName>stm32_rx8900.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\stm32_rx8900.c</FilePath>
-            </File>
-            <File>
-              <FileName>stmflash.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\stmflash.c</FilePath>
-            </File>
-            <File>
-              <FileName>clockui.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\clockui.c</FilePath>
             </File>
             <File>
               <FileName>lv_anim_light.c</FileName>
@@ -422,9 +402,14 @@
               <FilePath>..\Core\Src\lv_anim_light.c</FilePath>
             </File>
             <File>
-              <FileName>cr4_fft_256_stm32.s</FileName>
-              <FileType>2</FileType>
-              <FilePath>..\Core\Src\cr4_fft_256_stm32.s</FilePath>
+              <FileName>stm32_rx8900.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\stm32_rx8900.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32_mpu6050.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\stm32_mpu6050.c</FilePath>
             </File>
             <File>
               <FileName>main.c</FileName>
@@ -435,11 +420,6 @@
               <FileName>gpio.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Core/Src/gpio.c</FilePath>
-            </File>
-            <File>
-              <FileName>freertos.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Core/Src/freertos.c</FilePath>
             </File>
             <File>
               <FileName>adc.c</FileName>
@@ -537,71 +517,6 @@
               <FileType>1</FileType>
               <FilePath>../Core/Src/stm32f4xx_hal_timebase_tim.c</FilePath>
             </File>
-            <File>
-              <FileName>stm32_mpu6050.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\stm32_mpu6050.c</FilePath>
-            </File>
-            <File>
-              <FileName>SandSim.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\SandSim.c</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>Application/User/USB_DEVICE/App</GroupName>
-          <Files>
-            <File>
-              <FileName>nexlink_app.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Middlewares\ST\STM32_USB_Device_Library\Class\NEX_LINK\Src\nexlink_app.c</FilePath>
-            </File>
-            <File>
-              <FileName>nexlink_ringbuf.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Middlewares\ST\STM32_USB_Device_Library\Class\NEX_LINK\Src\nexlink_ringbuf.c</FilePath>
-            </File>
-            <File>
-              <FileName>nexlink_tasks.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Middlewares\ST\STM32_USB_Device_Library\Class\NEX_LINK\Src\nexlink_tasks.c</FilePath>
-            </File>
-            <File>
-              <FileName>nexlink_tx.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Middlewares\ST\STM32_USB_Device_Library\Class\NEX_LINK\Src\nexlink_tx.c</FilePath>
-            </File>
-            <File>
-              <FileName>usbd_nex_link.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Middlewares\ST\STM32_USB_Device_Library\Class\NEX_LINK\Src\usbd_nex_link.c</FilePath>
-            </File>
-            <File>
-              <FileName>nexlink_usb_if.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Middlewares\ST\STM32_USB_Device_Library\Class\NEX_LINK\Src\nexlink_usb_if.c</FilePath>
-            </File>
-            <File>
-              <FileName>nexlink_rampool.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Middlewares\ST\STM32_USB_Device_Library\Class\NEX_LINK\Src\nexlink_rampool.c</FilePath>
-            </File>
-            <File>
-              <FileName>usbd_desc.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../USB_DEVICE/App/usbd_desc.c</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>Application/User/USB_DEVICE/Target</GroupName>
-          <Files>
-            <File>
-              <FileName>usbd_conf.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\USB_DEVICE\Target\usbd_conf.c</FilePath>
-            </File>
           </Files>
         </Group>
         <Group>
@@ -618,19 +533,19 @@
               <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim_ex.c</FilePath>
             </File>
             <File>
-              <FileName>stm32f4xx_hal_pcd.c</FileName>
+              <FileName>stm32f4xx_hal_adc.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pcd.c</FilePath>
+              <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_adc.c</FilePath>
             </File>
             <File>
-              <FileName>stm32f4xx_hal_pcd_ex.c</FileName>
+              <FileName>stm32f4xx_hal_adc_ex.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pcd_ex.c</FilePath>
+              <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_adc_ex.c</FilePath>
             </File>
             <File>
-              <FileName>stm32f4xx_ll_usb.c</FileName>
+              <FileName>stm32f4xx_ll_adc.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_ll_usb.c</FilePath>
+              <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_ll_adc.c</FilePath>
             </File>
             <File>
               <FileName>stm32f4xx_hal_rcc.c</FileName>
@@ -696,21 +611,6 @@
               <FileName>stm32f4xx_hal_exti.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_exti.c</FilePath>
-            </File>
-            <File>
-              <FileName>stm32f4xx_hal_adc.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_adc.c</FilePath>
-            </File>
-            <File>
-              <FileName>stm32f4xx_hal_adc_ex.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_adc_ex.c</FilePath>
-            </File>
-            <File>
-              <FileName>stm32f4xx_ll_adc.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_ll_adc.c</FilePath>
             </File>
             <File>
               <FileName>stm32f4xx_hal_i2c.c</FileName>
@@ -843,136 +743,6 @@
               <FileName>system_stm32f4xx.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Core/Src/system_stm32f4xx.c</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>Middlewares/FreeRTOS</GroupName>
-          <Files>
-            <File>
-              <FileName>croutine.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Middlewares/Third_Party/FreeRTOS/Source/croutine.c</FilePath>
-            </File>
-            <File>
-              <FileName>event_groups.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Middlewares/Third_Party/FreeRTOS/Source/event_groups.c</FilePath>
-            </File>
-            <File>
-              <FileName>list.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Middlewares/Third_Party/FreeRTOS/Source/list.c</FilePath>
-            </File>
-            <File>
-              <FileName>queue.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Middlewares/Third_Party/FreeRTOS/Source/queue.c</FilePath>
-            </File>
-            <File>
-              <FileName>stream_buffer.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Middlewares/Third_Party/FreeRTOS/Source/stream_buffer.c</FilePath>
-            </File>
-            <File>
-              <FileName>tasks.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Middlewares/Third_Party/FreeRTOS/Source/tasks.c</FilePath>
-            </File>
-            <File>
-              <FileName>timers.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Middlewares/Third_Party/FreeRTOS/Source/timers.c</FilePath>
-            </File>
-            <File>
-              <FileName>cmsis_os2.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2/cmsis_os2.c</FilePath>
-            </File>
-            <File>
-              <FileName>heap_4.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Middlewares/Third_Party/FreeRTOS/Source/portable/MemMang/heap_4.c</FilePath>
-            </File>
-            <File>
-              <FileName>port.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F/port.c</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>Middlewares/USB_Device_Library</GroupName>
-          <Files>
-            <File>
-              <FileName>usbd_core.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Middlewares/ST/STM32_USB_Device_Library/Core/Src/usbd_core.c</FilePath>
-            </File>
-            <File>
-              <FileName>usbd_ctlreq.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Middlewares/ST/STM32_USB_Device_Library/Core/Src/usbd_ctlreq.c</FilePath>
-            </File>
-            <File>
-              <FileName>usbd_ioreq.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Middlewares/ST/STM32_USB_Device_Library/Core/Src/usbd_ioreq.c</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>ThirdPart/mygui</GroupName>
-          <Files>
-            <File>
-              <FileName>fftaffect.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\ThirdPart\mygui\fftaffect.c</FilePath>
-            </File>
-            <File>
-              <FileName>animation.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\ThirdPart\mygui\animation.c</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>ThirdPart/easyui</GroupName>
-          <Files>
-            <File>
-              <FileName>easy_key.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\ThirdPart\easyui\src\easy_key.c</FilePath>
-            </File>
-            <File>
-              <FileName>easy_ui.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\ThirdPart\easyui\src\easy_ui.c</FilePath>
-            </File>
-            <File>
-              <FileName>easy_ui_user_app.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\ThirdPart\easyui\src\easy_ui_user_app.c</FilePath>
-            </File>
-            <File>
-              <FileName>my_math.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\ThirdPart\easyui\src\my_math.c</FilePath>
-            </File>
-            <File>
-              <FileName>zf_common_font.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\ThirdPart\easyui\src\zf_common_font.c</FilePath>
-            </File>
-            <File>
-              <FileName>zf_common_function.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\ThirdPart\easyui\src\zf_common_function.c</FilePath>
-            </File>
-            <File>
-              <FileName>gui.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\ThirdPart\easyui\src\gui.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -1367,29 +1137,9 @@
           <GroupName>Application/User/Core</GroupName>
           <Files>
             <File>
-              <FileName>llist.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\llist.c</FilePath>
-            </File>
-            <File>
               <FileName>mn11236.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Core\Src\mn11236.c</FilePath>
-            </File>
-            <File>
-              <FileName>stm32_rx8900.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\stm32_rx8900.c</FilePath>
-            </File>
-            <File>
-              <FileName>stmflash.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\stmflash.c</FilePath>
-            </File>
-            <File>
-              <FileName>clockui.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\clockui.c</FilePath>
             </File>
             <File>
               <FileName>lv_anim_light.c</FileName>
@@ -1397,9 +1147,14 @@
               <FilePath>..\Core\Src\lv_anim_light.c</FilePath>
             </File>
             <File>
-              <FileName>cr4_fft_256_stm32.s</FileName>
-              <FileType>2</FileType>
-              <FilePath>..\Core\Src\cr4_fft_256_stm32.s</FilePath>
+              <FileName>stm32_rx8900.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\stm32_rx8900.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32_mpu6050.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\stm32_mpu6050.c</FilePath>
             </File>
             <File>
               <FileName>main.c</FileName>
@@ -1410,11 +1165,6 @@
               <FileName>gpio.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Core/Src/gpio.c</FilePath>
-            </File>
-            <File>
-              <FileName>freertos.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Core/Src/freertos.c</FilePath>
             </File>
             <File>
               <FileName>adc.c</FileName>
@@ -1461,71 +1211,6 @@
               <FileType>1</FileType>
               <FilePath>../Core/Src/stm32f4xx_hal_timebase_tim.c</FilePath>
             </File>
-            <File>
-              <FileName>stm32_mpu6050.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\stm32_mpu6050.c</FilePath>
-            </File>
-            <File>
-              <FileName>SandSim.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\SandSim.c</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>Application/User/USB_DEVICE/App</GroupName>
-          <Files>
-            <File>
-              <FileName>nexlink_app.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Middlewares\ST\STM32_USB_Device_Library\Class\NEX_LINK\Src\nexlink_app.c</FilePath>
-            </File>
-            <File>
-              <FileName>nexlink_ringbuf.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Middlewares\ST\STM32_USB_Device_Library\Class\NEX_LINK\Src\nexlink_ringbuf.c</FilePath>
-            </File>
-            <File>
-              <FileName>nexlink_tasks.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Middlewares\ST\STM32_USB_Device_Library\Class\NEX_LINK\Src\nexlink_tasks.c</FilePath>
-            </File>
-            <File>
-              <FileName>nexlink_tx.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Middlewares\ST\STM32_USB_Device_Library\Class\NEX_LINK\Src\nexlink_tx.c</FilePath>
-            </File>
-            <File>
-              <FileName>usbd_nex_link.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Middlewares\ST\STM32_USB_Device_Library\Class\NEX_LINK\Src\usbd_nex_link.c</FilePath>
-            </File>
-            <File>
-              <FileName>nexlink_usb_if.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Middlewares\ST\STM32_USB_Device_Library\Class\NEX_LINK\Src\nexlink_usb_if.c</FilePath>
-            </File>
-            <File>
-              <FileName>nexlink_rampool.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Middlewares\ST\STM32_USB_Device_Library\Class\NEX_LINK\Src\nexlink_rampool.c</FilePath>
-            </File>
-            <File>
-              <FileName>usbd_desc.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../USB_DEVICE/App/usbd_desc.c</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>Application/User/USB_DEVICE/Target</GroupName>
-          <Files>
-            <File>
-              <FileName>usbd_conf.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\USB_DEVICE\Target\usbd_conf.c</FilePath>
-            </File>
           </Files>
         </Group>
         <Group>
@@ -1542,19 +1227,19 @@
               <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim_ex.c</FilePath>
             </File>
             <File>
-              <FileName>stm32f4xx_hal_pcd.c</FileName>
+              <FileName>stm32f4xx_hal_adc.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pcd.c</FilePath>
+              <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_adc.c</FilePath>
             </File>
             <File>
-              <FileName>stm32f4xx_hal_pcd_ex.c</FileName>
+              <FileName>stm32f4xx_hal_adc_ex.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pcd_ex.c</FilePath>
+              <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_adc_ex.c</FilePath>
             </File>
             <File>
-              <FileName>stm32f4xx_ll_usb.c</FileName>
+              <FileName>stm32f4xx_ll_adc.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_ll_usb.c</FilePath>
+              <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_ll_adc.c</FilePath>
             </File>
             <File>
               <FileName>stm32f4xx_hal_rcc.c</FileName>
@@ -1622,21 +1307,6 @@
               <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_exti.c</FilePath>
             </File>
             <File>
-              <FileName>stm32f4xx_hal_adc.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_adc.c</FilePath>
-            </File>
-            <File>
-              <FileName>stm32f4xx_hal_adc_ex.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_adc_ex.c</FilePath>
-            </File>
-            <File>
-              <FileName>stm32f4xx_ll_adc.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_ll_adc.c</FilePath>
-            </File>
-            <File>
               <FileName>stm32f4xx_hal_i2c.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c.c</FilePath>
@@ -1665,136 +1335,6 @@
               <FileName>system_stm32f4xx.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Core/Src/system_stm32f4xx.c</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>Middlewares/FreeRTOS</GroupName>
-          <Files>
-            <File>
-              <FileName>croutine.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Middlewares/Third_Party/FreeRTOS/Source/croutine.c</FilePath>
-            </File>
-            <File>
-              <FileName>event_groups.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Middlewares/Third_Party/FreeRTOS/Source/event_groups.c</FilePath>
-            </File>
-            <File>
-              <FileName>list.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Middlewares/Third_Party/FreeRTOS/Source/list.c</FilePath>
-            </File>
-            <File>
-              <FileName>queue.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Middlewares/Third_Party/FreeRTOS/Source/queue.c</FilePath>
-            </File>
-            <File>
-              <FileName>stream_buffer.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Middlewares/Third_Party/FreeRTOS/Source/stream_buffer.c</FilePath>
-            </File>
-            <File>
-              <FileName>tasks.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Middlewares/Third_Party/FreeRTOS/Source/tasks.c</FilePath>
-            </File>
-            <File>
-              <FileName>timers.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Middlewares/Third_Party/FreeRTOS/Source/timers.c</FilePath>
-            </File>
-            <File>
-              <FileName>cmsis_os2.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2/cmsis_os2.c</FilePath>
-            </File>
-            <File>
-              <FileName>heap_4.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Middlewares/Third_Party/FreeRTOS/Source/portable/MemMang/heap_4.c</FilePath>
-            </File>
-            <File>
-              <FileName>port.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F/port.c</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>Middlewares/USB_Device_Library</GroupName>
-          <Files>
-            <File>
-              <FileName>usbd_core.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Middlewares/ST/STM32_USB_Device_Library/Core/Src/usbd_core.c</FilePath>
-            </File>
-            <File>
-              <FileName>usbd_ctlreq.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Middlewares/ST/STM32_USB_Device_Library/Core/Src/usbd_ctlreq.c</FilePath>
-            </File>
-            <File>
-              <FileName>usbd_ioreq.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../Middlewares/ST/STM32_USB_Device_Library/Core/Src/usbd_ioreq.c</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>ThirdPart/mygui</GroupName>
-          <Files>
-            <File>
-              <FileName>fftaffect.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\ThirdPart\mygui\fftaffect.c</FilePath>
-            </File>
-            <File>
-              <FileName>animation.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\ThirdPart\mygui\animation.c</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>ThirdPart/easyui</GroupName>
-          <Files>
-            <File>
-              <FileName>easy_key.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\ThirdPart\easyui\src\easy_key.c</FilePath>
-            </File>
-            <File>
-              <FileName>easy_ui.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\ThirdPart\easyui\src\easy_ui.c</FilePath>
-            </File>
-            <File>
-              <FileName>easy_ui_user_app.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\ThirdPart\easyui\src\easy_ui_user_app.c</FilePath>
-            </File>
-            <File>
-              <FileName>my_math.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\ThirdPart\easyui\src\my_math.c</FilePath>
-            </File>
-            <File>
-              <FileName>zf_common_font.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\ThirdPart\easyui\src\zf_common_font.c</FilePath>
-            </File>
-            <File>
-              <FileName>zf_common_function.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\ThirdPart\easyui\src\zf_common_function.c</FilePath>
-            </File>
-            <File>
-              <FileName>gui.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\ThirdPart\easyui\src\gui.c</FilePath>
             </File>
           </Files>
         </Group>

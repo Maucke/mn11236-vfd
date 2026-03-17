@@ -1,12 +1,14 @@
 #include "mn11236.h"
 #include <string.h>
 #include <stdint.h>
-#include "cmsis_os.h"
 #include "spi.h"
 #include "tim.h"
+#include "usart.h"
+#include "stm32f4xx_it.h"
 
 // 用户绘制的像素缓冲区
-static uint8_t display_buffer[VFD_WIDTH][VFD_HEIGHT]; // [x][y][color]
+static uint8_t display_buffer[VFD_WIDTH][VFD_HEIGHT]; // [x][y] red|blue
+#define BUFFER_SIZE (sizeof display_buffer)
 
 // DMA传输缓冲区（当前正在传输的行）
 #define GRAY_BITS 3
@@ -122,6 +124,38 @@ void mn11236_init(void)
         &hspi2,
         (uint8_t *)dma_tx_buffer[current_grid][current_plane],
         DMA_BUFFER_SIZE);
+		HAL_UARTEx_ReceiveToIdle_DMA(&huart1, (uint8_t*)display_buffer, sizeof display_buffer);
+		HAL_SPI_Receive_DMA(&hspi1, (uint8_t*)display_buffer, sizeof display_buffer);
+}
+
+void Data_RxIntCpltCallback(uint8_t *recv_buff, int count)
+{
+	
+}
+
+void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
+{
+  if (&huart1 == huart)
+  {
+    Data_RxIntCpltCallback((uint8_t*)display_buffer, Size);
+    HAL_UARTEx_ReceiveToIdle_DMA(&huart1, (uint8_t*)display_buffer, BUFFER_SIZE);
+  }
+}
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+  uint16_t remaining_count = hdma_spi1_rx.Instance->NDTR;
+  uint16_t current_count = BUFFER_SIZE - remaining_count;
+  HAL_SPI_DMAStop(&hspi1);
+  __HAL_RCC_SPI1_FORCE_RESET();
+  __HAL_RCC_SPI1_RELEASE_RESET();
+  HAL_SPI_Init(&hspi1);
+
+  Data_RxIntCpltCallback((uint8_t*)display_buffer, current_count);
+
+  HAL_SPI_Receive_DMA(&hspi1, (uint8_t*)display_buffer, BUFFER_SIZE);
+
+  // printf("%d --> %d", GPIO_Pin, HAL_GPIO_ReadPin(SPI1_SCS_GPIO_Port, SPI1_SCS_Pin));
 }
 
 int fps = 0;
@@ -385,7 +419,7 @@ void mn11236_development_test(void)
             mn11236_draw_pixel(x, y, MN11236_COLOR_BLUE);
         }
         mn11236_send_buffer();
-        osDelay(20);
+        HAL_Delay(20);
     }
 
     // 动画2: 水平扫描线从上到下（红色）
@@ -397,7 +431,7 @@ void mn11236_development_test(void)
             mn11236_draw_pixel(x, y, MN11236_COLOR_RED);
         }
         mn11236_send_buffer();
-        osDelay(50);
+        HAL_Delay(50);
     }
 
     // 动画3: 逐行填充（蓝色从上往下填满）
@@ -409,10 +443,10 @@ void mn11236_development_test(void)
             mn11236_draw_pixel(x, y, MN11236_COLOR_BLUE);
         }
         mn11236_send_buffer();
-        osDelay(80);
+        HAL_Delay(80);
     }
 
-    osDelay(500);
+    HAL_Delay(500);
 		
     // 动画5: 扩展矩形（从中心向外扩展）
     mn11236_clear_buffers();
@@ -439,10 +473,10 @@ void mn11236_development_test(void)
             }
         }
         mn11236_send_buffer();
-        osDelay(50);
+        HAL_Delay(50);
     }
 
-    osDelay(1000);
+    HAL_Delay(1000);
 
     // 动画6: 蛇形填充
     mn11236_clear_buffers();
@@ -457,7 +491,7 @@ void mn11236_development_test(void)
                 if (x % 4 == 0)
                 {
                     mn11236_send_buffer();
-                    osDelay(5);
+                    HAL_Delay(5);
                 }
             }
         }
@@ -470,14 +504,14 @@ void mn11236_development_test(void)
                 if (rx % 4 == 0)
                 {
                     mn11236_send_buffer();
-                    osDelay(5);
+                    HAL_Delay(5);
                 }
             }
         }
     }
     mn11236_send_buffer();
 
-    osDelay(2000);
+    HAL_Delay(2000);
 
     // 清屏结束
     mn11236_clear_buffers();

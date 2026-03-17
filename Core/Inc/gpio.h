@@ -39,6 +39,7 @@ extern "C" {
 void MX_GPIO_Init(void);
 
 /* USER CODE BEGIN Prototypes */
+void VFD_EN_Init(void);
 
 /* USER CODE END Prototypes */
 

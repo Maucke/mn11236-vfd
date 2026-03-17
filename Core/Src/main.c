@@ -18,23 +18,17 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "cmsis_os.h"
 #include "adc.h"
 #include "dma.h"
 #include "i2c.h"
 #include "spi.h"
 #include "tim.h"
 #include "usart.h"
-#include "usb_device.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "stmflash.h"
-#include "usbd_nex_link.h"
-
-#include "easy_key.h"
-#include "easy_ui_user_app.h"
+#include "mn11236.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -54,29 +48,15 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-USBD_HandleTypeDef hUSB;
-UserInfo_t userInfo = {0};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
-void MX_FREERTOS_Init(void);
 /* USER CODE BEGIN PFP */
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void MX_USB_DEVICE_Init()
-{
-#ifdef FUSB
-  USBD_Init(&hUSB, &FS_Desc, DEVICE_FS);
-#else
-  USBD_Init(&hUSB, &FS_Desc, DEVICE_HS);
-#endif
-  USBD_RegisterClass(&hUSB, &USBD_NEX_LINK);
-  USBD_Start(&hUSB);
-}
-
 /* USER CODE END 0 */
 
 /**
@@ -117,48 +97,15 @@ int main(void)
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
 	
-  STMFLASH_Read(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
-  if (userInfo.valid != 5)
-  {
-		userInfo.defaultfunc = 0;
-    userInfo.clocktheme = 0;
-    userInfo.musictheme = 2;
-    userInfo.snakewidth = 2;
-    userInfo.valid = 5;
-    userInfo.clockdimming = 4;
-    userInfo.screen_on_hour = 7;
-    userInfo.screen_off_hour = 23;
-		
-		userInfo.effectswitch.enFirework = true;
-		userInfo.effectswitch.enCircle = false;
-		userInfo.effectswitch.enGCircle = false;
-		userInfo.effectswitch.enMeteo = false;
-		userInfo.effectswitch.enMind = false;
-		userInfo.effectswitch.enPlanet = false;
-		userInfo.effectswitch.enSnowflake = false;
-		userInfo.effectswitch.enStarwar = true;
-		userInfo.effectswitch.enTriangle = false;
-		userInfo.effectswitch.reserved = false;
-		STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
-  }
-
-  userInfo.clockdimming %= 5;
-  userInfo.clocktheme %= 5;
-  userInfo.musictheme %= 12;
   HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 0, 0); //让扫描中断不被打断
   HAL_NVIC_EnableIRQ(DMA1_Stream4_IRQn);
 	HAL_TIM_Base_Start_IT(&htim3);
 //  HAL_TIM_PWM_Start(&htim2,TIM_CHANNEL_1);
+	VFD_EN_Init();
+	mn11236_init();
+	mn11236_development_test();
   /* USER CODE END 2 */
 
-  /* Init scheduler */
-  osKernelInitialize();  /* Call init function for freertos objects (in freertos.c) */
-  MX_FREERTOS_Init();
-
-  /* Start scheduler */
-  osKernelStart();
-
-  /* We should never get here as control is now taken by the scheduler */
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
@@ -166,6 +113,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+		mn11236_send_buffer();
 		
   }
   /* USER CODE END 3 */
@@ -242,9 +190,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
 	if (htim->Instance == htim3.Instance)
 	{
-		EasyKeyScanKeyState();
-		EasyKeyUserApp();
-		EasyUIKeyActionMonitor();
 //		dbmsg("tick: %d", HAL_GetTick());
 	}
   /* USER CODE END Callback 1 */

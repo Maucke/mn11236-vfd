@@ -31,7 +31,6 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "nexlink_app.h"
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
@@ -59,12 +58,11 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define SYS_LED_Pin GPIO_PIN_13
 #define SYS_LED_GPIO_Port GPIOC
-#define ADC_AUDIO_Pin GPIO_PIN_0
-#define ADC_AUDIO_GPIO_Port GPIOA
 #define ADC_DIM_Pin GPIO_PIN_2
 #define ADC_DIM_GPIO_Port GPIOA
-#define VFD_EN_Pin GPIO_PIN_3
-#define VFD_EN_GPIO_Port GPIOA
+#define SPI1_SCS_Pin GPIO_PIN_4
+#define SPI1_SCS_GPIO_Port GPIOA
+#define SPI1_SCS_EXTI_IRQn EXTI4_IRQn
 #define VFD_LAT_Pin GPIO_PIN_12
 #define VFD_LAT_GPIO_Port GPIOB
 #define VFD_BLK_Pin GPIO_PIN_15
