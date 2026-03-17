@@ -3,9 +3,10 @@
 #include <stdint.h>
 #include "cmsis_os.h"
 #include "spi.h"
+#include "tim.h"
 
 // 用户绘制的像素缓冲区
-static uint8_t display_buffer[VFD_WIDTH][VFD_HEIGHT][2]; // [x][y][color]
+static uint8_t display_buffer[VFD_WIDTH][VFD_HEIGHT]; // [x][y][color]
 
 // DMA传输缓冲区（当前正在传输的行）
 #define GRAY_BITS 3
@@ -34,13 +35,13 @@ static void reset_bit(uint8_t *buf, uint16_t bit_pos)
     buf[(bit_pos / 8)] &= ~(1 << (7 - (bit_pos % 8)));
 }
 
-/**
- * 获取Bit位
- */
-static uint8_t get_bit(const uint8_t *buf, uint16_t bit_pos)
-{
-    return buf[(bit_pos / 8)] & (1 << (7 - (bit_pos % 8)));
-}
+///**
+// * 获取Bit位
+// */
+//static uint8_t get_bit(const uint8_t *buf, uint16_t bit_pos)
+//{
+//    return buf[(bit_pos / 8)] & (1 << (7 - (bit_pos % 8)));
+//}
 
 /**
  * 初始化扫描Grid的激活栅极模板
@@ -90,15 +91,23 @@ static uint8_t abcdef_conversion(uint8_t idx)
     return x_abcdef;
 }
 
+void mn11236_setbrightness(uint8_t bright)
+{
+//	if(bright)
+//		HAL_GPIO_WritePin(VFD_BLK_GPIO_Port, VFD_BLK_Pin, GPIO_PIN_RESET);
+//	else
+		HAL_GPIO_WritePin(VFD_BLK_GPIO_Port, VFD_BLK_Pin, GPIO_PIN_SET);
+}
+
 void mn11236_init(void)
 {
 
     // 初始化LAT和BK引脚状态
-    HAL_GPIO_WritePin(VFD_LAT_GPIO_Port, VFD_LAT_Pin, GPIO_PIN_RESET);
+    mn11236_setbrightness(0);
 //    // 高电平关闭显示
 //    HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_SET);
 
-    HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_RESET);
+    mn11236_setbrightness(50);
 	
     // 初始化栅极模板
     init_grids_template();
@@ -213,7 +222,7 @@ void mn11236_send_buffer(void)
                 }
 
                 // 蓝色像素：根据display_buffer状态设置或清除bit
-								blue = display_buffer[x][y][MN11236_COLOR_BLUE];
+								blue = display_buffer[x][y]&0xF;
 								if(blue&1)
                     set_bit(dma_tx_buffer[frame][0], line_offset + bit_idx);
                 else
@@ -230,7 +239,7 @@ void mn11236_send_buffer(void)
                     reset_bit(dma_tx_buffer[frame][2], line_offset + bit_idx);
 
                 // 红色像素：根据display_buffer状态设置或清除bit
-								red = display_buffer[x][y][MN11236_COLOR_RED];
+								red = display_buffer[x][y]>>4;
 								if(red&1)
                     set_bit(dma_tx_buffer[frame][0], line_offset + VFD_COLOR_OFFSET + bit_idx);
                 else
@@ -259,7 +268,14 @@ void mn11236_draw_pixel(uint8_t x, uint8_t y, mn11236_color_t color)
     {
         return; // 超出范围
     }
-		display_buffer[x][y][color] = 7;
+		if(color == MN11236_COLOR_RED)
+		{
+			display_buffer[x][y] |= 7<<4;
+		}
+		else
+		{
+			display_buffer[x][y] |= 7;
+		}
 }
 
 void mn11236_draw_pixel_gray(uint8_t x,
@@ -273,7 +289,16 @@ void mn11236_draw_pixel_gray(uint8_t x,
     if (gray > 7)
         gray = 7;
 
-    display_buffer[x][y][color] = gray;
+		if(color == MN11236_COLOR_RED)
+		{
+			display_buffer[x][y] &= 0xF;
+			display_buffer[x][y] |= gray<<4;
+		}
+		else
+		{
+			display_buffer[x][y] &= 0xF0;
+			display_buffer[x][y] |= gray;
+		}
 }
 
 /**
@@ -285,7 +310,10 @@ void mn11236_clear_pixel(uint8_t x, uint8_t y, mn11236_color_t color)
     {
         return; // 超出范围
     }
-		display_buffer[x][y][color] = 0;
+		if(color == MN11236_COLOR_RED)
+			display_buffer[x][y] &= 0xF;
+		else
+			display_buffer[x][y] &= 0xF0;
 }
 
 /**
@@ -297,7 +325,10 @@ uint8_t mn11236_read_pixel(uint8_t x, uint8_t y, mn11236_color_t color)
     {
         return 0; // 超出范围
     }
-    return display_buffer[x][y][color];
+		if(color == MN11236_COLOR_RED)
+			return display_buffer[x][y] >> 4;
+		else
+			return display_buffer[x][y] & 0xF;
 }
 
 void mn11236_gray_test(void)
@@ -382,19 +413,7 @@ void mn11236_development_test(void)
     }
 
     osDelay(500);
-
-    // 动画4: 逐行清除（从上往下清除）
-    for (y = 0; y < VFD_HEIGHT; y++)
-    {
-        for (x = 0; x < VFD_WIDTH; x++)
-        {
-            // 清除display_buffer中的像素
-            reset_bit(display_buffer[y][MN11236_COLOR_BLUE], x);
-        }
-        mn11236_send_buffer();
-        osDelay(80);
-    }
-
+		
     // 动画5: 扩展矩形（从中心向外扩展）
     mn11236_clear_buffers();
     uint8_t cx = VFD_WIDTH / 2;

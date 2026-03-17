@@ -59,5 +59,7 @@ void mn11236_development_test(void);
 
 void mn11236_gray_test(void);
 
+void mn11236_setbrightness(uint8_t bright);
+
 
 #endif

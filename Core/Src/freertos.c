@@ -41,6 +41,7 @@
 #include "stm32_dsp.h"
 #include "table_fft.h"
 #include "stm32_rx8900.h"
+#include "stm32_mpu6050.h"
 #include "stmflash.h"
 #include "stdbool.h"
 #include "usbd_nex_link.h"
@@ -71,7 +72,7 @@
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
 
-uint32_t adc_buf[NPT] = {0};
+uint16_t adc_buf[NPT * 2] = {0};
 static long lBufInArray[NPT];
 static long lBufOutArray[NPT];
 long lBufMagArray[NPT];
@@ -86,21 +87,22 @@ struct tm tm_set;
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
-    .name = "defaultTask",
-    .stack_size = 128 * 4,
-    .priority = (osPriority_t)osPriorityNormal,
+  .name = "defaultTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for displayTask */
 osThreadId_t displayTaskHandle;
 const osThreadAttr_t displayTask_attributes = {
-    .name = "displayTask",
-    .stack_size = 512 * 8,
-    .priority = (osPriority_t)osPriorityLow,
+  .name = "displayTask",
+  .stack_size = 1024 * 4,
+  .priority = (osPriority_t) osPriorityLow,
 };
 /* Definitions for myMutex01 */
 osMutexId_t myMutex01Handle;
 const osMutexAttr_t myMutex01_attributes = {
-    .name = "myMutex01"};
+  .name = "myMutex01"
+};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -117,7 +119,7 @@ const osMessageQueueAttr_t usbQueue_attributes = {
 
 void FFT_Start(void)
 {
-  HAL_ADC_Start_DMA(&hadc1, adc_buf, NPT);
+	HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buf, NPT * 2);
   HAL_TIM_Base_Start(&htim3);
 }
 void FFT_Stop(void)
@@ -148,14 +150,32 @@ void GetPowerMag(void)
 void FFT_Pro(void)
 {
   uint16_t i = 0;
-  for (i = 0; i < NPT; i++)
+  uint16_t j = 0;
+
+  for (i = 0; i < NPT * 2; i += 2)   
   {
-    lBufInArray[i] = ((signed short)(adc_buf[i]) - 1551) << 18;
+    lBufInArray[j] = ((signed short)(adc_buf[i]) - 1551) << 18;
+    j++;
+
+    if (j >= NPT) break;
   }
+
   cr4_fft_256_stm32(lBufOutArray, lBufInArray, NPT);
   GetPowerMag();
 }
 
+uint16_t GetLightADC(void)
+{
+    uint32_t sum = 0;
+    uint16_t i = 0;
+
+    for (i = 1; i < NPT * 2; i += 2)
+    {
+        sum += adc_buf[i];
+    }
+
+    return (uint16_t)(sum / NPT);
+}
 extern UserInfo_t userInfo;
 
 void StartClockTask(void *argument);
@@ -168,12 +188,11 @@ extern void MX_USB_DEVICE_Init(void);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
 /**
- * @brief  FreeRTOS initialization
- * @param  None
- * @retval None
- */
-void MX_FREERTOS_Init(void)
-{
+  * @brief  FreeRTOS initialization
+  * @param  None
+  * @retval None
+  */
+void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
 
   /* USER CODE END Init */
@@ -213,6 +232,7 @@ void MX_FREERTOS_Init(void)
   /* USER CODE BEGIN RTOS_EVENTS */
   /* add events, ... */
   /* USER CODE END RTOS_EVENTS */
+
 }
 
 /* USER CODE BEGIN Header_StartDefaultTask */
@@ -291,14 +311,24 @@ __weak void StartClockTask(void *argument)
 	static int flash = 0;
   static char tempstr[32] = {0};
   static int count = 60;
+	float ax, ay, az;
+	float gx, gy, gz;
   RX8900_Init();
+	MPU6050_Init();
   // RX8900_SetTime(&tm_local);
   osDelay(500);
   for (;;)
   {
+		if (MPU6050_Read(&ax, &ay, &az, &gx, &gy, &gz))
+		{
+			nexlink_log("A: %d %d %d\n", (int)ax, (int)ay, (int)az);
+			nexlink_log("G: %d %d %d\n", (int)gx, (int)gy, (int)gz);
+		}
     if (RX8900_GetTime(&tm_local))
     {
-			nexlink_log("%d fps\r\n", fps);fps = 0;
+//			nexlink_log("%d fps\r\n", fps);
+			fps = 0;
+//			nexlink_log("%d brightadc\r\n", GetLightADC());
 //      nexlink_log("%02d:%02d:%02d\r\n", tm_local.tm_hour, tm_local.tm_min, tm_local.tm_sec);
 //      nexlink_log("20%02d-%02d-%02d %d\r\n", tm_local.tm_year, tm_local.tm_mon, tm_local.tm_mday, tm_local.tm_wday);
       flash = !flash;
@@ -322,3 +352,4 @@ __weak void StartClockTask(void *argument)
 }
 
 /* USER CODE END Application */
+

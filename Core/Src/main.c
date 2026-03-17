@@ -21,6 +21,7 @@
 #include "cmsis_os.h"
 #include "adc.h"
 #include "dma.h"
+#include "i2c.h"
 #include "spi.h"
 #include "tim.h"
 #include "usart.h"
@@ -112,6 +113,8 @@ int main(void)
   MX_ADC1_Init();
   MX_TIM3_Init();
   MX_SPI2_Init();
+  MX_I2C1_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
 	
   STMFLASH_Read(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
@@ -145,6 +148,7 @@ int main(void)
   HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 0, 0); //让扫描中断不被打断
   HAL_NVIC_EnableIRQ(DMA1_Stream4_IRQn);
 	HAL_TIM_Base_Start_IT(&htim3);
+//  HAL_TIM_PWM_Start(&htim2,TIM_CHANNEL_1);
   /* USER CODE END 2 */
 
   /* Init scheduler */

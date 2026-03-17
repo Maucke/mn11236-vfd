@@ -384,97 +384,6 @@ static void gradient_flow_frame(void)
     flush_frame();
 }
 
-static uint8_t fire[MAX_Y][MAX_X]= {0};
-void fire_update(void)
-{
-    // ===== 1. 强化底部火源 =====
-    for (int x = 0; x < MAX_X; x++)
-    {
-        fire[MAX_Y - 1][x] = 5 + (rand() & 0x03);   // 5~7
-    }
-		if (rand() % 20 == 0)
-		{
-				int rx = rand() % MAX_X;
-				int ry = rand() % (MAX_Y / 2);
-				fire[ry][rx] = 7;
-		}
-    // ===== 2. 向上传播 =====
-    for (int y = 0; y < MAX_Y - 1; y++)
-    {
-        for (int x = 1; x < MAX_X - 1; x++)
-        {
-            int sum =
-                fire[y + 1][x] +
-                fire[y + 1][x - 1] +
-                fire[y + 1][x + 1] +
-                fire[y + 2 < MAX_Y ? y + 2 : y + 1][x];
-
-            uint8_t val = sum >> 2;   // 平均
-
-            // ===== 减少衰减 =====
-            if (val > 0 && (rand() & 4))
-                val--;
-
-            // ===== 左右漂移 =====
-            int shift = (rand() % 3) - 1;   // -1 0 +1
-            int nx = x + shift;
-
-            if (nx >= 0 && nx < MAX_X)
-                fire[y][nx] = val;
-        }
-    }
-}
-void fire_draw(void)
-{
-    for (int y = 0; y < MAX_Y; y++)
-    {
-        for (int x = 0; x < MAX_X; x++)
-        {
-            uint8_t v = fire[y][x];  // 原始温度
-
-            if (v == 0)
-                continue;
-
-            // ===== 计算高度冷却 =====
-            // 顶部冷却最大，底部冷却为0
-						uint8_t cool = ((MAX_Y - 1 - y) * 2) / MAX_Y;
-
-            uint8_t effective = (v > cool) ? (v - cool) : 0;
-
-            if (effective == 0)
-                continue;
-
-            uint8_t redGray = 0;
-            uint8_t cyanGray = 0;
-
-            // ===== 灰度渐变映射 =====
-            uint8_t t = effective * 2;  // 0~14
-
-            if (t <= 7)
-            {
-                // 蓝 → 红
-                cyanGray = 7 - t;
-                redGray  = t;
-            }
-            else
-            {
-                // 红 → 白
-                cyanGray = t - 7;
-                redGray  = 7;
-            }
-
-            if (cyanGray > 7) cyanGray = 7;
-            if (redGray > 7) redGray = 7;
-
-            if (cyanGray)
-                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, cyanGray);
-
-            if (redGray)
-                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, redGray);
-        }
-    }
-}
-
 void PageDiagnostic(EasyUIItem_t *page)
 {
     static uint8_t mode = 0;
@@ -585,8 +494,7 @@ void PageDiagnostic(EasyUIItem_t *page)
     }
     else if (mode == 4)
 		{    
-			fire_update();
-			fire_draw();
+
 		}
     else if (mode == 5)
 		{    
@@ -605,13 +513,13 @@ static bool firstsave = true;
 
 void SaveInfo()
 {
-  HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_SET);
+	mn11236_setbrightness(0);
   xSemaphoreTake(flashMutex, portMAX_DELAY);
   taskENTER_CRITICAL();
   STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)pUserInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
   taskEXIT_CRITICAL();
   xSemaphoreGive(flashMutex);
-  HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_RESET);
+	mn11236_setbrightness(100);
   if (firstsave)
   {
     firstsave = false;
