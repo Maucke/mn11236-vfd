@@ -542,11 +542,6 @@
               <FileType>1</FileType>
               <FilePath>..\Core\Src\stm32_mpu6050.c</FilePath>
             </File>
-            <File>
-              <FileName>SandSim.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\SandSim.c</FilePath>
-            </File>
           </Files>
         </Group>
         <Group>
@@ -591,6 +586,11 @@
               <FileName>usbd_desc.c</FileName>
               <FileType>1</FileType>
               <FilePath>../USB_DEVICE/App/usbd_desc.c</FilePath>
+            </File>
+            <File>
+              <FileName>nexlink_external.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Middlewares\ST\STM32_USB_Device_Library\Class\NEX_LINK\Src\nexlink_external.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -1466,11 +1466,6 @@
               <FileType>1</FileType>
               <FilePath>..\Core\Src\stm32_mpu6050.c</FilePath>
             </File>
-            <File>
-              <FileName>SandSim.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\SandSim.c</FilePath>
-            </File>
           </Files>
         </Group>
         <Group>
@@ -1515,6 +1510,11 @@
               <FileName>usbd_desc.c</FileName>
               <FileType>1</FileType>
               <FilePath>../USB_DEVICE/App/usbd_desc.c</FilePath>
+            </File>
+            <File>
+              <FileName>nexlink_external.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Middlewares\ST\STM32_USB_Device_Library\Class\NEX_LINK\Src\nexlink_external.c</FilePath>
             </File>
           </Files>
         </Group>

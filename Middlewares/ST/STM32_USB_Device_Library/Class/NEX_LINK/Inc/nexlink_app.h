@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include "nexlink_proto.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -24,6 +25,19 @@ extern "C" {
 void nexlink_rx_bytes(const uint8_t *data, uint16_t len);
 
 void nexlink_log(const char *fmt, ...);
+
+void nex_send_heartbeat(void);
+	
+void send_resp_err(
+    uint16_t cmd,
+    uint16_t seq,
+    nl_err_t err);
+
+void send_resp_ok(
+    uint16_t cmd,
+    uint16_t seq,
+    const void *payload,
+    uint16_t len);
 
 void send_event(
     uint16_t cmd,
