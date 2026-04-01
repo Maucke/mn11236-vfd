@@ -18,7 +18,7 @@ void RX8900_Init()
 
 bool RX8900_SetTime(struct tm *tm_local)
 {
-	uint8_t buffer[8] = {D2B(tm_local->tm_sec), D2B(tm_local->tm_min), D2B(tm_local->tm_hour), (tm_local->tm_wday), D2B(tm_local->tm_mday), D2B(tm_local->tm_mon), D2B(tm_local->tm_year % 100)};
+	uint8_t buffer[8] = {D2B(tm_local->tm_sec), D2B(tm_local->tm_min), D2B(tm_local->tm_hour), (tm_local->tm_wday), D2B(tm_local->tm_mday), D2B(tm_local->tm_mon + 1), D2B(tm_local->tm_year % 100)};
 
 	if (IIC_Write_Len(RX8900_ADDR, RX8900_REG_TIME, 7, buffer))
 		return false;
@@ -38,7 +38,7 @@ bool RX8900_GetTime(struct tm *tm_local)
 	tm_local->tm_hour = B2D(buffer[2] & 0x3F);
 	tm_local->tm_wday = (buffer[3] & 0x7f);
 	tm_local->tm_mday = B2D(buffer[4] & 0x3F);
-	tm_local->tm_mon = B2D(buffer[5] & 0x1F);
+	tm_local->tm_mon = B2D(buffer[5] & 0x1F) - 1; 
 	tm_local->tm_year = B2D(buffer[6]) % 100;
 
 	return true;
