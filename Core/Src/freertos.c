@@ -319,11 +319,11 @@ __weak void StartClockTask(void *argument)
   osDelay(500);
   for (;;)
   {
-		if (MPU6050_Read(&ax, &ay, &az, &gx, &gy, &gz))
-		{
-			nexlink_log("A: %d %d %d\n", (int)ax, (int)ay, (int)az);
-			nexlink_log("G: %d %d %d\n", (int)gx, (int)gy, (int)gz);
-		}
+//		if (MPU6050_Read(&ax, &ay, &az, &gx, &gy, &gz))
+//		{
+//			nexlink_log("A: %d %d %d\n", (int)ax, (int)ay, (int)az);
+//			nexlink_log("G: %d %d %d\n", (int)gx, (int)gy, (int)gz);
+//		}
     if (RX8900_GetTime(&tm_local))
     {
 //			nexlink_log("%d fps\r\n", fps);
