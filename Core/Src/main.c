@@ -113,7 +113,7 @@ int main(void)
   MX_ADC1_Init();
   MX_TIM3_Init();
   MX_SPI2_Init();
-  MX_I2C1_Init();
+//  MX_I2C1_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
 	
