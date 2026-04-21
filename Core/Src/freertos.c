@@ -28,6 +28,7 @@
 #include "adc.h"
 #include "dma.h"
 #include "spi.h"
+#include "i2c.h"
 #include "tim.h"
 #include "usart.h"
 #include "usb_device.h"
@@ -245,10 +246,13 @@ void MX_FREERTOS_Init(void) {
 __weak void StartDefaultTask(void *argument)
 {
   /* init code for USB_DEVICE */
-  MX_USB_DEVICE_Init();
-  /* USER CODE BEGIN StartDefaultTask */
-  osDelay(200);
-  NexLinkInit();
+	if(!userInfo.esp_en)
+	{
+		MX_USB_DEVICE_Init();
+		/* USER CODE BEGIN StartDefaultTask */
+	}
+	osDelay(500);
+	NexLinkInit();
   /* Infinite loop */
   FFT_Start();
   for (;;)
@@ -318,7 +322,10 @@ __weak void StartClockTask(void *argument)
   // RX8900_SetTime(&tm_local);
   osDelay(500);
   for (;;)
-  {
+  {  
+		__HAL_RCC_I2C1_FORCE_RESET();
+		__HAL_RCC_I2C1_RELEASE_RESET();
+		HAL_I2C_Init(&hi2c1);
 //		if (MPU6050_Read(&ax, &ay, &az, &gx, &gy, &gz))
 //		{
 //			nexlink_log("A: %d %d %d\n", (int)ax, (int)ay, (int)az);

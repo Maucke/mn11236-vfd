@@ -26,6 +26,12 @@ typedef enum
 	WhiteWithWhite = 0x0F,// 1111
 } Color;
 
+typedef enum
+{
+    ICON_RPM,
+    ICON_KMH
+} IconType;
+
 typedef struct
 {
 	Color border;
@@ -83,4 +89,8 @@ void gradient_flow_frame_clock(void);
 
 void set_g_clockWidth(uint8_t width);
 void set_g_maxGray(uint8_t gray);
+void draw_icon(int x, int y, IconType type, Color color);
+void draw_icon_wave(int x, int y, IconType type, Color color);
+void draw_bitmap(int x, int y, const uint8_t *bitmap, int width, int height, Color color);
+void draw_bitmap_wave(int x, int y, const uint8_t *bitmap, int width, int height, Color color);
 #endif

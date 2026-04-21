@@ -65,8 +65,12 @@ void Error_Handler(void);
 #define ADC_DIM_GPIO_Port GPIOA
 #define VFD_EN_Pin GPIO_PIN_3
 #define VFD_EN_GPIO_Port GPIOA
+#define SPI1_SCS_Pin GPIO_PIN_4
+#define SPI1_SCS_GPIO_Port GPIOA
 #define VFD_LAT_Pin GPIO_PIN_12
 #define VFD_LAT_GPIO_Port GPIOB
+#define ESP_EN_Pin GPIO_PIN_14
+#define ESP_EN_GPIO_Port GPIOB
 #define VFD_BLK_Pin GPIO_PIN_15
 #define VFD_BLK_GPIO_Port GPIOA
 #define BUS_SCL_Pin GPIO_PIN_6
@@ -115,6 +119,7 @@ void Error_Handler(void);
     uint8_t clockdimming;
 		uint8_t screen_on_hour;   
 		uint8_t screen_off_hour;  
+		uint8_t esp_en;  
     uint8_t valid;
   } UserInfo_t;
 /* USER CODE END Private defines */

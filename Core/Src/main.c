@@ -128,6 +128,7 @@ int main(void)
     userInfo.clockdimming = 4;
     userInfo.screen_on_hour = 7;
     userInfo.screen_off_hour = 23;
+    userInfo.esp_en = false;
 		
 		userInfo.effectswitch.enFirework = true;
 		userInfo.effectswitch.enCircle = false;

@@ -53,6 +53,16 @@ const uint8_t hex_codes_4x8[][4] = {
     {0xFF, 0x91, 0x91, 0xFF}, /*"8", 55(ASCII)*/
     {0x9F, 0x91, 0x91, 0xFF}, /*"9", 56(ASCII)*/
 };
+
+const uint8_t icon_rpm[] = 
+{
+	0x0F,0x05,0x0D,0x07,0x00,0x0F,0x05,0x05,0x07,0x00,0x0F,0x01,0x07,0x01,0x0F
+};
+const uint8_t icon_kmh[] = 
+{
+	0x0F,0x02,0x07,0x09,0x00,0x0F,0x01,0x07,0x01,0x0F,0x00,0x08,0x06,0x01,0x00,0x0F,
+	0x02,0x02,0x0F
+};
 //  Hexadecimal code corresponding to each character
 //  !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_`abcdefghijklmnopqrstuvwxyz
 const uint8_t hex_codes_3x5[CHAR_COUNT][3] = {
@@ -789,7 +799,7 @@ void draw_point(int x, int y, Color color)
             if (color & 1)
                 mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, g_maxGray);
             if (color & 2)
-                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, g_maxGray - 2);
+                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, g_maxGray);
         }
         else
             mn11236_clear_pixel(x, y, MN11236_COLOR_RED);
@@ -799,7 +809,7 @@ void draw_point(int x, int y, Color color)
             if (color & 4)
                 mn11236_draw_pixel_gray(x + 1, y, MN11236_COLOR_BLUE, g_maxGray);
             if (color & 8)
-                mn11236_draw_pixel_gray(x + 1, y, MN11236_COLOR_RED, g_maxGray - 2);
+                mn11236_draw_pixel_gray(x + 1, y, MN11236_COLOR_RED, g_maxGray);
         }
     }
 }
@@ -825,6 +835,107 @@ void draw_point_gray(int x, int y, Color color,
                 mn11236_draw_pixel_gray(x + 1, y, MN11236_COLOR_BLUE, gray);
             if (color & 8)
                 mn11236_draw_pixel_gray(x + 1, y, MN11236_COLOR_RED, gray);
+        }
+    }
+}
+
+void draw_icon(int x, int y, IconType type, Color color)
+{
+    const uint8_t *icon_data;
+    int width = 15;
+    switch(type) {
+        case ICON_RPM:
+            icon_data = icon_rpm;
+            break;
+        case ICON_KMH:
+            icon_data = icon_kmh;
+            break;
+        default:
+            return;
+    }
+    if (color == None)
+        return;
+    draw_bitmap(x, y, icon_data, width, 5, color);
+}
+
+void draw_icon_wave(int x, int y, IconType type, Color color)
+{
+    const uint8_t *icon_data;
+    int width = 15;
+    switch(type) {
+        case ICON_RPM:
+            icon_data = icon_rpm;
+            break;
+        case ICON_KMH:
+            icon_data = icon_kmh;
+            break;
+        default:
+            return;
+    }
+    if (color == None)
+        return;
+    draw_bitmap_wave(x, y, icon_data, width, 5, color);
+}
+
+void draw_bitmap(int x, int y, const uint8_t *bitmap, int width, int height, Color color)
+{
+    if (color == None || bitmap == NULL || width <= 0 || height <= 0 || height > 8)
+        return;
+
+    for (int col = 0; col < width; col++)
+    {
+        int draw_x = x + col;
+        if (draw_x >= MAX_X || draw_x < 0)
+            continue;
+
+        uint8_t bit_mask = bitmap[col];
+        // Mask to only the lower 'height' bits
+        bit_mask &= (1 << height) - 1;
+
+        if (bit_mask == 0)
+            continue;
+
+        // Draw the bits
+        if (color & 1)
+            draw_bits(bit_mask, draw_x, y, Cyan);
+        if (color & 2)
+            draw_bits(bit_mask, draw_x, y, Red);
+
+        // Handle offset for color effects
+        if (x + 1 < MAX_X)
+        {
+            if (color & 4)
+                draw_bits(bit_mask, draw_x + 1, y, Cyan);
+            if (color & 8)
+                draw_bits(bit_mask, draw_x + 1, y, Red);
+        }
+    }
+}
+
+void draw_bitmap_wave(int x, int y, const uint8_t *bitmap, int width, int height, Color color)
+{
+    if (color == None || bitmap == NULL || width <= 0 || height <= 0 || height > 8)
+        return;
+
+    for (int col = 0; col < width; col++)
+    {
+        int draw_x = x + col;
+        if (draw_x >= MAX_X || draw_x < 0)
+            continue;
+
+        uint8_t bit_mask = bitmap[col];
+        // Mask to only the lower 'height' bits
+        bit_mask &= (1 << height) - 1;
+
+        if (bit_mask == 0)
+            continue;
+
+        draw_bits_wave(bit_mask, draw_x, y, color);
+
+        // Handle offset for color effects
+        if (x + 1 < MAX_X)
+        {
+            draw_bits_wave(bit_mask, draw_x + 1, y, None);
         }
     }
 }

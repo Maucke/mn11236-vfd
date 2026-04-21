@@ -36,6 +36,7 @@ EasyUIItem_t itemDebug;
 EasyUIItem_t itemSensor;
 EasyUIItem_t itemAnimation;
 EasyUIItem_t itemSetting, titleSetting, itemMusicTheme, itemClockTheme, itemSetTime, itemDefaultFunc, itemClockDimming;
+EasyUIItem_t itemEspEn;
 EasyUIItem_t itemDiagnostic;
 EasyUIItem_t itemAbout;
 EasyUIItem_t itemMind, itemCircle, itemSnowflake, itemMeteo, itemPlanet, itemTriangle, itemStarwar, itemBlast, itemGCircle, itemFirework, titleAnimation;
@@ -97,7 +98,7 @@ void EasyUIKeyActionMonitor() // Interrupt trigger, No EasyUIDelay_ms(xx)
 }
 
 
-char *EasyUIVersion = "Ver. 2.3.4";
+char *EasyUIVersion = "Ver. 3.0.0";
 void PageAbout(EasyUIPage_t *page)
 {
     static uint8_t pageIndex = 0;
@@ -594,6 +595,7 @@ bool UserInfo_AutoSave()
 typedef enum
 {
   DISP_MODE_CLOCK = 0,
+  DISP_MODE_OBD,
   DISP_MODE_FFT,
   DISP_MODE_SNAKE,
   DISP_MODE_MOTION,
@@ -638,6 +640,7 @@ void AppGUI_Init(UserInfo_t *userinfo)
   EasyUIAddItem(&pageSetting, &titleSetting, "[Setting]", ITEM_PAGE_DESCRIPTION);
 
   EasyUIAddItem(&pageSetting, &itemSetTime, "Set Time", ITEM_JUMP_PAGE, pageSetTime.id);
+  EasyUIAddItem(&pageSetting, &itemEspEn, "ESP EN", ITEM_CHECKBOX, &pUserInfo->esp_en);
   EasyUIAddItem(&pageSetting, &itemMusicTheme, "FFT Theme", ITEM_PROGRESS_BAR, &pUserInfo->musictheme, 11, EventChangeValue);
   EasyUIAddItem(&pageSetting, &itemClockTheme, "Clock Theme", ITEM_PROGRESS_BAR, &pUserInfo->clocktheme, 4, EventChangeValue);
   EasyUIAddItem(&pageSetting, &itemDefaultFunc, "Default Func", ITEM_PROGRESS_BAR, &pUserInfo->defaultfunc, 3, EventChangeValue);
@@ -759,7 +762,9 @@ bool ScreenShouldOn(void)
 
 void AppGUI_Loop(uint8_t timer)
 {
+	static char tempstr[16];
 	static int rolling = 0;
+	static int rpm = 0;
   static char timeupdateflag;
 //	mn11236_gray_test();
 //	osDelay(5000);
@@ -790,6 +795,7 @@ void AppGUI_Loop(uint8_t timer)
 		mn11236_clear_buffers();
 		mn11236_send_buffer();
 		HAL_GPIO_WritePin(VFD_EN_GPIO_Port, VFD_EN_Pin, GPIO_PIN_RESET);
+		HAL_GPIO_WritePin(ESP_EN_GPIO_Port, ESP_EN_Pin, GPIO_PIN_RESET);
 		osDelay(200);
 		return;
 	}
@@ -798,6 +804,7 @@ void AppGUI_Loop(uint8_t timer)
 		opnUp = opnDown = opnEnter = opnExit = 0;
 	}
   HAL_GPIO_WritePin(VFD_EN_GPIO_Port, VFD_EN_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(ESP_EN_GPIO_Port, ESP_EN_Pin, pUserInfo->esp_en);
 	
   switch (disp_mode)
   { 
@@ -823,7 +830,7 @@ void AppGUI_Loop(uint8_t timer)
 			set_g_clockWidth(3);
 			draw_str_3x5((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 3, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
 //			set_g_clockWidth(1);
-//			draw_str_3x5(SCREEN_WIDTH - 24, 12, date, clockTheme[pUserInfo->clocktheme].font);
+//			draw_icon_rpm(SCREEN_WIDTH - 24, 12+2, clockTheme[pUserInfo->clocktheme].font);
 		}
 		else if(clockTheme[pUserInfo->clocktheme].type == 2)
 		{
@@ -835,6 +842,39 @@ void AppGUI_Loop(uint8_t timer)
 //		EasyUIDisplayStr(0,0,timeStr);
     roll_all_long_str();
     refrash_gram();
+    break;
+  case DISP_MODE_OBD:
+    clear_gram(White);
+		snprintf(tempstr,sizeof tempstr,"%4d",rpm++ + 800);
+		rpm%=3000;
+		
+		set_g_maxGray(pUserInfo->clockdimming + 3);
+		if(clockTheme[pUserInfo->clocktheme].type == 0)
+		{
+			gradient_flow_frame_clock();
+			set_g_clockWidth(3);
+			draw_str_3x5_wave((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 2, 0, tempstr, clockTheme[pUserInfo->clocktheme].font);
+			set_g_clockWidth(1);
+			draw_icon_wave(SCREEN_WIDTH - 30, 12+2, ICON_RPM, clockTheme[pUserInfo->clocktheme].font);
+		}
+		else if(clockTheme[pUserInfo->clocktheme].type == 1)
+		{
+			set_g_clockWidth(3);
+			draw_str_3x5((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 2, 0, tempstr, clockTheme[pUserInfo->clocktheme].font);
+			set_g_clockWidth(1);
+			draw_icon(SCREEN_WIDTH - 30, 12+2, ICON_RPM, clockTheme[pUserInfo->clocktheme].font);
+		}
+		else if(clockTheme[pUserInfo->clocktheme].type == 2)
+		{
+			set_g_clockWidth(3);
+			draw_str_3x5_wave((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 2, 0, tempstr, clockTheme[pUserInfo->clocktheme].font);
+//			set_g_clockWidth(1);
+//			draw_str_3x5(SCREEN_WIDTH - 24, 12, date, clockTheme[pUserInfo->clocktheme].font);
+		}
+//		EasyUIDisplayStr(0,0,timeStr);
+    roll_all_long_str();
+    refrash_gram();
+		
     break;
   case DISP_MODE_FFT:
     clear_gram(White);
@@ -904,7 +944,7 @@ void AppGUI_Loop(uint8_t timer)
     {
       if (disp_mode == DISP_MODE_FFT)
         pUserInfo->musictheme = (pUserInfo->musictheme + 1) % 12;
-      else if (disp_mode == DISP_MODE_CLOCK)
+      else if (disp_mode == DISP_MODE_CLOCK || disp_mode == DISP_MODE_OBD)
         pUserInfo->clocktheme = (pUserInfo->clocktheme + 1) % 5;
       else if (disp_mode == DISP_MODE_SNAKE)
       {
