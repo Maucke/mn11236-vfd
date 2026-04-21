@@ -314,6 +314,7 @@ __weak void StartClockTask(void *argument)
 	float ax, ay, az;
 	float gx, gy, gz;
   RX8900_Init();
+	MPU6050_Init();
   // RX8900_SetTime(&tm_local);
   osDelay(500);
   for (;;)
