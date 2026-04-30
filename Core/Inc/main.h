@@ -95,6 +95,7 @@ void Error_Handler(void);
     Mode_Max,
   } Mode;
 
+#define OBD_ITEM_COUNT 8
 
 	typedef struct __attribute__((aligned(4)))
 	{
@@ -135,6 +136,7 @@ void Error_Handler(void);
     uint16_t voltage;      // 0.01V units
     int8_t oil_temp;
     uint8_t valid;         // bitmask of valid data
+    uint32_t last_update_tick[OBD_ITEM_COUNT];
   } obd_data_t;
 /* USER CODE END Private defines */
 

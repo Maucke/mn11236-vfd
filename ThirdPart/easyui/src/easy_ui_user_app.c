@@ -100,52 +100,51 @@ void EasyUIKeyActionMonitor() // Interrupt trigger, No EasyUIDelay_ms(xx)
 #endif
 }
 
-
 char *EasyUIVersion = "Ver. 3.0.0";
 void PageAbout(EasyUIPage_t *page)
 {
-    static uint8_t pageIndex = 0;
-    const uint8_t totalLines = 3;
-    const uint8_t linesPerPage = 2;
+  static uint8_t pageIndex = 0;
+  const uint8_t totalLines = 3;
+  const uint8_t linesPerPage = 2;
 
-    char tempstr[128];
-    const char *lines[3];
+  char tempstr[128];
+  const char *lines[3];
 
-    // 构建字符串
-    snprintf(tempstr, sizeof(tempstr), "Rel. %s", __DATE__);
+  // 构建字符串
+  snprintf(tempstr, sizeof(tempstr), "Rel. %s", __DATE__);
 
-    lines[0] = "Author: DPJ";
-    lines[1] = EasyUIVersion;
-    lines[2] = tempstr;
+  lines[0] = "Author: DPJ";
+  lines[1] = EasyUIVersion;
+  lines[2] = tempstr;
 
-    // 按键翻页
-    if (opnDown)
-    {
-        if ((pageIndex + 1) * linesPerPage < totalLines)
-            pageIndex++;
-        opnDown = false;
-    }
+  // 按键翻页
+  if (opnDown)
+  {
+    if ((pageIndex + 1) * linesPerPage < totalLines)
+      pageIndex++;
+    opnDown = false;
+  }
 
-    if (opnUp)
-    {
-        if (pageIndex > 0)
-            pageIndex--;
-        opnUp = false;
-    }
+  if (opnUp)
+  {
+    if (pageIndex > 0)
+      pageIndex--;
+    opnUp = false;
+  }
 
-    // 显示当前页
-    int screen_delta = 0;
+  // 显示当前页
+  int screen_delta = 0;
 
-    for (int i = 0; i < linesPerPage; i++)
-    {
-        int lineIndex = pageIndex * linesPerPage + i;
+  for (int i = 0; i < linesPerPage; i++)
+  {
+    int lineIndex = pageIndex * linesPerPage + i;
 
-        if (lineIndex >= totalLines)
-            break;
+    if (lineIndex >= totalLines)
+      break;
 
-        EasyUIDisplayStr(10, screen_delta, lines[lineIndex]);
-        screen_delta += page->rowheight;
-    }
+    EasyUIDisplayStr(10, screen_delta, lines[lineIndex]);
+    screen_delta += page->rowheight;
+  }
 }
 typedef enum
 {
@@ -342,170 +341,171 @@ extern uint8_t frame_wave[MAX_X][MAX_Y]; // 6-4:red, 2-0:blue
 
 static void flush_frame(void)
 {
-    for (int y = 0; y < MAX_Y; y++)
+  for (int y = 0; y < MAX_Y; y++)
+  {
+    for (int x = 0; x < MAX_X; x++)
     {
-        for (int x = 0; x < MAX_X; x++)
-        {
-            uint8_t p = frame_wave[x][y];
+      uint8_t p = frame_wave[x][y];
 
-            uint8_t red  = (p >> 4) & 0x07;
-            uint8_t blue =  p       & 0x07;
+      uint8_t red = (p >> 4) & 0x07;
+      uint8_t blue = p & 0x07;
 
-            mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED,  red);
-            mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, blue);
-        }
+      mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, red);
+      mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, blue);
     }
+  }
 }
 static void gradient_flow_frame(void)
 {
-    for (int y = 0; y < MAX_Y; y++)
+  for (int y = 0; y < MAX_Y; y++)
+  {
+    for (int x = 0; x < MAX_X; x++)
     {
-        for (int x = 0; x < MAX_X; x++)
-        {
-            // ===== 多波叠加 =====
-            float v =
-                sinf(x * W1 + t1) +
-                sinf(y * W2 + t2) +
-                sinf((x + y) * W3 + t3);
-            // 归一化到 0~1
-            v = (v + 3.0f) / 6.0f;
+      // ===== 多波叠加 =====
+      float v =
+          sinf(x * W1 + t1) +
+          sinf(y * W2 + t2) +
+          sinf((x + y) * W3 + t3);
+      // 归一化到 0~1
+      v = (v + 3.0f) / 6.0f;
 
-            if (v < 0) v = 0;
-            if (v > 1) v = 1;
+      if (v < 0)
+        v = 0;
+      if (v > 1)
+        v = 1;
 
-            /* 映射 */
-            uint8_t blue = (uint8_t)(v * 7.0f);   // 3bit
-            uint8_t red  = (uint8_t)((1.0f - v) * 7.0f); // 3bit
+      /* 映射 */
+      uint8_t blue = (uint8_t)(v * 7.0f);         // 3bit
+      uint8_t red = (uint8_t)((1.0f - v) * 7.0f); // 3bit
 
-            frame_wave[x][y] = (red << 4) | (blue & 0x07);
-        }
+      frame_wave[x][y] = (red << 4) | (blue & 0x07);
     }
+  }
 
-    t1 += SPEED1;
-    t2 += SPEED2;
-    t3 += SPEED3;
-		
-    flush_frame();
+  t1 += SPEED1;
+  t2 += SPEED2;
+  t3 += SPEED3;
+
+  flush_frame();
 }
 
 void PageDiagnostic(EasyUIItem_t *page)
 {
-    static uint8_t mode = 0;
-    static uint8_t gray = 0;
-    static int8_t  dir  = 1;
-    static uint32_t last_tick = 0;
+  static uint8_t mode = 0;
+  static uint8_t gray = 0;
+  static int8_t dir = 1;
+  static uint32_t last_tick = 0;
 
-    // ==========================
-    // 上下键都切换 mode
-    // ==========================
-    if (opnUp)
-    {
-        mode++;
-        if (mode > 5)
-            mode = 0;
-        opnUp = false;
-    }
+  // ==========================
+  // 上下键都切换 mode
+  // ==========================
+  if (opnUp)
+  {
+    mode++;
+    if (mode > 5)
+      mode = 0;
+    opnUp = false;
+  }
 
-    if (opnDown)
-    {
-        if (mode == 0)
-            mode = 5;
-        else
-            mode--;
-        opnDown = false;
-    }
-
-    uint32_t now = HAL_GetTick();
-
-    // 每40ms更新动画
-    if (now - last_tick >= 40)
-    {
-        last_tick = now;
-
-        gray += dir;
-
-        if (gray == 7 || gray == 0)
-            dir = -dir;
-    }
-
-    mn11236_clear_buffers();
-
-    // ====================================================
-    // mode 0：蓝色呼吸
-    // ====================================================
+  if (opnDown)
+  {
     if (mode == 0)
+      mode = 5;
+    else
+      mode--;
+    opnDown = false;
+  }
+
+  uint32_t now = HAL_GetTick();
+
+  // 每40ms更新动画
+  if (now - last_tick >= 40)
+  {
+    last_tick = now;
+
+    gray += dir;
+
+    if (gray == 7 || gray == 0)
+      dir = -dir;
+  }
+
+  mn11236_clear_buffers();
+
+  // ====================================================
+  // mode 0：蓝色呼吸
+  // ====================================================
+  if (mode == 0)
+  {
+    for (uint8_t x = 0; x < SCREEN_WIDTH; x++)
     {
-        for (uint8_t x = 0; x < SCREEN_WIDTH; x++)
-        {
-            for (uint8_t y = 0; y < SCREEN_HEIGHT; y++)
-            {
-                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, gray);
-            }
-        }
+      for (uint8_t y = 0; y < SCREEN_HEIGHT; y++)
+      {
+        mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, gray);
+      }
     }
+  }
 
-    // ====================================================
-    // mode 1：红色呼吸
-    // ====================================================
-    else if (mode == 1)
+  // ====================================================
+  // mode 1：红色呼吸
+  // ====================================================
+  else if (mode == 1)
+  {
+    for (uint8_t x = 0; x < SCREEN_WIDTH; x++)
     {
-        for (uint8_t x = 0; x < SCREEN_WIDTH; x++)
-        {
-            for (uint8_t y = 0; y < SCREEN_HEIGHT; y++)
-            {
-                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, gray);
-            }
-        }
+      for (uint8_t y = 0; y < SCREEN_HEIGHT; y++)
+      {
+        mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, gray);
+      }
     }
+  }
 
-    // ====================================================
-    // mode 2：横向蓝0~7 红0~7 渐变
-    // ====================================================
-    else if (mode == 2)
+  // ====================================================
+  // mode 2：横向蓝0~7 红0~7 渐变
+  // ====================================================
+  else if (mode == 2)
+  {
+    uint8_t section_width = SCREEN_WIDTH / 16;
+
+    for (uint8_t i = 0; i < 16; i++)
     {
-        uint8_t section_width = SCREEN_WIDTH / 16;
+      uint8_t color = (i < 8) ? MN11236_COLOR_BLUE : MN11236_COLOR_RED;
+      uint8_t g = (i < 8) ? i : (i - 8);
 
-        for (uint8_t i = 0; i < 16; i++)
+      for (uint8_t x = i * section_width; x < (i + 1) * section_width; x++)
+      {
+        for (uint8_t y = 0; y < SCREEN_HEIGHT; y++)
         {
-            uint8_t color = (i < 8) ? MN11236_COLOR_BLUE : MN11236_COLOR_RED;
-            uint8_t g     = (i < 8) ? i : (i - 8);
-
-            for (uint8_t x = i * section_width; x < (i + 1) * section_width; x++)
-            {
-                for (uint8_t y = 0; y < SCREEN_HEIGHT; y++)
-                {
-                    mn11236_draw_pixel_gray(x, y, (mn11236_color_t)color, g);
-                }
-            }
+          mn11236_draw_pixel_gray(x, y, (mn11236_color_t)color, g);
         }
+      }
     }
+  }
 
-    // ====================================================
-    // mode 3：动态棋盘灰度
-    // ====================================================
-    else if (mode == 3)
+  // ====================================================
+  // mode 3：动态棋盘灰度
+  // ====================================================
+  else if (mode == 3)
+  {
+    for (uint8_t x = 0; x < SCREEN_WIDTH; x++)
     {
-        for (uint8_t x = 0; x < SCREEN_WIDTH; x++)
-        {
-            for (uint8_t y = 0; y < SCREEN_HEIGHT; y++)
-            {
-                uint8_t g = ((x / 4 + y / 4 + gray) % 8);
-                uint8_t c = (x / 8) % 2;
+      for (uint8_t y = 0; y < SCREEN_HEIGHT; y++)
+      {
+        uint8_t g = ((x / 4 + y / 4 + gray) % 8);
+        uint8_t c = (x / 8) % 2;
 
-                mn11236_draw_pixel_gray(x, y, (mn11236_color_t)c, g);
-            }
-        }
+        mn11236_draw_pixel_gray(x, y, (mn11236_color_t)c, g);
+      }
     }
-    else if (mode == 4)
-		{    
+  }
+  else if (mode == 4)
+  {
+  }
+  else if (mode == 5)
+  {
+    gradient_flow_frame();
+  }
 
-		}
-    else if (mode == 5)
-		{    
-			gradient_flow_frame();
-		}
-
-    mn11236_send_buffer();
+  mn11236_send_buffer();
 }
 
 UserInfo_t *pUserInfo;
@@ -517,13 +517,13 @@ static bool firstsave = true;
 
 void SaveInfo()
 {
-	mn11236_setbrightness(0);
+  mn11236_setbrightness(0);
   xSemaphoreTake(flashMutex, portMAX_DELAY);
   taskENTER_CRITICAL();
   STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)pUserInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
   taskEXIT_CRITICAL();
   xSemaphoreGive(flashMutex);
-	mn11236_setbrightness(100);
+  mn11236_setbrightness(100);
   if (firstsave)
   {
     firstsave = false;
@@ -595,25 +595,14 @@ bool UserInfo_AutoSave()
   return false;
 }
 
-typedef enum
-{
-  DISP_MODE_CLOCK = 0,
-  DISP_MODE_OBD,
-  DISP_MODE_FFT,
-  DISP_MODE_SNAKE,
-  DISP_MODE_MOTION,
-  DISP_MODE_EXTERN,
-  DISP_MODE_MENU,
-} SysDisplayMode_e;
-
 static uint32_t last_key_tick = 0;
 #define MENU_TIMEOUT 10000
 
-static uint32_t wake_until_tick = 0;   // 临时亮屏截止时间
-#define WAKE_TIME_MS 10000             
+static uint32_t wake_until_tick = 0; // 临时亮屏截止时间
+#define WAKE_TIME_MS 10000
 
 static SysDisplayMode_e last_disp_mode = DISP_MODE_MOTION;
-static SysDisplayMode_e disp_mode = DISP_MODE_MOTION;
+SysDisplayMode_e disp_mode = DISP_MODE_MOTION;
 void AppGUI_Init(UserInfo_t *userinfo)
 {
   InitInfo();
@@ -648,16 +637,16 @@ void AppGUI_Init(UserInfo_t *userinfo)
   EasyUIAddItem(&pageSetting, &itemClockTheme, "Clock Theme", ITEM_PROGRESS_BAR, &pUserInfo->clocktheme, 4, EventChangeValue);
   EasyUIAddItem(&pageSetting, &itemDefaultFunc, "Default Func", ITEM_PROGRESS_BAR, &pUserInfo->defaultfunc, 3, EventChangeValue);
   EasyUIAddItem(&pageSetting, &itemClockDimming, "Clock Dimming", ITEM_PROGRESS_BAR, &pUserInfo->clockdimming, 4, EventChangeValue);
-	EasyUIAddItem(&pageSetting, &itemScreenOnHour,
-								"Screen ON", ITEM_PROGRESS_BAR,
-								&pUserInfo->screen_on_hour, 23,
-								EventChangeValue);
+  EasyUIAddItem(&pageSetting, &itemScreenOnHour,
+                "Screen ON", ITEM_PROGRESS_BAR,
+                &pUserInfo->screen_on_hour, 23,
+                EventChangeValue);
 
-	EasyUIAddItem(&pageSetting, &itemScreenOffHour,
-								"Screen OFF", ITEM_PROGRESS_BAR,
-								&pUserInfo->screen_off_hour, 23,
-								EventChangeValue);
-								
+  EasyUIAddItem(&pageSetting, &itemScreenOffHour,
+                "Screen OFF", ITEM_PROGRESS_BAR,
+                &pUserInfo->screen_off_hour, 23,
+                EventChangeValue);
+
   EasyUIAddItem(&pageAnimation, &titleAnimation, "[Animation]", ITEM_PAGE_DESCRIPTION);
   EasyUIAddItem(&pageAnimation, &itemMind, "Mind", ITEM_CHECKBOX, &pUserInfo->effectswitch.enMind);
   EasyUIAddItem(&pageAnimation, &itemCircle, "Circle", ITEM_CHECKBOX, &pUserInfo->effectswitch.enCircle);
@@ -676,18 +665,18 @@ void AppGUI_Init(UserInfo_t *userinfo)
   setSnakeWidth(pUserInfo->snakewidth);
   beginSnake();
   Motion_Init();
-	uint32_t now = HAL_GetTick();
-	wake_until_tick = now + WAKE_TIME_MS;
+  uint32_t now = HAL_GetTick();
+  wake_until_tick = now + WAKE_TIME_MS;
 }
 
 const MusicTheme_t musicTheme[12] = {
     {Cyan, Red},
     {Cyan, White},
-		{Red, Red},
+    {Red, Red},
     {Red, White},
     {White, Red},
     {White, Cyan},
-		
+
     {CyanWithCyan, RedWithRed},
     {CyanWithCyan, WhiteWithWhite},
     {RedWithRed, CyanWithCyan},
@@ -725,7 +714,7 @@ const ClockTheme_t clockTheme[] = {
     {Red, Red, 0},
     {Red, Cyan, 0},
     {Cyan, White, 0},
-//    {Cyan, White, 2},
+    //    {Cyan, White, 2},
     {Red, WhiteWithCyan, 1},
     {Cyan, WhiteWithRed, 1}};
 
@@ -741,153 +730,172 @@ void UploadFrame()
 
 bool ScreenShouldOn(void)
 {
-    uint8_t now = tm_local.tm_hour;
+  uint8_t now = tm_local.tm_hour;
 
-    uint8_t on  = pUserInfo->screen_on_hour;
-    uint8_t off = pUserInfo->screen_off_hour;
+  uint8_t on = pUserInfo->screen_on_hour;
+  uint8_t off = pUserInfo->screen_off_hour;
 
-    if (on < off)
-    {
-        if (now >= on && now < off)
-            return true;
-        else
-            return false;
-    }
+  if (on < off)
+  {
+    if (now >= on && now < off)
+      return true;
     else
-    {
-        // 跨午夜
-        if (now >= on || now < off)
-            return true;
-        else
-            return false;
-    }
+      return false;
+  }
+  else
+  {
+    // 跨午夜
+    if (now >= on || now < off)
+      return true;
+    else
+      return false;
+  }
 }
 extern uint8_t obd_display_index;
 
 static const char *obd_display_placeholders[8] = {
     "----", // RPM
-    "---",  // SPEED
-    "---",  // Coolant Temp
-    "---",  // Intake Temp
-    "---",  // Load
-    "---",  // Throttle
-    "----", // Voltage
-    "---"   // Oil Temp
+    " ---",  // SPEED
+    " ---",  // Coolant Temp
+    " ---",  // Intake Temp
+    " ---",  // Load
+    " ---",  // Throttle
+    " ----", // Voltage
+    " ---"   // Oil Temp
 };
 
-typedef struct {
-    uint8_t icon;
-    bool has_icon;
+typedef struct
+{
+  uint8_t icon;
+  bool has_icon;
 } OBD_DisplayCfg_t;
 
 static const OBD_DisplayCfg_t obd_display_cfg[8] = {
-    { ICON_RPM, true },
-    { ICON_KMH, true },
-    { ICON_TEMP, true },
-    { ICON_TEMP, true },
-    { ICON_LOAD, true },
-    { ICON_LOAD, true },
-    { ICON_VOLT, true },
-    { ICON_TEMP, true },
+    {ICON_RPM, true},
+    {ICON_KMH, true},
+    {ICON_TEMP, true},
+    {ICON_TEMP, true},
+    {ICON_LOAD, true},
+    {ICON_LOAD, true},
+    {ICON_VOLT, true},
+    {ICON_TEMP, true},
 };
 
 static void OBD_FormatText(char *buf, size_t size, uint8_t index)
 {
-    switch (index)
-    {
-        case 0: snprintf(buf, size, "%4u", obd_data.rpm); break;
-        case 1: snprintf(buf, size, "%4u", obd_data.speed); break;
-        case 2: snprintf(buf, size, "%4d", obd_data.coolant_temp); break;
-        case 3: snprintf(buf, size, "%4d", obd_data.intake_temp); break;
-        case 4: snprintf(buf, size, "%4d", obd_data.load_pct); break;
-        case 5: snprintf(buf, size, "%4d", obd_data.throttle_pct); break;
-        case 6: snprintf(buf, size, "%3d.%02d", obd_data.voltage / 100, obd_data.voltage % 100); break;
-        case 7: snprintf(buf, size, "%4d", obd_data.oil_temp); break;
-        default: buf[0] = '\0'; break;
-    }
+  switch (index)
+  {
+  case 0:
+    snprintf(buf, size, "%4u", obd_data.rpm);
+    break;
+  case 1:
+    snprintf(buf, size, "%4u", obd_data.speed);
+    break;
+  case 2:
+    snprintf(buf, size, "%4d", obd_data.coolant_temp);
+    break;
+  case 3:
+    snprintf(buf, size, "%4d", obd_data.intake_temp);
+    break;
+  case 4:
+    snprintf(buf, size, "%4d", obd_data.load_pct);
+    break;
+  case 5:
+    snprintf(buf, size, "%4d", obd_data.throttle_pct);
+    break;
+  case 6:
+    snprintf(buf, size, "%3d.%02d", obd_data.voltage / 100, obd_data.voltage % 100);
+    break;
+  case 7:
+    snprintf(buf, size, "%4d", obd_data.oil_temp);
+    break;
+  default:
+    buf[0] = '\0';
+    break;
+  }
 }
 
 static void OBD_DrawText(char *text, uint8_t index)
 {
-    const ClockTheme_t *theme = &clockTheme[pUserInfo->clocktheme];
-    const OBD_DisplayCfg_t *cfg = &obd_display_cfg[index];
-    int x = (SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 2;
+  const ClockTheme_t *theme = &clockTheme[pUserInfo->clocktheme];
+  const OBD_DisplayCfg_t *cfg = &obd_display_cfg[index];
+  int x = (SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 2;
 
-    if (cfg->has_icon && theme->type == 0)
+  if (cfg->has_icon && theme->type == 0)
+  {
+    gradient_flow_frame_clock();
+    set_g_clockWidth(3);
+    draw_str_3x5_wave(x, 0, text, theme->font);
+    set_g_clockWidth(1);
+    draw_icon_wave(SCREEN_WIDTH - 30, 12 + 2, cfg->icon, theme->font);
+  }
+  else if (cfg->has_icon && theme->type == 1)
+  {
+    set_g_clockWidth(3);
+    draw_str_3x5(x, 0, text, theme->font);
+    set_g_clockWidth(1);
+    draw_icon(SCREEN_WIDTH - 30, 12 + 2, cfg->icon, theme->font);
+  }
+  else if (theme->type == 2)
+  {
+    set_g_clockWidth(3);
+    draw_str_3x5_wave(x, 0, text, theme->font);
+  }
+  else
+  {
+    set_g_clockWidth(3);
+    draw_str_3x5(x, 0, text, theme->font);
+  }
+}
+#define OBD_TIMEOUT_MS 2000
+void AppGUI_Loop(uint8_t timer)
+{
+  static char tempstr[16];
+  static int rolling = 0;
+  static int rpm = 0;
+  static char timeupdateflag;
+  //	mn11236_gray_test();
+  //	osDelay(5000);
+  //	return;
+
+  uint32_t now = HAL_GetTick();
+
+  bool night = !ScreenShouldOn();
+
+  // 有按键 → 唤醒60秒
+  if (opnUp || opnDown || opnEnter || opnExit)
+  {
+    last_key_tick = now;
+
+    if (night)
     {
-        gradient_flow_frame_clock();
-        set_g_clockWidth(3);
-        draw_str_3x5_wave(x, 0, text, theme->font); 
-			  set_g_clockWidth(1);
-        draw_icon_wave(SCREEN_WIDTH - 30, 12 + 2, cfg->icon, theme->font);
-    }
-    else if (cfg->has_icon && theme->type == 1)
-    {
-        set_g_clockWidth(3);
-        draw_str_3x5(x, 0, text, theme->font);
-			  set_g_clockWidth(1);
-        draw_icon(SCREEN_WIDTH - 30, 12 + 2, cfg->icon, theme->font);
-    }
-    else if (theme->type == 2)
-    {
-        set_g_clockWidth(3);
-        draw_str_3x5_wave(x, 0, text, theme->font);
-    }
-    else
-    {
-        set_g_clockWidth(3);
-        draw_str_3x5(x, 0, text, theme->font);
+      wake_until_tick = now + WAKE_TIME_MS;
     }
   }
 
-void AppGUI_Loop(uint8_t timer)
-{
-	static char tempstr[16];
-	static int rolling = 0;
-	static int rpm = 0;
-  static char timeupdateflag;
-//	mn11236_gray_test();
-//	osDelay(5000);
-//	return;
-
-	uint32_t now = HAL_GetTick();
-
-	bool night = !ScreenShouldOn();
-
-	// 有按键 → 唤醒60秒
-	if(opnUp || opnDown || opnEnter || opnExit)
-	{
-			last_key_tick = now;
-
-			if(night)
-			{
-					wake_until_tick = now + WAKE_TIME_MS;
-			}
-	}
-
-	// 夜间且未唤醒
-	if(night && now > wake_until_tick && disp_mode != DISP_MODE_MENU)
-	{
-		if(HAL_GPIO_ReadPin(VFD_EN_GPIO_Port, VFD_EN_Pin))
-		{
+  // 夜间且未唤醒
+  if (night && now > wake_until_tick && disp_mode != DISP_MODE_MENU)
+  {
+    if (HAL_GPIO_ReadPin(VFD_EN_GPIO_Port, VFD_EN_Pin))
+    {
       EasyUITransitionAnim();
-		}
-		mn11236_clear_buffers();
-		mn11236_send_buffer();
-		HAL_GPIO_WritePin(VFD_EN_GPIO_Port, VFD_EN_Pin, GPIO_PIN_RESET);
-		HAL_GPIO_WritePin(ESP_EN_GPIO_Port, ESP_EN_Pin, GPIO_PIN_RESET);
-		osDelay(200);
-		return;
-	}
-	if(!HAL_GPIO_ReadPin(VFD_EN_GPIO_Port, VFD_EN_Pin))
-	{
-		opnUp = opnDown = opnEnter = opnExit = 0;
-	}
+    }
+    mn11236_clear_buffers();
+    mn11236_send_buffer();
+    HAL_GPIO_WritePin(VFD_EN_GPIO_Port, VFD_EN_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(ESP_EN_GPIO_Port, ESP_EN_Pin, GPIO_PIN_RESET);
+    osDelay(200);
+    return;
+  }
+  if (!HAL_GPIO_ReadPin(VFD_EN_GPIO_Port, VFD_EN_Pin))
+  {
+    opnUp = opnDown = opnEnter = opnExit = 0;
+  }
   HAL_GPIO_WritePin(VFD_EN_GPIO_Port, VFD_EN_Pin, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(ESP_EN_GPIO_Port, ESP_EN_Pin, pUserInfo->esp_en);
-	
+  HAL_GPIO_WritePin(ESP_EN_GPIO_Port, ESP_EN_Pin, pUserInfo->esp_en);
+
   switch (disp_mode)
-  { 
+  {
   case DISP_MODE_CLOCK:
     if (timeupdateflag != timeStr[4])
     {
@@ -895,58 +903,64 @@ void AppGUI_Loop(uint8_t timer)
       timeupdateflag = timeStr[4];
     }
     clear_gram(White);
-		
-		set_g_maxGray(pUserInfo->clockdimming + 3);
-		if(clockTheme[pUserInfo->clocktheme].type == 0)
-		{
-			gradient_flow_frame_clock();
-			set_g_clockWidth(3);
-			draw_str_3x5_wave((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 3, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
-			set_g_clockWidth(1);
-			draw_str_3x5_wave(SCREEN_WIDTH - 24, 12, date, clockTheme[pUserInfo->clocktheme].font);
-		}
-		else if(clockTheme[pUserInfo->clocktheme].type == 1)
-		{
-			set_g_clockWidth(3);
-			draw_str_3x5((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 3, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
-//			set_g_clockWidth(1);
-//			draw_icon_rpm(SCREEN_WIDTH - 24, 12+2, clockTheme[pUserInfo->clocktheme].font);
-		}
-		else if(clockTheme[pUserInfo->clocktheme].type == 2)
-		{
-			set_g_clockWidth(3);
-			draw_str_3x5_wave((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 3, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
-//			set_g_clockWidth(1);
-//			draw_str_3x5(SCREEN_WIDTH - 24, 12, date, clockTheme[pUserInfo->clocktheme].font);
-		}
-//set_g_clockWidth(1);
-//draw_str_3x5_wave(0, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
-//			
+
+    set_g_maxGray(pUserInfo->clockdimming + 3);
+    if (clockTheme[pUserInfo->clocktheme].type == 0)
+    {
+      gradient_flow_frame_clock();
+      set_g_clockWidth(3);
+      draw_str_3x5_wave((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 3, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
+      set_g_clockWidth(1);
+      draw_str_3x5_wave(SCREEN_WIDTH - 24, 12, date, clockTheme[pUserInfo->clocktheme].font);
+    }
+    else if (clockTheme[pUserInfo->clocktheme].type == 1)
+    {
+      set_g_clockWidth(3);
+      draw_str_3x5((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 3, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
+      //			set_g_clockWidth(1);
+      //			draw_icon_rpm(SCREEN_WIDTH - 24, 12+2, clockTheme[pUserInfo->clocktheme].font);
+    }
+    else if (clockTheme[pUserInfo->clocktheme].type == 2)
+    {
+      set_g_clockWidth(3);
+      draw_str_3x5_wave((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 3, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
+      //			set_g_clockWidth(1);
+      //			draw_str_3x5(SCREEN_WIDTH - 24, 12, date, clockTheme[pUserInfo->clocktheme].font);
+    }
+    // set_g_clockWidth(1);
+    // draw_str_3x5_wave(0, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
+    //
     roll_all_long_str();
     refrash_gram();
     break;
   case DISP_MODE_OBD:
   {
-    uint8_t index = obd_display_index;
-    bool valid = (obd_data.valid & (1u << index)) != 0;
+    uint8_t i = obd_display_index;
 
-    if (valid)
+    if (obd_data.valid & (1u << i))
     {
-      OBD_FormatText(tempstr, sizeof(tempstr), index);
+      if (now - obd_data.last_update_tick[i] > OBD_TIMEOUT_MS)
+      {
+        obd_data.valid &= ~(1u << i);
+      }
+    }
+    if (obd_data.valid & (1u << i))
+    {
+      OBD_FormatText(tempstr, sizeof(tempstr), i);
     }
     else
     {
-      snprintf(tempstr, sizeof(tempstr), "%s", obd_display_placeholders[index]);
+      snprintf(tempstr, sizeof(tempstr), "%s", obd_display_placeholders[i]);
     }
 
     clear_gram(White);
     set_g_maxGray(pUserInfo->clockdimming + 3);
-    OBD_DrawText(tempstr, index);
+    OBD_DrawText(tempstr, i);
 
     roll_all_long_str();
     refrash_gram();
   }
-    break;
+  break;
   case DISP_MODE_FFT:
     clear_gram(White);
     draw_fft(lBufMagArray, NPT / 2, 20, musicTheme[pUserInfo->musictheme].bar, musicTheme[pUserInfo->musictheme].dot);
@@ -970,20 +984,20 @@ void AppGUI_Loop(uint8_t timer)
     EasyUIEvent(5);
     break;
   }
-//	if((rolling++)%2)
-		UploadFrame();
-	UserInfo_AutoSave();
+  //	if((rolling++)%2)
+  UploadFrame();
+  UserInfo_AutoSave();
 
-	// 菜单超时退出
-	if (disp_mode == DISP_MODE_MENU)
-	{
-			if (now - last_key_tick > MENU_TIMEOUT)
-			{
-					disp_mode = last_disp_mode;
-					EasyUITransitionAnim();
-					last_key_tick = now;
-			}
-	}
+  // 菜单超时退出
+  if (disp_mode == DISP_MODE_MENU)
+  {
+    if (now - last_key_tick > MENU_TIMEOUT)
+    {
+      disp_mode = last_disp_mode;
+      EasyUITransitionAnim();
+      last_key_tick = now;
+    }
+  }
 
   if (disp_mode != DISP_MODE_MENU)
   {
@@ -992,6 +1006,13 @@ void AppGUI_Loop(uint8_t timer)
       disp_mode++;
       if (disp_mode > DISP_MODE_MOTION)
         disp_mode = DISP_MODE_CLOCK;
+
+      if (!pUserInfo->esp_en)
+      {
+        if (disp_mode == DISP_MODE_OBD)
+          disp_mode++;
+      }
+
       EasyUITransitionAnim();
       opnUp = false;
     }
@@ -1001,15 +1022,23 @@ void AppGUI_Loop(uint8_t timer)
         disp_mode = DISP_MODE_MOTION;
       else
         disp_mode--;
+
+      if (!pUserInfo->esp_en)
+      {
+        if (disp_mode == DISP_MODE_OBD)
+          disp_mode--;
+      }
+
       EasyUITransitionAnim();
       opnDown = false;
     }
+
     if (opnEnter)
     {
       last_disp_mode = disp_mode;
       EasyUITransitionAnim();
       disp_mode = DISP_MODE_MENU;
-      last_key_tick = now;  // 重置菜单超时计时器
+      last_key_tick = now; // 重置菜单超时计时器
       opnEnter = false;
     }
     if (opnExit)

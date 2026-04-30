@@ -81,35 +81,35 @@ void MX_USB_DEVICE_Init()
 
 typedef enum
 {
-    PID_RPM = 1 << 0,      // 010C
-    PID_SPEED = 1 << 1,    // 010D
-    PID_TEMP = 1 << 2,     // 0105
-    PID_IAT = 1 << 3,      // 010F
-    PID_LOAD = 1 << 4,     // 0104
-    PID_THROTTLE = 1 << 5, // 0111
-    PID_VOLT = 1 << 6,     // 0142
-    PID_OIL_TEMP = 1 << 7, // 015C
+  PID_RPM = 1 << 0,      // 010C
+  PID_SPEED = 1 << 1,    // 010D
+  PID_TEMP = 1 << 2,     // 0105
+  PID_IAT = 1 << 3,      // 010F
+  PID_LOAD = 1 << 4,     // 0104
+  PID_THROTTLE = 1 << 5, // 0111
+  PID_VOLT = 1 << 6,     // 0142
+  PID_OIL_TEMP = 1 << 7, // 015C
 } obd_pid_flag_t;
 
-uint8_t obd_display_index = 0;  // 0=RPM, 1=SPEED, 2=TEMP, 3=IAT, 4=LOAD, 5=THROTTLE, 6=VOLT, 7=OIL_TEMP
+uint8_t obd_display_index = 0; // 0=RPM, 1=SPEED, 2=TEMP, 3=IAT, 4=LOAD, 5=THROTTLE, 6=VOLT, 7=OIL_TEMP
 
 /* Bridge protocol definitions */
-#define BRIDGE_SOF             0xAA
-#define BRIDGE_VERSION         0x01
-#define BRIDGE_TYPE_REPLY      0x30
+#define BRIDGE_SOF 0xAA
+#define BRIDGE_VERSION 0x01
+#define BRIDGE_TYPE_REPLY 0x30
 
 static uint8_t bridge_crc(const uint8_t *data, uint16_t len)
 {
-    uint8_t crc = 0;
-    for (uint16_t i = 0; i < len; i++)
-    {
-        crc ^= data[i];
-    }
-    return crc;
+  uint8_t crc = 0;
+  for (uint16_t i = 0; i < len; i++)
+  {
+    crc ^= data[i];
+  }
+  return crc;
 }
 
 #define CMD_BUF_SIZE 64
-uint8_t cmd_buffer[CMD_BUF_SIZE]; 
+uint8_t cmd_buffer[CMD_BUF_SIZE];
 static void bridge_parse_frame(const uint8_t *frame, uint16_t len);
 
 extern char timeStr[128];
@@ -142,119 +142,160 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     bridge_parse_frame(cmd_buffer, current_count);
   }
 
-  HAL_SPI_Receive_DMA(&hspi1, (uint8_t*)cmd_buffer, CMD_BUF_SIZE);
+  HAL_SPI_Receive_DMA(&hspi1, (uint8_t *)cmd_buffer, CMD_BUF_SIZE);
 
   // printf("%d --> %d", GPIO_Pin, HAL_GPIO_ReadPin(SPI1_SCS_GPIO_Port, SPI1_SCS_Pin));
 }
+
+static inline uint8_t PID_ToIndex(uint32_t pid)
+{
+  switch (pid)
+  {
+  case PID_RPM:
+    return 0;
+  case PID_SPEED:
+    return 1;
+  case PID_TEMP:
+    return 2;
+  case PID_IAT:
+    return 3;
+  case PID_LOAD:
+    return 4;
+  case PID_THROTTLE:
+    return 5;
+  case PID_VOLT:
+    return 6;
+  case PID_OIL_TEMP:
+    return 7;
+  default:
+    return 0xFF; // invalid
+  }
+}
+
+extern SysDisplayMode_e disp_mode;
 /* Bridge protocol frame parsing and handling */
 static void bridge_parse_frame(const uint8_t *frame, uint16_t len)
 {
-    
-    if (len < 6) return;
-    
-    // Check SOF and version
-    if (frame[0] != BRIDGE_SOF || frame[1] != BRIDGE_VERSION) return;
-    
-    // Get payload length
-    uint16_t payload_len = (frame[3] << 8) | frame[4];
-    if (6 + payload_len != len) return;
-    
-    // Verify CRC
-    uint8_t crc = bridge_crc(&frame[2], 3 + payload_len);
-    if (crc != frame[5 + payload_len]) return;
-    
-    // Parse frame type
-    uint8_t type = frame[2];
-    const uint8_t *payload = &frame[5];
-    
-    if (type == BRIDGE_TYPE_REPLY)
+
+  if (len < 6)
+    return;
+
+  // Check SOF and version
+  if (frame[0] != BRIDGE_SOF || frame[1] != BRIDGE_VERSION)
+    return;
+
+  // Get payload length
+  uint16_t payload_len = (frame[3] << 8) | frame[4];
+  if (6 + payload_len != len)
+    return;
+
+  // Verify CRC
+  uint8_t crc = bridge_crc(&frame[2], 3 + payload_len);
+  if (crc != frame[5 + payload_len])
+    return;
+
+  // Parse frame type
+  uint8_t type = frame[2];
+  const uint8_t *payload = &frame[5];
+
+  if (type == BRIDGE_TYPE_REPLY)
+  {
+    // OBD reply: payload[0] = PID, payload[1..] = data
+    if (payload_len >= 1)
     {
-        // OBD reply: payload[0] = PID, payload[1..] = data
-        if (payload_len >= 1)
+      uint8_t pid = payload[0];
+      const uint8_t *data = &payload[1];
+      uint8_t data_len = payload_len - 1;
+      if (disp_mode != DISP_MODE_MENU)
+        disp_mode = DISP_MODE_OBD;
+
+      uint8_t index = PID_ToIndex(pid);
+
+      switch (pid)
+      {
+      case PID_RPM:
+        if (data_len >= 2)
         {
-            uint8_t pid = payload[0];
-            const uint8_t *data = &payload[1];
-            uint8_t data_len = payload_len - 1;
-            
-            switch (pid)
-            {
-                case PID_RPM:
-                    if (data_len >= 2)
-                    {
-                        obd_data.rpm = (data[0] << 8) | data[1];
-                        obd_data.valid |= PID_RPM;
-                        obd_display_index = 0; // Switch to RPM display when new RPM data arrives
-                    }
-                    break;
-                case PID_SPEED:
-                    if (data_len >= 1)
-                    {
-                        obd_data.speed = data[0];
-                        obd_data.valid |= PID_SPEED;
-                        obd_display_index = 1; // Switch to SPEED display when new SPEED data arrives
-                    }
-                    break;
-                case PID_TEMP:
-                    if (data_len >= 1)
-                    {
-                        obd_data.coolant_temp = data[0];
-                        obd_data.valid |= PID_TEMP;
-                        obd_display_index = 2; // Switch to TEMP display when new TEMP data arrives
-                    }
-                    break;
-                case PID_IAT:
-                    if (data_len >= 1)
-                    {
-                        obd_data.intake_temp = data[0];
-                        obd_data.valid |= PID_IAT;
-                        obd_display_index = 3; // Switch to IAT display when new IAT data arrives
-                    }
-                    break;
-                case PID_OIL_TEMP:
-                    if (data_len >= 1)
-                    {
-                        obd_data.oil_temp = (int8_t)data[0];
-                        obd_data.valid |= PID_OIL_TEMP;
-                        obd_display_index = 7; // Switch to OIL_TEMP display when new OIL_TEMP data arrives
-                    }
-                    break;
-                case PID_LOAD:
-                    if (data_len >= 1)
-                    {
-                        obd_data.load_pct = data[0];
-                        obd_data.valid |= PID_LOAD;
-                        obd_display_index = 4; // Switch to LOAD display when new LOAD data arrives
-                    }
-                    break;
-                case PID_THROTTLE:
-                    if (data_len >= 1)
-                    {
-                        obd_data.throttle_pct = data[0];
-                        obd_data.valid |= PID_THROTTLE;
-                        obd_display_index = 5; // Switch to THROTTLE display when new THROTTLE data arrives
-                    }
-                    break;
-                case PID_VOLT:
-                    if (data_len >= 2)
-                    {
-                        obd_data.voltage = (data[0] << 8) | data[1];
-                        obd_data.valid |= PID_VOLT;
-                        obd_display_index = 6; // Switch to VOLT display when new VOLT data arrives
-                    }
-                    break;
-                default:
-                    break;
-            }
+          obd_data.rpm = (data[0] << 8) | data[1];
+          obd_display_index = 0;
         }
+        break;
+
+      case PID_SPEED:
+        if (data_len >= 1)
+        {
+          obd_data.speed = data[0];
+          obd_display_index = 1;
+        }
+        break;
+
+      case PID_TEMP:
+        if (data_len >= 1)
+        {
+          obd_data.coolant_temp = data[0];
+          obd_display_index = 2;
+        }
+        break;
+
+      case PID_IAT:
+        if (data_len >= 1)
+        {
+          obd_data.intake_temp = data[0];
+          obd_display_index = 3;
+        }
+        break;
+
+      case PID_LOAD:
+        if (data_len >= 1)
+        {
+          obd_data.load_pct = data[0];
+          obd_display_index = 4;
+        }
+        break;
+
+      case PID_THROTTLE:
+        if (data_len >= 1)
+        {
+          obd_data.throttle_pct = data[0];
+          obd_display_index = 5;
+        }
+        break;
+
+      case PID_VOLT:
+        if (data_len >= 2)
+        {
+          obd_data.voltage = (data[0] << 8) | data[1];
+          obd_display_index = 6;
+        }
+        break;
+
+      case PID_OIL_TEMP:
+        if (data_len >= 1)
+        {
+          obd_data.oil_temp = (int8_t)data[0];
+          obd_display_index = 7;
+        }
+        break;
+
+      default:
+        break;
+      }
+
+      if (index != 0xFF)
+      {
+        obd_data.valid |= pid;
+        obd_data.last_update_tick[index] = HAL_GetTick();
+      }
     }
+  }
 }
 
 /* USER CODE END 0 */
 
 /**
-  * @brief  The application entry point.
-  * @retval int
-  */
+ * @brief  The application entry point.
+ * @retval int
+ */
 int main(void)
 {
   /* USER CODE BEGIN 1 */
@@ -288,11 +329,11 @@ int main(void)
   MX_I2C1_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-	
+
   STMFLASH_Read(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
   if (userInfo.valid != 5)
   {
-		userInfo.defaultfunc = 0;
+    userInfo.defaultfunc = 0;
     userInfo.clocktheme = 0;
     userInfo.musictheme = 2;
     userInfo.snakewidth = 2;
@@ -301,36 +342,36 @@ int main(void)
     userInfo.screen_on_hour = 7;
     userInfo.screen_off_hour = 23;
     userInfo.esp_en = false;
-		
-		userInfo.effectswitch.enFirework = true;
-		userInfo.effectswitch.enCircle = false;
-		userInfo.effectswitch.enGCircle = false;
-		userInfo.effectswitch.enMeteo = false;
-		userInfo.effectswitch.enMind = false;
-		userInfo.effectswitch.enPlanet = false;
-		userInfo.effectswitch.enSnowflake = false;
-		userInfo.effectswitch.enStarwar = true;
-		userInfo.effectswitch.enTriangle = false;
-		userInfo.effectswitch.reserved = false;
-		STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
+
+    userInfo.effectswitch.enFirework = true;
+    userInfo.effectswitch.enCircle = false;
+    userInfo.effectswitch.enGCircle = false;
+    userInfo.effectswitch.enMeteo = false;
+    userInfo.effectswitch.enMind = false;
+    userInfo.effectswitch.enPlanet = false;
+    userInfo.effectswitch.enSnowflake = false;
+    userInfo.effectswitch.enStarwar = true;
+    userInfo.effectswitch.enTriangle = false;
+    userInfo.effectswitch.reserved = false;
+    STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
   }
 
   userInfo.clockdimming %= 5;
   userInfo.clocktheme %= 5;
   userInfo.musictheme %= 12;
-  HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 1, 0); //让扫描中断不被打断
+  HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 1, 0); // 让扫描中断不被打断
 
   HAL_NVIC_SetPriority(DMA2_Stream2_IRQn, 0, 0);
 
   HAL_NVIC_SetPriority(EXTI4_IRQn, 0, 0);
 
-	HAL_TIM_Base_Start_IT(&htim3);
-  HAL_SPI_Receive_DMA(&hspi1, (uint8_t*)cmd_buffer, CMD_BUF_SIZE);
-//  HAL_TIM_PWM_Start(&htim2,TIM_CHANNEL_1);
+  HAL_TIM_Base_Start_IT(&htim3);
+  HAL_SPI_Receive_DMA(&hspi1, (uint8_t *)cmd_buffer, CMD_BUF_SIZE);
+  //  HAL_TIM_PWM_Start(&htim2,TIM_CHANNEL_1);
   /* USER CODE END 2 */
 
   /* Init scheduler */
-  osKernelInitialize();  /* Call init function for freertos objects (in freertos.c) */
+  osKernelInitialize(); /* Call init function for freertos objects (in freertos.c) */
   MX_FREERTOS_Init();
 
   /* Start scheduler */
@@ -344,28 +385,27 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-		
   }
   /* USER CODE END 3 */
 }
 
 /**
-  * @brief System Clock Configuration
-  * @retval None
-  */
+ * @brief System Clock Configuration
+ * @retval None
+ */
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
   /** Configure the main internal regulator output voltage
-  */
+   */
   __HAL_RCC_PWR_CLK_ENABLE();
   __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE2);
 
   /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
+   * in the RCC_OscInitTypeDef structure.
+   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
@@ -380,9 +420,8 @@ void SystemClock_Config(void)
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+   */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
@@ -396,42 +435,41 @@ void SystemClock_Config(void)
 
 /* USER CODE BEGIN 4 */
 
-
 /* USER CODE END 4 */
 
 /**
-  * @brief  Period elapsed callback in non blocking mode
-  * @note   This function is called  when TIM4 interrupt took place, inside
-  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
-  * a global variable "uwTick" used as application time base.
-  * @param  htim : TIM handle
-  * @retval None
-  */
+ * @brief  Period elapsed callback in non blocking mode
+ * @note   This function is called  when TIM4 interrupt took place, inside
+ * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+ * a global variable "uwTick" used as application time base.
+ * @param  htim : TIM handle
+ * @retval None
+ */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   /* USER CODE BEGIN Callback 0 */
 
   /* USER CODE END Callback 0 */
-  if (htim->Instance == TIM4) {
+  if (htim->Instance == TIM4)
+  {
     HAL_IncTick();
   }
   /* USER CODE BEGIN Callback 1 */
 
-
-	if (htim->Instance == htim3.Instance)
-	{
-		EasyKeyScanKeyState();
-		EasyKeyUserApp();
-		EasyUIKeyActionMonitor();
-//		dbmsg("tick: %d", HAL_GetTick());
-	}
+  if (htim->Instance == htim3.Instance)
+  {
+    EasyKeyScanKeyState();
+    EasyKeyUserApp();
+    EasyUIKeyActionMonitor();
+    //		dbmsg("tick: %d", HAL_GetTick());
+  }
   /* USER CODE END Callback 1 */
 }
 
 /**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
+ * @brief  This function is executed in case of error occurrence.
+ * @retval None
+ */
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
@@ -443,14 +481,14 @@ void Error_Handler(void)
   /* USER CODE END Error_Handler_Debug */
 }
 
-#ifdef  USE_FULL_ASSERT
+#ifdef USE_FULL_ASSERT
 /**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
+ * @brief  Reports the name of the source file and the source line number
+ *         where the assert_param error has occurred.
+ * @param  file: pointer to the source file name
+ * @param  line: assert_param error line source number
+ * @retval None
+ */
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */
