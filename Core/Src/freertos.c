@@ -77,7 +77,7 @@ uint16_t adc_buf[NPT * 2] = {0};
 static long lBufInArray[NPT];
 static long lBufOutArray[NPT];
 long lBufMagArray[NPT];
-char timeStr[10] = {0};
+char timeStr[128] = {0};
 char date[10] = {0};
 char week[10] = {0};
 char hourMinute[10] = {0};

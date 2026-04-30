@@ -67,6 +67,7 @@ void Error_Handler(void);
 #define VFD_EN_GPIO_Port GPIOA
 #define SPI1_SCS_Pin GPIO_PIN_4
 #define SPI1_SCS_GPIO_Port GPIOA
+#define SPI1_SCS_EXTI_IRQn EXTI4_IRQn
 #define VFD_LAT_Pin GPIO_PIN_12
 #define VFD_LAT_GPIO_Port GPIOB
 #define ESP_EN_Pin GPIO_PIN_14
@@ -122,6 +123,19 @@ void Error_Handler(void);
 		uint8_t esp_en;  
     uint8_t valid;
   } UserInfo_t;
+
+  typedef struct
+  {
+    uint16_t rpm;
+    uint8_t speed;
+    uint8_t coolant_temp;
+    uint8_t intake_temp;
+    uint8_t load_pct;
+    uint8_t throttle_pct;
+    uint16_t voltage;      // 0.01V units
+    int8_t oil_temp;
+    uint8_t valid;         // bitmask of valid data
+  } obd_data_t;
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

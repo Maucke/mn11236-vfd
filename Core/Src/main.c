@@ -30,6 +30,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <string.h>
 #include "stmflash.h"
 #include "usbd_nex_link.h"
 
@@ -56,6 +57,7 @@
 /* USER CODE BEGIN PV */
 USBD_HandleTypeDef hUSB;
 UserInfo_t userInfo = {0};
+obd_data_t obd_data = {0};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -75,6 +77,176 @@ void MX_USB_DEVICE_Init()
 #endif
   USBD_RegisterClass(&hUSB, &USBD_NEX_LINK);
   USBD_Start(&hUSB);
+}
+
+typedef enum
+{
+    PID_RPM = 1 << 0,      // 010C
+    PID_SPEED = 1 << 1,    // 010D
+    PID_TEMP = 1 << 2,     // 0105
+    PID_IAT = 1 << 3,      // 010F
+    PID_LOAD = 1 << 4,     // 0104
+    PID_THROTTLE = 1 << 5, // 0111
+    PID_VOLT = 1 << 6,     // 0142
+    PID_OIL_TEMP = 1 << 7, // 015C
+} obd_pid_flag_t;
+
+uint8_t obd_display_index = 0;  // 0=RPM, 1=SPEED, 2=TEMP, 3=IAT, 4=LOAD, 5=THROTTLE, 6=VOLT, 7=OIL_TEMP
+
+/* Bridge protocol definitions */
+#define BRIDGE_SOF             0xAA
+#define BRIDGE_VERSION         0x01
+#define BRIDGE_TYPE_REPLY      0x30
+
+static uint8_t bridge_crc(const uint8_t *data, uint16_t len)
+{
+    uint8_t crc = 0;
+    for (uint16_t i = 0; i < len; i++)
+    {
+        crc ^= data[i];
+    }
+    return crc;
+}
+
+#define CMD_BUF_SIZE 64
+uint8_t cmd_buffer[CMD_BUF_SIZE]; 
+static void bridge_parse_frame(const uint8_t *frame, uint16_t len);
+
+extern char timeStr[128];
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+  uint16_t remaining_count = hdma_spi1_rx.Instance->NDTR;
+  uint16_t current_count = CMD_BUF_SIZE - remaining_count;
+  HAL_SPI_DMAStop(&hspi1);
+  __HAL_RCC_SPI1_FORCE_RESET();
+  __HAL_RCC_SPI1_RELEASE_RESET();
+  HAL_SPI_Init(&hspi1);
+
+#if 0
+	// Print only the actual received bytes based on current_count.
+	size_t len = snprintf(timeStr, sizeof timeStr, "%u:", current_count);
+	uint16_t max_print = (sizeof timeStr - len - 1) / 3;
+	uint16_t print_count = current_count < max_print ? current_count : max_print;
+	for (uint16_t i = 0; i < print_count; i++)
+	{
+		len += snprintf(timeStr + len, sizeof timeStr - len, "%02X", cmd_buffer[i]);
+	}
+	if (current_count > print_count)
+	{
+		snprintf(timeStr + len, sizeof timeStr - len, " ...");
+	}
+#endif
+  // Process received frame data
+  if (current_count >= 6)
+  {
+    bridge_parse_frame(cmd_buffer, current_count);
+  }
+
+  HAL_SPI_Receive_DMA(&hspi1, (uint8_t*)cmd_buffer, CMD_BUF_SIZE);
+
+  // printf("%d --> %d", GPIO_Pin, HAL_GPIO_ReadPin(SPI1_SCS_GPIO_Port, SPI1_SCS_Pin));
+}
+/* Bridge protocol frame parsing and handling */
+static void bridge_parse_frame(const uint8_t *frame, uint16_t len)
+{
+    
+    if (len < 6) return;
+    
+    // Check SOF and version
+    if (frame[0] != BRIDGE_SOF || frame[1] != BRIDGE_VERSION) return;
+    
+    // Get payload length
+    uint16_t payload_len = (frame[3] << 8) | frame[4];
+    if (6 + payload_len != len) return;
+    
+    // Verify CRC
+    uint8_t crc = bridge_crc(&frame[2], 3 + payload_len);
+    if (crc != frame[5 + payload_len]) return;
+    
+    // Parse frame type
+    uint8_t type = frame[2];
+    const uint8_t *payload = &frame[5];
+    
+    if (type == BRIDGE_TYPE_REPLY)
+    {
+        // OBD reply: payload[0] = PID, payload[1..] = data
+        if (payload_len >= 1)
+        {
+            uint8_t pid = payload[0];
+            const uint8_t *data = &payload[1];
+            uint8_t data_len = payload_len - 1;
+            
+            switch (pid)
+            {
+                case PID_RPM:
+                    if (data_len >= 2)
+                    {
+                        obd_data.rpm = (data[0] << 8) | data[1];
+                        obd_data.valid |= PID_RPM;
+                        obd_display_index = 0; // Switch to RPM display when new RPM data arrives
+                    }
+                    break;
+                case PID_SPEED:
+                    if (data_len >= 1)
+                    {
+                        obd_data.speed = data[0];
+                        obd_data.valid |= PID_SPEED;
+                        obd_display_index = 1; // Switch to SPEED display when new SPEED data arrives
+                    }
+                    break;
+                case PID_TEMP:
+                    if (data_len >= 1)
+                    {
+                        obd_data.coolant_temp = data[0];
+                        obd_data.valid |= PID_TEMP;
+                        obd_display_index = 2; // Switch to TEMP display when new TEMP data arrives
+                    }
+                    break;
+                case PID_IAT:
+                    if (data_len >= 1)
+                    {
+                        obd_data.intake_temp = data[0];
+                        obd_data.valid |= PID_IAT;
+                        obd_display_index = 3; // Switch to IAT display when new IAT data arrives
+                    }
+                    break;
+                case PID_OIL_TEMP:
+                    if (data_len >= 1)
+                    {
+                        obd_data.oil_temp = (int8_t)data[0];
+                        obd_data.valid |= PID_OIL_TEMP;
+                        obd_display_index = 7; // Switch to OIL_TEMP display when new OIL_TEMP data arrives
+                    }
+                    break;
+                case PID_LOAD:
+                    if (data_len >= 1)
+                    {
+                        obd_data.load_pct = data[0];
+                        obd_data.valid |= PID_LOAD;
+                        obd_display_index = 4; // Switch to LOAD display when new LOAD data arrives
+                    }
+                    break;
+                case PID_THROTTLE:
+                    if (data_len >= 1)
+                    {
+                        obd_data.throttle_pct = data[0];
+                        obd_data.valid |= PID_THROTTLE;
+                        obd_display_index = 5; // Switch to THROTTLE display when new THROTTLE data arrives
+                    }
+                    break;
+                case PID_VOLT:
+                    if (data_len >= 2)
+                    {
+                        obd_data.voltage = (data[0] << 8) | data[1];
+                        obd_data.valid |= PID_VOLT;
+                        obd_display_index = 6; // Switch to VOLT display when new VOLT data arrives
+                    }
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
 }
 
 /* USER CODE END 0 */
@@ -146,9 +318,14 @@ int main(void)
   userInfo.clockdimming %= 5;
   userInfo.clocktheme %= 5;
   userInfo.musictheme %= 12;
-  HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 0, 0); //让扫描中断不被打断
-  HAL_NVIC_EnableIRQ(DMA1_Stream4_IRQn);
+  HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 1, 0); //让扫描中断不被打断
+
+  HAL_NVIC_SetPriority(DMA2_Stream2_IRQn, 0, 0);
+
+  HAL_NVIC_SetPriority(EXTI4_IRQn, 0, 0);
+
 	HAL_TIM_Base_Start_IT(&htim3);
+  HAL_SPI_Receive_DMA(&hspi1, (uint8_t*)cmd_buffer, CMD_BUF_SIZE);
 //  HAL_TIM_PWM_Start(&htim2,TIM_CHANNEL_1);
   /* USER CODE END 2 */
 

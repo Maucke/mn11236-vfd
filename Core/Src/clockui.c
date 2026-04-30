@@ -63,6 +63,19 @@ const uint8_t icon_kmh[] =
 	0x0F,0x02,0x07,0x09,0x00,0x0F,0x01,0x07,0x01,0x0F,0x00,0x08,0x06,0x01,0x00,0x0F,
 	0x02,0x02,0x0F
 };
+const uint8_t icon_temp[] = 
+{
+	0x01,0x00,0x07,0x05,0x01
+};
+const uint8_t icon_load[] = 
+{
+	0x03,0x0B,0x04,0x02,0x0D,0x0C
+};
+const uint8_t icon_volt[] = 
+{
+	0x03,0x04,0x08,0x04,0x03
+};
+
 //  Hexadecimal code corresponding to each character
 //  !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_`abcdefghijklmnopqrstuvwxyz
 const uint8_t hex_codes_3x5[CHAR_COUNT][3] = {
@@ -842,16 +855,28 @@ void draw_point_gray(int x, int y, Color color,
 void draw_icon(int x, int y, IconType type, Color color)
 {
     const uint8_t *icon_data;
-    int width = 15;
+    int width;
     switch(type) {
         case ICON_RPM:
             icon_data = icon_rpm;
+						width = sizeof(icon_rpm);
             break;
         case ICON_KMH:
             icon_data = icon_kmh;
+						width = sizeof(icon_kmh);
+            break;
+        case ICON_LOAD:
+            icon_data = icon_load;
+						width = sizeof(icon_load);
+            break;
+        case ICON_VOLT:
+            icon_data = icon_volt;
+						width = sizeof(icon_volt);
             break;
         default:
-            return;
+            icon_data = icon_temp;
+						width = sizeof(icon_temp);
+            break;
     }
     if (color == None)
         return;
@@ -865,12 +890,24 @@ void draw_icon_wave(int x, int y, IconType type, Color color)
     switch(type) {
         case ICON_RPM:
             icon_data = icon_rpm;
+						width = sizeof(icon_rpm);
             break;
         case ICON_KMH:
             icon_data = icon_kmh;
+						width = sizeof(icon_kmh);
+            break;
+        case ICON_LOAD:
+            icon_data = icon_load;
+						width = sizeof(icon_load);
+            break;
+        case ICON_VOLT:
+            icon_data = icon_volt;
+						width = sizeof(icon_volt);
             break;
         default:
-            return;
+            icon_data = icon_temp;
+						width = sizeof(icon_temp);
+            break;
     }
     if (color == None)
         return;

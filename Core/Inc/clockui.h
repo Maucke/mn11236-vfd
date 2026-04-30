@@ -29,7 +29,10 @@ typedef enum
 typedef enum
 {
     ICON_RPM,
-    ICON_KMH
+    ICON_KMH,
+	ICON_LOAD,
+	ICON_VOLT,
+	ICON_TEMP
 } IconType;
 
 typedef struct

@@ -27,6 +27,9 @@
 #include "nexlink_app.h"
 #include <math.h>
 
+/* OBD data from main.c */
+extern obd_data_t obd_data;
+
 // Pages
 EasyUIPage_t pageMain, pageUSBForm, pageDialog, pageSensor, pageAnimation, pageSetting, pageDiagnostic, pageAbout, pageSetTime;
 
@@ -759,6 +762,83 @@ bool ScreenShouldOn(void)
             return false;
     }
 }
+extern uint8_t obd_display_index;
+
+static const char *obd_display_placeholders[8] = {
+    "----", // RPM
+    "---",  // SPEED
+    "---",  // Coolant Temp
+    "---",  // Intake Temp
+    "---",  // Load
+    "---",  // Throttle
+    "----", // Voltage
+    "---"   // Oil Temp
+};
+
+typedef struct {
+    uint8_t icon;
+    bool has_icon;
+} OBD_DisplayCfg_t;
+
+static const OBD_DisplayCfg_t obd_display_cfg[8] = {
+    { ICON_RPM, true },
+    { ICON_KMH, true },
+    { ICON_TEMP, true },
+    { ICON_TEMP, true },
+    { ICON_LOAD, true },
+    { ICON_LOAD, true },
+    { ICON_VOLT, true },
+    { ICON_TEMP, true },
+};
+
+static void OBD_FormatText(char *buf, size_t size, uint8_t index)
+{
+    switch (index)
+    {
+        case 0: snprintf(buf, size, "%4u", obd_data.rpm); break;
+        case 1: snprintf(buf, size, "%4u", obd_data.speed); break;
+        case 2: snprintf(buf, size, "%4d", obd_data.coolant_temp); break;
+        case 3: snprintf(buf, size, "%4d", obd_data.intake_temp); break;
+        case 4: snprintf(buf, size, "%4d", obd_data.load_pct); break;
+        case 5: snprintf(buf, size, "%4d", obd_data.throttle_pct); break;
+        case 6: snprintf(buf, size, "%3d.%02d", obd_data.voltage / 100, obd_data.voltage % 100); break;
+        case 7: snprintf(buf, size, "%4d", obd_data.oil_temp); break;
+        default: buf[0] = '\0'; break;
+    }
+}
+
+static void OBD_DrawText(char *text, uint8_t index)
+{
+    const ClockTheme_t *theme = &clockTheme[pUserInfo->clocktheme];
+    const OBD_DisplayCfg_t *cfg = &obd_display_cfg[index];
+    int x = (SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 2;
+
+    if (cfg->has_icon && theme->type == 0)
+    {
+        gradient_flow_frame_clock();
+        set_g_clockWidth(3);
+        draw_str_3x5_wave(x, 0, text, theme->font); 
+			  set_g_clockWidth(1);
+        draw_icon_wave(SCREEN_WIDTH - 30, 12 + 2, cfg->icon, theme->font);
+    }
+    else if (cfg->has_icon && theme->type == 1)
+    {
+        set_g_clockWidth(3);
+        draw_str_3x5(x, 0, text, theme->font);
+			  set_g_clockWidth(1);
+        draw_icon(SCREEN_WIDTH - 30, 12 + 2, cfg->icon, theme->font);
+    }
+    else if (theme->type == 2)
+    {
+        set_g_clockWidth(3);
+        draw_str_3x5_wave(x, 0, text, theme->font);
+    }
+    else
+    {
+        set_g_clockWidth(3);
+        draw_str_3x5(x, 0, text, theme->font);
+    }
+  }
 
 void AppGUI_Loop(uint8_t timer)
 {
@@ -839,42 +919,33 @@ void AppGUI_Loop(uint8_t timer)
 //			set_g_clockWidth(1);
 //			draw_str_3x5(SCREEN_WIDTH - 24, 12, date, clockTheme[pUserInfo->clocktheme].font);
 		}
-//		EasyUIDisplayStr(0,0,timeStr);
+//set_g_clockWidth(1);
+//draw_str_3x5_wave(0, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
+//			
     roll_all_long_str();
     refrash_gram();
     break;
   case DISP_MODE_OBD:
+  {
+    uint8_t index = obd_display_index;
+    bool valid = (obd_data.valid & (1u << index)) != 0;
+
+    if (valid)
+    {
+      OBD_FormatText(tempstr, sizeof(tempstr), index);
+    }
+    else
+    {
+      snprintf(tempstr, sizeof(tempstr), "%s", obd_display_placeholders[index]);
+    }
+
     clear_gram(White);
-		snprintf(tempstr,sizeof tempstr,"%4d",rpm++ + 800);
-		rpm%=3000;
-		
-		set_g_maxGray(pUserInfo->clockdimming + 3);
-		if(clockTheme[pUserInfo->clocktheme].type == 0)
-		{
-			gradient_flow_frame_clock();
-			set_g_clockWidth(3);
-			draw_str_3x5_wave((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 2, 0, tempstr, clockTheme[pUserInfo->clocktheme].font);
-			set_g_clockWidth(1);
-			draw_icon_wave(SCREEN_WIDTH - 30, 12+2, ICON_RPM, clockTheme[pUserInfo->clocktheme].font);
-		}
-		else if(clockTheme[pUserInfo->clocktheme].type == 1)
-		{
-			set_g_clockWidth(3);
-			draw_str_3x5((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 2, 0, tempstr, clockTheme[pUserInfo->clocktheme].font);
-			set_g_clockWidth(1);
-			draw_icon(SCREEN_WIDTH - 30, 12+2, ICON_RPM, clockTheme[pUserInfo->clocktheme].font);
-		}
-		else if(clockTheme[pUserInfo->clocktheme].type == 2)
-		{
-			set_g_clockWidth(3);
-			draw_str_3x5_wave((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 2, 0, tempstr, clockTheme[pUserInfo->clocktheme].font);
-//			set_g_clockWidth(1);
-//			draw_str_3x5(SCREEN_WIDTH - 24, 12, date, clockTheme[pUserInfo->clocktheme].font);
-		}
-//		EasyUIDisplayStr(0,0,timeStr);
+    set_g_maxGray(pUserInfo->clockdimming + 3);
+    OBD_DrawText(tempstr, index);
+
     roll_all_long_str();
     refrash_gram();
-		
+  }
     break;
   case DISP_MODE_FFT:
     clear_gram(White);
@@ -938,6 +1009,7 @@ void AppGUI_Loop(uint8_t timer)
       last_disp_mode = disp_mode;
       EasyUITransitionAnim();
       disp_mode = DISP_MODE_MENU;
+      last_key_tick = now;  // 重置菜单超时计时器
       opnEnter = false;
     }
     if (opnExit)
