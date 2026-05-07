@@ -214,66 +214,66 @@ static void bridge_parse_frame(const uint8_t *frame, uint16_t len)
       switch (pid)
       {
       case PID_RPM:
+        obd_display_index = 0;
         if (data_len >= 2)
         {
           obd_data.rpm = (data[0] << 8) | data[1];
-          obd_display_index = 0;
         }
         break;
 
       case PID_SPEED:
+        obd_display_index = 1;
         if (data_len >= 1)
         {
           obd_data.speed = data[0];
-          obd_display_index = 1;
         }
         break;
 
       case PID_TEMP:
+        obd_display_index = 2;
         if (data_len >= 1)
         {
           obd_data.coolant_temp = data[0];
-          obd_display_index = 2;
         }
         break;
 
       case PID_IAT:
+        obd_display_index = 3;
         if (data_len >= 1)
         {
           obd_data.intake_temp = data[0];
-          obd_display_index = 3;
         }
         break;
 
       case PID_LOAD:
+        obd_display_index = 4;
         if (data_len >= 1)
         {
           obd_data.load_pct = data[0];
-          obd_display_index = 4;
         }
         break;
 
       case PID_THROTTLE:
+        obd_display_index = 5;
         if (data_len >= 1)
         {
           obd_data.throttle_pct = data[0];
-          obd_display_index = 5;
         }
         break;
 
       case PID_VOLT:
+        obd_display_index = 6;
         if (data_len >= 2)
         {
           obd_data.voltage = (data[0] << 8) | data[1];
-          obd_display_index = 6;
         }
         break;
 
       case PID_OIL_TEMP:
+        obd_display_index = 7;
         if (data_len >= 1)
         {
           obd_data.oil_temp = (int8_t)data[0];
-          obd_display_index = 7;
         }
         break;
 
@@ -283,7 +283,8 @@ static void bridge_parse_frame(const uint8_t *frame, uint16_t len)
 
       if (index != 0xFF)
       {
-        obd_data.valid |= pid;
+				if(data_len > 0)
+					obd_data.valid |= pid;
         obd_data.last_update_tick[index] = HAL_GetTick();
       }
     }

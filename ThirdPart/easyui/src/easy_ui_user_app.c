@@ -760,7 +760,7 @@ static const char *obd_display_placeholders[8] = {
     " ---",  // Intake Temp
     " ---",  // Load
     " ---",  // Throttle
-    " ----", // Voltage
+    "--.-", // Voltage
     " ---"   // Oil Temp
 };
 
@@ -804,7 +804,7 @@ static void OBD_FormatText(char *buf, size_t size, uint8_t index)
     snprintf(buf, size, "%4d", obd_data.throttle_pct);
     break;
   case 6:
-    snprintf(buf, size, "%3d.%02d", obd_data.voltage / 100, obd_data.voltage % 100);
+    snprintf(buf, size, "%3d.%d", obd_data.voltage / 100, (obd_data.voltage % 100) / 10);
     break;
   case 7:
     snprintf(buf, size, "%4d", obd_data.oil_temp);
