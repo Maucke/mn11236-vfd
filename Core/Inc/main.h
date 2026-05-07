@@ -136,6 +136,13 @@ void Error_Handler(void);
     uint16_t voltage;      // 0.01V units
     int8_t oil_temp;
     uint8_t valid;         // bitmask of valid data
+
+    // 平滑显示相关参数
+    float rpm_display;
+    float speed_display;
+    float load_display;
+    float throttle_display;
+
     uint32_t last_update_tick[OBD_ITEM_COUNT];
   } obd_data_t;
 /* USER CODE END Private defines */

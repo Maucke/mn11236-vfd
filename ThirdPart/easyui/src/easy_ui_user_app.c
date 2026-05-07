@@ -755,13 +755,13 @@ extern uint8_t obd_display_index;
 
 static const char *obd_display_placeholders[8] = {
     "----", // RPM
-    " ---",  // SPEED
-    " ---",  // Coolant Temp
-    " ---",  // Intake Temp
-    " ---",  // Load
-    " ---",  // Throttle
+    " ---", // SPEED
+    " ---", // Coolant Temp
+    " ---", // Intake Temp
+    " ---", // Load
+    " ---", // Throttle
     "--.-", // Voltage
-    " ---"   // Oil Temp
+    " ---"  // Oil Temp
 };
 
 typedef struct
@@ -780,41 +780,82 @@ static const OBD_DisplayCfg_t obd_display_cfg[8] = {
     {ICON_VOLT, true},
     {ICON_TEMP, true},
 };
+#define SMOOTH_DURATION_MS 300.0f
+#define MIN_UPDATE_MS 50  // 最小更新周期
+
+static float linear_smooth(float current, float target, float dt_ms, float duration_ms)
+{
+    float diff = target - current;
+    float delta = diff * dt_ms / duration_ms;
+
+    return current + delta;
+}
 
 static void OBD_FormatText(char *buf, size_t size, uint8_t index)
 {
-  switch (index)
-  {
-  case 0:
-    snprintf(buf, size, "%4u", obd_data.rpm);
-    break;
-  case 1:
-    snprintf(buf, size, "%4u", obd_data.speed);
-    break;
-  case 2:
-    snprintf(buf, size, "%4d", obd_data.coolant_temp);
-    break;
-  case 3:
-    snprintf(buf, size, "%4d", obd_data.intake_temp);
-    break;
-  case 4:
-    snprintf(buf, size, "%4d", obd_data.load_pct);
-    break;
-  case 5:
-    snprintf(buf, size, "%4d", obd_data.throttle_pct);
-    break;
-  case 6:
-    snprintf(buf, size, "%3d.%d", obd_data.voltage / 100, (obd_data.voltage % 100) / 10);
-    break;
-  case 7:
-    snprintf(buf, size, "%4d", obd_data.oil_temp);
-    break;
-  default:
-    buf[0] = '\0';
-    break;
-  }
-}
+    static uint32_t last_time = 0;
 
+    uint32_t now = HAL_GetTick();
+
+    // 第一次调用，初始化 last_time
+    if (last_time == 0)
+        last_time = now;
+
+    uint32_t dt_ms = now - last_time;
+
+    // 如果距离上次更新小于最小更新周期，则不更新显示值
+    if (dt_ms < MIN_UPDATE_MS)
+        dt_ms = 0; // 线性平滑函数返回 current，不变化
+    else
+        last_time = now; // 更新时间戳
+
+    switch (index)
+    {
+    case 0: // RPM
+        if (dt_ms > 0)
+            obd_data.rpm_display = linear_smooth(obd_data.rpm_display, obd_data.rpm, dt_ms, SMOOTH_DURATION_MS);
+        snprintf(buf, size, "%4d", (int)(obd_data.rpm_display + 0.5f));
+        break;
+
+    case 1: // Speed
+        if (dt_ms > 0)
+            obd_data.speed_display = linear_smooth(obd_data.speed_display, obd_data.speed, dt_ms, SMOOTH_DURATION_MS);
+        snprintf(buf, size, "%4d", (int)(obd_data.speed_display + 0.5f));
+        break;
+
+    case 4: // Load %
+        if (dt_ms > 0)
+            obd_data.load_display = linear_smooth(obd_data.load_display, obd_data.load_pct, dt_ms, SMOOTH_DURATION_MS);
+        snprintf(buf, size, "%4d", (int)(obd_data.load_display + 0.5f));
+        break;
+
+    case 5: // Throttle %
+        if (dt_ms > 0)
+            obd_data.throttle_display = linear_smooth(obd_data.throttle_display, obd_data.throttle_pct, dt_ms, SMOOTH_DURATION_MS);
+        snprintf(buf, size, "%4d", (int)(obd_data.throttle_display + 0.5f));
+        break;
+
+    case 2: // Coolant temp
+        snprintf(buf, size, "%4d", obd_data.coolant_temp);
+        break;
+
+    case 3: // Intake temp
+        snprintf(buf, size, "%4d", obd_data.intake_temp);
+        break;
+
+    case 6: // Voltage
+        snprintf(buf, size, "%3d.%d", obd_data.voltage / 100, (obd_data.voltage % 100) / 10);
+        break;
+
+    case 7: // Oil temp
+        snprintf(buf, size, "%4d", obd_data.oil_temp);
+        break;
+
+    default:
+        buf[0] = '\0';
+        break;
+    }
+}
 static void OBD_DrawText(char *text, uint8_t index)
 {
   const ClockTheme_t *theme = &clockTheme[pUserInfo->clocktheme];
