@@ -100,7 +100,7 @@ void EasyUIKeyActionMonitor() // Interrupt trigger, No EasyUIDelay_ms(xx)
 #endif
 }
 
-char *EasyUIVersion = "Ver. 3.0.0";
+char *EasyUIVersion = "Ver. 3.1.0";
 void PageAbout(EasyUIPage_t *page)
 {
   static uint8_t pageIndex = 0;
@@ -788,6 +788,8 @@ static float linear_smooth(float current, float target, float dt_ms, float durat
     float diff = target - current;
     float delta = diff * dt_ms / duration_ms;
 
+		if(dt_ms > duration_ms)
+			return target;
     return current + delta;
 }
 
@@ -807,8 +809,11 @@ static void OBD_FormatText(char *buf, size_t size, uint8_t index)
     if (dt_ms < MIN_UPDATE_MS)
         dt_ms = 0; // 线性平滑函数返回 current，不变化
     else
+		{
+				dt_ms = 60;
         last_time = now; // 更新时间戳
-
+		}
+		
     switch (index)
     {
     case 0: // RPM
@@ -844,7 +849,7 @@ static void OBD_FormatText(char *buf, size_t size, uint8_t index)
         break;
 
     case 6: // Voltage
-        snprintf(buf, size, "%3d.%d", obd_data.voltage / 100, (obd_data.voltage % 100) / 10);
+        snprintf(buf, size, "%2d.%d", obd_data.voltage / 100, (obd_data.voltage % 100) / 10);
         break;
 
     case 7: // Oil temp
