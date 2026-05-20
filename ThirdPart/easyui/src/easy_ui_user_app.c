@@ -920,7 +920,7 @@ void AppGUI_Loop(uint8_t timer)
   }
 
   // 夜间且未唤醒
-  if (night && now > wake_until_tick && disp_mode != DISP_MODE_MENU)
+  if (night && now > wake_until_tick && disp_mode != DISP_MODE_MENU && disp_mode != DISP_MODE_OBD)
   {
     if (HAL_GPIO_ReadPin(VFD_EN_GPIO_Port, VFD_EN_Pin))
     {
@@ -929,7 +929,7 @@ void AppGUI_Loop(uint8_t timer)
     mn11236_clear_buffers();
     mn11236_send_buffer();
     HAL_GPIO_WritePin(VFD_EN_GPIO_Port, VFD_EN_Pin, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(ESP_EN_GPIO_Port, ESP_EN_Pin, GPIO_PIN_RESET);
+//    HAL_GPIO_WritePin(ESP_EN_GPIO_Port, ESP_EN_Pin, GPIO_PIN_RESET);
     osDelay(200);
     return;
   }
@@ -990,6 +990,7 @@ void AppGUI_Loop(uint8_t timer)
         obd_data.valid &= ~(1u << i);
       }
     }
+
     if (obd_data.valid & (1u << i))
     {
       OBD_FormatText(tempstr, sizeof(tempstr), i);
