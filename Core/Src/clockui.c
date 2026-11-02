@@ -321,6 +321,23 @@ uint8_t frame_wave[MAX_X][MAX_Y]; // 6-4:red, 2-0:blue
 
 static float g_bgDim = 1.0f;
 
+/* ---------------- 可暂停的动画时间基准 ----------------
+ * 碎裂 / 拼合过渡是阻塞的，期间后台动画（背景、频谱等）不应该偷偷跑：
+ * 动画统一用 clock_anim_tick() 取时间，过渡结束后把耗时累加到偏移里，
+ * 相当于把动画时间按住了，恢复后从原来的相位继续。
+ */
+static uint32_t g_anim_pause_off = 0;
+
+uint32_t clock_anim_tick(void)
+{
+    return HAL_GetTick() - g_anim_pause_off;
+}
+
+void clock_anim_pause(uint32_t ms)
+{
+    g_anim_pause_off += ms;
+}
+
 /* 背景通道值（0~7）-> 屏幕灰度（半亮 + 衰减），点亮的最低保留 1 级
    dim 为本像素的亮度系数：普通背景用 g_bgDim，光条高光传 1.0 保持亮度 */
 static inline uint8_t bg_map_gray(uint8_t ch, int x, int y, float dim)
@@ -524,7 +541,7 @@ static void bg_frame_wipe(void)
     const float d_scale = 1.0f / sqrtf(1.0f + BEAM_SLOPE * BEAM_SLOPE);
     const float trail_len = s_max; /* 拖尾长度 ≈ 屏幕斜向跨度 */
 
-    uint32_t tick = HAL_GetTick();
+    uint32_t tick = clock_anim_tick();
     uint32_t now_ms = tick % BEAM_PERIOD_MS;
     /* 偶数轮蓝色、奇数轮红色 */
     uint8_t is_blue = ((tick / BEAM_PERIOD_MS) & 1u) == 0u;
@@ -660,13 +677,13 @@ void clock_draw_background(uint8_t bg)
     if (bg != last_bg)
     {
         last_bg = bg;
-        dim_start = HAL_GetTick();
+        dim_start = clock_anim_tick();
     }
 
     /* 擦除染色主题自己按周期控制亮度（亮->淡->扫过变亮），这里不参与 */
     if (bg != CLOCK_BG_WIPE)
     {
-        uint32_t elapsed = HAL_GetTick() - dim_start;
+        uint32_t elapsed = clock_anim_tick() - dim_start;
         float p = (float)elapsed / (float)BG_FADE_PERIOD_MS;
 
         if (p > 1.0f)
@@ -2008,6 +2025,7 @@ static uint8_t g_shatterSnap[VFD_WIDTH][VFD_HEIGHT];
 void clock_shatter_anim(void)
 {
     uint8_t *buf = mn11236_get_buffer();
+    uint32_t t_begin = HAL_GetTick();
     int cols = (VFD_WIDTH + SHATTER_SHARD_W - 1) / SHATTER_SHARD_W;
     int rows = (VFD_HEIGHT + SHATTER_SHARD_H - 1) / SHATTER_SHARD_H;
 
@@ -2089,6 +2107,9 @@ void clock_shatter_anim(void)
 
     mn11236_clear_buffers();
     mn11236_send_buffer();
+
+    /* 过渡期间后台动画停表 */
+    clock_anim_pause(HAL_GetTick() - t_begin);
 }
 
 /* ============================================================
@@ -2103,6 +2124,7 @@ void clock_shatter_anim(void)
 void clock_shatter_rebuild(void)
 {
     uint8_t *buf = mn11236_get_buffer();
+    uint32_t t_begin = HAL_GetTick();
     int cols = (VFD_WIDTH + SHATTER_SHARD_W - 1) / SHATTER_SHARD_W;
     int rows = (VFD_HEIGHT + SHATTER_SHARD_H - 1) / SHATTER_SHARD_H;
 
@@ -2185,6 +2207,9 @@ void clock_shatter_rebuild(void)
     /* 最后一帧可能还差几个像素，直接恢复完整新画面 */
     memcpy(buf, g_shatterSnap, sizeof(g_shatterSnap));
     mn11236_send_buffer();
+
+    /* 过渡期间后台动画停表 */
+    clock_anim_pause(HAL_GetTick() - t_begin);
 }
 
 static uint8_t g_snakeWidth = 2; // 默认宽度
@@ -2750,7 +2775,7 @@ void draw_bar(FFTDisplay_t *fft, Color bar, Color dot)
 void draw_fft(long *fft_result, int len, int delta, Color bar, Color dot)
 {
     static uint32_t last_time = 0;
-    uint32_t current_time = HAL_GetTick();
+    uint32_t current_time = clock_anim_tick();
     float dt = (current_time - last_time) / 1000.0f; // 转换为秒
     last_time = current_time;
 
