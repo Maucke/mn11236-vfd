@@ -41,6 +41,7 @@ typedef struct
 	Color font;
 	uint8_t type; // 0=波形文字 1=普通文字
 	uint8_t bg;   // 背景动画，见 ClockBg_t
+	uint8_t style; // 字体：0=标准 3x5 放大，1=原生 9x15
 } ClockTheme_t;
 
 /* 背景动画组 */
@@ -58,7 +59,7 @@ typedef enum
 } ClockBg_t;
 
 /* clockTheme[] 的主题数量，必须与数组实际长度一致 */
-#define CLOCK_THEME_COUNT 10
+#define CLOCK_THEME_COUNT 20
 
 typedef struct
 {
@@ -111,6 +112,7 @@ void clock_draw_background(uint8_t bg);
 
 void set_g_clockWidth(uint8_t width);
 void set_g_maxGray(uint8_t gray);
+void clock_set_font_style(uint8_t style); /* 0=标准 3x5 放大 1=原生 9x15 */
 void draw_char_3x5_wave_fade(int x, int y, char ch, Color color, uint8_t level);
 void draw_icon(int x, int y, IconType type, Color color);
 void draw_icon_wave(int x, int y, IconType type, Color color);

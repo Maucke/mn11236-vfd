@@ -772,6 +772,165 @@ void set_g_clockWidth(uint8_t width)
 	g_clockWidth = width;
 }
 
+/* ---------------- 字体：标准 3x5 放大 / 原生 9x15 ---------------- */
+
+/*
+ *   0 = 标准：3x5 字模按 g_clockWidth 放大（原来的效果）
+ *   1 = 原生：按最终像素尺寸直接设计的 9x15 字模，笔画 2 像素、带斜线和圆角，
+ *             没有小字模放大后的方块感。
+ * 原生字模的 9x15 正好等于 3x5 三倍放大后的尺寸，所以布局、字距都不用改。
+ * 只覆盖时间和日期用到的字符，字母等其它字符以及小字号（日期用
+ * g_clockWidth = 1 绘制）自动回落到标准 3x5 字模。
+ */
+#define CLOCK_FONT_STD 0
+#define CLOCK_FONT_NATIVE 1
+
+static uint8_t g_fontStyle = CLOCK_FONT_STD;
+
+void clock_set_font_style(uint8_t style)
+{
+    g_fontStyle = (style != 0) ? CLOCK_FONT_NATIVE : CLOCK_FONT_STD;
+}
+
+/* 原生字模尺寸（= 3x5 字模 3 倍放大后的 9x15 像素） */
+#define NATIVE_GLYPH_W 9
+#define NATIVE_GLYPH_H 15
+
+/* 顺序必须和下面的字模表逐行对应 */
+static const char font_native_chars[] = " 0123456789:-/";
+
+/* 原生尺寸字模：9x15 像素/字，每列一个 16 位掩码（bit0 = 最上一行） */
+static const uint16_t font_native_9x15[][NATIVE_GLYPH_W] = {
+    {0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000}, /* ' ' */
+    {0x1FFC, 0x3FFE, 0x6003, 0x4001, 0x4001, 0x4001, 0x6003, 0x3FFE, 0x1FFC}, /* '0' */
+    {0x0000, 0x0000, 0x4004, 0x4006, 0x7FFF, 0x7FFF, 0x4000, 0x4000, 0x0000}, /* '1' */
+    {0x7804, 0x7C06, 0x4603, 0x4301, 0x4181, 0x40C1, 0x4063, 0x403E, 0x401C}, /* '2' */
+    {0x1004, 0x3006, 0x6003, 0x4001, 0x40C1, 0x40C1, 0x60C3, 0x3FFE, 0x1FFC}, /* '3' */
+    {0x03E0, 0x03F0, 0x0318, 0x030C, 0x0306, 0x7FFF, 0x7FFF, 0x0300, 0x0300}, /* '4' */
+    {0x18FF, 0x38FF, 0x6041, 0x4021, 0x4021, 0x4021, 0x6061, 0x3FC1, 0x1F81}, /* '5' */
+    {0x1FFC, 0x3FFE, 0x6083, 0x4041, 0x4041, 0x4041, 0x60C3, 0x3F86, 0x1F04}, /* '6' */
+    {0x0003, 0x7C03, 0x7F03, 0x03C3, 0x00F3, 0x003B, 0x000F, 0x0007, 0x0003}, /* '7' */
+    {0x1F1C, 0x3FBE, 0x60E3, 0x4041, 0x4041, 0x4041, 0x60E3, 0x3FBE, 0x1F1C}, /* '8' */
+    {0x00FC, 0x01FE, 0x0303, 0x0301, 0x0201, 0x0201, 0x4303, 0x7FFE, 0x7DFC}, /* '9' */
+    {0x0000, 0x0000, 0x0000, 0x1C1C, 0x1C1C, 0x0000, 0x0000, 0x0000, 0x0000}, /* ':' */
+    {0x0000, 0x0000, 0x00C0, 0x00C0, 0x00C0, 0x00C0, 0x00C0, 0x0000, 0x0000}, /* '-' */
+    {0x6000, 0x7800, 0x1E00, 0x0780, 0x01E0, 0x0078, 0x001E, 0x0007, 0x0001}, /* '/' */
+};
+
+/* 取原生字模，没有定义的字符返回 NULL */
+static inline const uint16_t *native_glyph(char ch)
+{
+    const char *p;
+
+    if (ch == '\0')
+        return NULL;
+
+    p = strchr(font_native_chars, ch);
+
+    if (p == NULL)
+        return NULL;
+
+    return font_native_9x15[p - font_native_chars];
+}
+
+/* 用原生字模绘制需要满足的条件：大字号 + 字模表里有这个字符 */
+static inline uint8_t use_native_font(char ch)
+{
+    return (g_fontStyle == CLOCK_FONT_NATIVE && g_clockWidth == 3) ? (native_glyph(ch) != NULL) : 0;
+}
+
+/* 取标准 3x5 字模 */
+static inline const uint8_t *clock_glyph(char ch)
+{
+    /* 越界字符按空格处理，避免读到表外 */
+    if ((uint8_t)ch < ' ' || (uint8_t)ch >= (uint8_t)(' ' + CHAR_COUNT))
+        return hex_codes_3x5[0];
+
+    return hex_codes_3x5[(uint8_t)ch - ' '];
+}
+
+/* 普通绘制：直接按像素画原生字模（px/py 已经是屏幕像素坐标） */
+static void native_draw_plain(const uint16_t *g, int px, int py, Color color)
+{
+    if (color == None)
+        return;
+
+    for (int c = 0; c < NATIVE_GLYPH_W; c++)
+    {
+        uint16_t bits = g[c];
+
+        if (bits == 0)
+            continue;
+
+        for (int r = 0; r < NATIVE_GLYPH_H; r++)
+            if (bits & (1u << r))
+                draw_point(px + c, py + r, color);
+    }
+}
+
+/* 波形背景下的原生字模绘制 */
+static void native_draw_wave(const uint16_t *g, int px, int py, Color color)
+{
+    for (int c = 0; c < NATIVE_GLYPH_W; c++)
+    {
+        uint16_t bits = g[c];
+
+        if (bits == 0)
+            continue;
+
+        for (int r = 0; r < NATIVE_GLYPH_H; r++)
+            if (bits & (1u << r))
+                draw_point_wave(px + c, py + r, color);
+    }
+}
+
+/* 某一行最右边的笔画在哪一列，没有笔画返回 -1 */
+static inline int native_right_edge(const uint16_t *g, int r)
+{
+    for (int c = NATIVE_GLYPH_W - 1; c >= 0; c--)
+        if (g[c] & (1u << r))
+            return c;
+
+    return -1;
+}
+
+/* 原生字模的右侧阴影：只沿字形右外沿补 2 个像素，
+ * 这样数字的中间镂空处不会出现多余的阴影线 */
+static void native_draw_shadow_plain(const uint16_t *g, int px, int py, Color color, uint8_t gray)
+{
+    uint8_t old = g_maxGray;
+
+    if (color == None)
+        return;
+
+    g_maxGray = gray;
+
+    for (int r = 0; r < NATIVE_GLYPH_H; r++)
+    {
+        int c = native_right_edge(g, r);
+
+        if (c < 0)
+            continue;
+
+        draw_point(px + c + 1, py + r, color);
+        draw_point(px + c + 2, py + r, color);
+    }
+
+    g_maxGray = old;
+}
+
+/* 波形背景下的右侧阴影（黑色，压在字符右边） */
+static void native_draw_shadow_wave(const uint16_t *g, int px, int py, Color color)
+{
+    for (int r = 0; r < NATIVE_GLYPH_H; r++)
+    {
+        int c = native_right_edge(g, r);
+
+        if (c >= 0)
+            draw_point_wave(px + c + 1, py + r, color);
+    }
+}
+
 static inline void draw_clock_block_wave(int x, int y, uint8_t color)
 {
     int px = x * g_clockWidth;
@@ -969,6 +1128,18 @@ void draw_char_3x5_wave(int x, int y, char ch, Color color)
 {
     if (color == None)
         return;
+
+    /* 原生字号：右外沿 1 像素阴影（黑）+ 字符 */
+    if (use_native_font(ch))
+    {
+        const uint16_t *g = native_glyph(ch);
+        int px = x * g_clockWidth;
+        int py = (y + 1) * g_clockWidth;
+
+        native_draw_shadow_wave(g, px, py, None);
+        native_draw_wave(g, px, py, color);
+        return;
+    }
 #if 0
     for (int i = 2; i >= 0; i--)
 #else
@@ -977,7 +1148,7 @@ void draw_char_3x5_wave(int x, int y, char ch, Color color)
     {
         if ((i + x) < MAX_X && ((i + x) >= 0))
         {
-            uint8_t bit_mask = hex_codes_3x5[ch - ' '][i];
+            uint8_t bit_mask = clock_glyph(ch)[i];
             if (bit_mask == 0)
                 continue;
             draw_bits_wave(bit_mask, i + x, y + 1, color);
@@ -1068,17 +1239,57 @@ static void draw_bits_wave_fade(uint8_t bit_mask, int x, int y, Color color, uin
     }
 }
 
+/* 波形背景下淡入淡出的原生字模绘制 */
+static void native_draw_wave_fade(const uint16_t *g, int px, int py, Color color, uint8_t level)
+{
+    for (int c = 0; c < NATIVE_GLYPH_W; c++)
+    {
+        uint16_t bits = g[c];
+
+        if (bits == 0)
+            continue;
+
+        for (int r = 0; r < NATIVE_GLYPH_H; r++)
+            if (bits & (1u << r))
+                draw_point_wave_fade(px + c, py + r, color, level);
+    }
+}
+
+/* 波形背景下淡入淡出的右侧阴影 */
+static void native_draw_shadow_wave_fade(const uint16_t *g, int px, int py, Color color, uint8_t level)
+{
+    for (int r = 0; r < NATIVE_GLYPH_H; r++)
+    {
+        int c = native_right_edge(g, r);
+
+        if (c >= 0)
+            draw_point_wave_fade(px + c + 1, py + r, color, level);
+    }
+}
+
 /* 波形背景下的字符淡入淡出，保留字符右侧 1 像素的阴影 */
 void draw_char_3x5_wave_fade(int x, int y, char ch, Color color, uint8_t level)
 {
     if (color == None)
         return;
 
+    /* 原生字号：阴影（黑）和字符一起淡入淡出 */
+    if (use_native_font(ch))
+    {
+        const uint16_t *g = native_glyph(ch);
+        int px = x * g_clockWidth;
+        int py = (y + 1) * g_clockWidth;
+
+        native_draw_shadow_wave_fade(g, px, py, None, level);
+        native_draw_wave_fade(g, px, py, color, level);
+        return;
+    }
+
     for (int i = 0; i < 3; i++)
     {
         if ((i + x) < MAX_X && ((i + x) >= 0))
         {
-            uint8_t bit_mask = hex_codes_3x5[ch - ' '][i];
+            uint8_t bit_mask = clock_glyph(ch)[i];
             if (bit_mask == 0)
                 continue;
             draw_bits_wave_fade(bit_mask, i + x, y + 1, color, level);
@@ -1094,11 +1305,30 @@ void draw_char_3x5(int x, int y, char ch, Color color)
 {
     if (color == None)
         return;
+
+    /* 原生字号：右外沿阴影 + 主字 */
+    if (use_native_font(ch))
+    {
+        const uint16_t *g = native_glyph(ch);
+        int px = x * g_clockWidth;
+        int py = (y + 1) * g_clockWidth;
+
+        if (color & 0x0C)
+        {
+            uint8_t shadow = (g_maxGray < CLOCK_SHADOW_GRAY) ? g_maxGray : CLOCK_SHADOW_GRAY;
+
+            native_draw_shadow_plain(g, px, py, (Color)(((color & 0x0C) >> 2) & 0x03), shadow);
+        }
+
+        native_draw_plain(g, px, py, (Color)(color & 0x03));
+        return;
+    }
+
     for (int i = 0; i < 3; i++)
     {
         if ((i + x) < MAX_X && ((i + x) >= 0))
         {
-            uint8_t bit_mask = hex_codes_3x5[ch - ' '][i];
+            uint8_t bit_mask = clock_glyph(ch)[i];
             if (bit_mask == 0)
                 continue; // 无点可绘，直接跳过
             // 颜色掩码1：青，原x坐标 → 调用封装函数

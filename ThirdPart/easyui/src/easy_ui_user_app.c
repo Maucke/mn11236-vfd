@@ -100,7 +100,7 @@ void EasyUIKeyActionMonitor() // Interrupt trigger, No EasyUIDelay_ms(xx)
 #endif
 }
 
-char *EasyUIVersion = "Ver. 3.2.0";
+char *EasyUIVersion = "Ver. 3.3.0";
 void PageAbout(EasyUIPage_t *page)
 {
   static uint8_t pageIndex = 0;
@@ -711,18 +711,29 @@ extern char date[10];
 extern char week[10];
 
 const ClockTheme_t clockTheme[] = {
-    // 动画背景 + 波形文字
-    {Red, Red, 0, CLOCK_BG_WAVE},       // 三波叠加渐变
-    {Cyan, White, 0, CLOCK_BG_WAVE},    // 三波叠加渐变（白字）
-    {Cyan, White, 0, CLOCK_BG_BANDS},      // 流动光带
-    {Cyan, White, 0, CLOCK_BG_GLOW},  // 中心光晕
-    {Cyan, White, 0, CLOCK_BG_WIPE},       // 光条擦除染色（蓝/红交替）
-    {Cyan, White, 0, CLOCK_BG_FLOW},  // 流动渐变
-    {Cyan, White, 0, CLOCK_BG_PLASMA},     // 等离子斑块
-    {Cyan, White, 0, CLOCK_BG_BREATHE}, // 整屏明暗呼吸
+    // 动画背景 + 波形文字（style: 0=标准字模 1=原生 9x15 字模）
+    {Red, Red, 0, CLOCK_BG_WAVE, 0},       // 三波叠加渐变
+    {Red, Red, 0, CLOCK_BG_WAVE, 1},       // 三波叠加渐变
+    {Cyan, White, 0, CLOCK_BG_WAVE, 0},    // 三波叠加渐变（白字）
+    {Cyan, White, 0, CLOCK_BG_WAVE, 1},    // 三波叠加渐变（白字）
+    {Cyan, White, 0, CLOCK_BG_BANDS, 0},   // 流动光带
+    {Cyan, White, 0, CLOCK_BG_BANDS, 1},   // 流动光带
+    {Cyan, White, 0, CLOCK_BG_GLOW, 0},    // 中心光晕
+    {Cyan, White, 0, CLOCK_BG_GLOW, 1},    // 中心光晕
+    {Cyan, White, 0, CLOCK_BG_WIPE, 0},    // 光条擦除染色（蓝/红交替）
+    {Cyan, White, 0, CLOCK_BG_WIPE, 1},    // 光条擦除染色（蓝/红交替）
+    {Cyan, White, 0, CLOCK_BG_FLOW, 0},    // 流动渐变
+    {Cyan, White, 0, CLOCK_BG_FLOW, 1},    // 流动渐变
+    {Cyan, White, 0, CLOCK_BG_PLASMA, 0},  // 等离子斑块
+    {Cyan, White, 0, CLOCK_BG_PLASMA, 1},  // 等离子斑块
+    {Cyan, White, 0, CLOCK_BG_BREATHE, 0}, // 整屏明暗呼吸
+    {Cyan, White, 0, CLOCK_BG_BREATHE, 1}, // 整屏明暗呼吸
     // 纯字主题（无背景动画）
-    {Red, WhiteWithCyan, 1, CLOCK_BG_NONE},
-    {Cyan, WhiteWithRed, 1, CLOCK_BG_NONE}};
+    {Red, WhiteWithCyan, 1, CLOCK_BG_NONE, 0},
+    {Red, WhiteWithCyan, 1, CLOCK_BG_NONE, 1},
+    {Cyan, WhiteWithRed, 1, CLOCK_BG_NONE, 0},
+    {Cyan, WhiteWithRed, 1, CLOCK_BG_NONE, 1},
+	};
 
 /* 主题数量必须与 CLOCK_THEME_COUNT 一致 */
 typedef char clock_theme_count_check[
@@ -877,6 +888,8 @@ static void OBD_DrawText(char *text, uint8_t index)
   const OBD_DisplayCfg_t *cfg = &obd_display_cfg[index];
   int x = (SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 2;
 
+  clock_set_font_style(theme->style);
+
   if (cfg->has_icon && theme->type == 0)
   {
     if (theme->bg != CLOCK_BG_NONE)
@@ -992,6 +1005,10 @@ void AppGUI_Loop(uint8_t timer)
     int timeX = (SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 3;
     const ClockTheme_t *theme = &clockTheme[pUserInfo->clocktheme];
     Color fontColor = theme->font;
+
+    /* 主题字体：0=标准 3x5 放大，1=原生 9x15 */
+    clock_set_font_style(theme->style);
+
     char timeBuf[8];
     timeBuf[0] = timeStr[0];
     timeBuf[1] = timeStr[1];
@@ -1009,8 +1026,13 @@ void AppGUI_Loop(uint8_t timer)
       set_g_clockWidth(3);
       draw_str_3x5_wave(timeX, 0, timeBuf, fontColor);
       draw_char_3x5_wave_fade(timeX + 8, 0, ':', fontColor, colonFadeGray);
-      set_g_clockWidth(1);
-      draw_str_3x5_wave(SCREEN_WIDTH - 24, 12, date, fontColor);
+
+      /* 原生字体主题不显示日期，只留时间 */
+      if (theme->style == 0)
+      {
+        set_g_clockWidth(1);
+        draw_str_3x5_wave(SCREEN_WIDTH - 24, 12, date, fontColor);
+      }
     }
     else
     {
