@@ -962,6 +962,17 @@ static void ColonLevels(uint32_t now, uint8_t *top, uint8_t *bot)
   }
 }
 
+/* 碎屏过渡：旧画面碎裂落地，下一帧再把新画面从上方落下拼合出来 */
+static uint8_t pending_rebuild = 0;
+
+static void TransitionShatter(void)
+{
+  clock_shatter_anim();
+  pending_rebuild = 1;
+  /* 新界面这一帧先不送屏，交给拼合动画自己送，避免“空屏后闪一帧完整的图” */
+  mn11236_hold_send(1);
+}
+
 void AppGUI_Loop(uint8_t timer)
 {
   static char tempstr[16];
@@ -971,6 +982,7 @@ void AppGUI_Loop(uint8_t timer)
   static char flipPrev[6] = {0};
   static uint32_t flipStart = 0;
   static uint8_t flipActive = 0;
+
   //	mn11236_gray_test();
   //	osDelay(5000);
   //	return;
@@ -997,6 +1009,9 @@ void AppGUI_Loop(uint8_t timer)
     {
       EasyUITransitionAnim();
     }
+    /* 熄屏前确保送屏没有被过渡动画挂起 */
+    pending_rebuild = 0;
+    mn11236_hold_send(0);
     mn11236_clear_buffers();
     mn11236_send_buffer();
     HAL_GPIO_WritePin(VFD_EN_GPIO_Port, VFD_EN_Pin, GPIO_PIN_RESET);
@@ -1185,6 +1200,15 @@ void AppGUI_Loop(uint8_t timer)
     EasyUIEvent(5);
     break;
   }
+
+  /* 碎屏之后：把新画面从上方落下拼合回来 */
+  if (pending_rebuild)
+  {
+    pending_rebuild = 0;
+    mn11236_hold_send(0); /* 恢复送屏，交给拼合动画 */
+    clock_shatter_rebuild();
+  }
+
   //	if((rolling++)%2)
   UploadFrame();
   UserInfo_AutoSave();
@@ -1194,9 +1218,10 @@ void AppGUI_Loop(uint8_t timer)
   {
     if (now - last_key_tick > MENU_TIMEOUT)
     {
+      /* 超时退出菜单也走碎裂落地过渡 */
+      TransitionShatter();
       disp_mode = last_disp_mode;
-      EasyUITransitionAnim();
-      last_key_tick = now;
+      last_key_tick = HAL_GetTick();
     }
   }
 
@@ -1204,6 +1229,9 @@ void AppGUI_Loop(uint8_t timer)
   {
     if (opnUp)
     {
+      /* 先让当前画面碎裂落地，再切到下一个界面 */
+      TransitionShatter();
+
       disp_mode++;
       if (disp_mode > DISP_MODE_MOTION)
         disp_mode = DISP_MODE_CLOCK;
@@ -1214,11 +1242,13 @@ void AppGUI_Loop(uint8_t timer)
           disp_mode++;
       }
 
-      EasyUITransitionAnim();
       opnUp = false;
     }
     if (opnDown)
     {
+      /* 先让当前画面碎裂落地，再切到上一个界面 */
+      TransitionShatter();
+
       if (disp_mode == DISP_MODE_CLOCK)
         disp_mode = DISP_MODE_MOTION;
       else
@@ -1230,16 +1260,16 @@ void AppGUI_Loop(uint8_t timer)
           disp_mode--;
       }
 
-      EasyUITransitionAnim();
       opnDown = false;
     }
 
     if (opnEnter)
     {
       last_disp_mode = disp_mode;
-      EasyUITransitionAnim();
+      /* 当前画面碎裂落地，再从空屏切进菜单 */
+      TransitionShatter();
       disp_mode = DISP_MODE_MENU;
-      last_key_tick = now; // 重置菜单超时计时器
+      last_key_tick = HAL_GetTick(); // 重置菜单超时计时器
       opnEnter = false;
     }
     if (opnExit)
@@ -1260,8 +1290,10 @@ void AppGUI_Loop(uint8_t timer)
   }
   else if (layer == 0 && opnExit)
   {
+    /* 从菜单退回原界面：同样用画面碎裂落地过渡 */
+    TransitionShatter();
     disp_mode = last_disp_mode;
     opnExit = false;
-    EasyUITransitionAnim();
+    last_key_tick = HAL_GetTick();
   }
 }

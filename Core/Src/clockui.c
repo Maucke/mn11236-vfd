@@ -5,6 +5,7 @@
 #include "llist.h"
 #include "nexlink_app.h"
 #include <math.h>
+#include "cmsis_os.h"
 
 //  Hexadecimal code corresponding to each character
 //  0123456789:
@@ -1874,6 +1875,203 @@ void draw_bitmap_wave(int x, int y, const uint8_t *bitmap, int width, int height
 
 void refrash_gram()
 {
+    mn11236_send_buffer();
+}
+
+/* ============================================================
+ * 画面碎裂落地 / 碎片归位拼合 共用
+ * ============================================================ */
+#define SHATTER_SHARD_W 14
+#define SHATTER_SHARD_H 6
+#define SHATTER_STEP_MS 16
+#define SHATTER_TOTAL_MS 400
+
+/* 碎裂/拼合共用的画面快照（[x][y]，与驱动缓冲区同布局） */
+static uint8_t g_shatterSnap[VFD_WIDTH][VFD_HEIGHT];
+
+/*
+ * 当前画面碎裂落地：切成小块，从中心向外依次裂开，
+ * 碎片带横向飞溅 + 重力下落，全部掉出屏幕后清屏返回。
+ */
+void clock_shatter_anim(void)
+{
+    uint8_t *buf = mn11236_get_buffer();
+    int cols = (VFD_WIDTH + SHATTER_SHARD_W - 1) / SHATTER_SHARD_W;
+    int rows = (VFD_HEIGHT + SHATTER_SHARD_H - 1) / SHATTER_SHARD_H;
+
+    /* 抓取当前画面作为碎片来源 */
+    memcpy(g_shatterSnap, buf, sizeof(g_shatterSnap));
+
+    for (int t = 0; t <= SHATTER_TOTAL_MS; t += SHATTER_STEP_MS)
+    {
+        mn11236_clear_buffers();
+
+        for (int r = 0; r < rows; r++)
+        {
+            for (int c = 0; c < cols; c++)
+            {
+                /* 奇数行错开半块，裂纹看起来不规则 */
+                int x0 = c * SHATTER_SHARD_W - ((r & 1) ? SHATTER_SHARD_W / 2 : 0);
+                int y0 = r * SHATTER_SHARD_H;
+                int w = SHATTER_SHARD_W - 1; /* 留 1px 缝当裂纹 */
+                int h = SHATTER_SHARD_H - 1;
+                int cx, dist, delay, dt, dx, dy, dir;
+
+                if (x0 < 0)
+                {
+                    w += x0;
+                    x0 = 0;
+                }
+                if (x0 + w > VFD_WIDTH)
+                    w = VFD_WIDTH - x0;
+                if (y0 + h > VFD_HEIGHT)
+                    h = VFD_HEIGHT - y0;
+                if (w <= 0 || h <= 0)
+                    continue;
+
+                cx = x0 + w / 2;
+                dist = (cx > VFD_WIDTH / 2) ? (cx - VFD_WIDTH / 2) : (VFD_WIDTH / 2 - cx);
+
+                /* 中间先碎，越靠边越晚，再叠一点参差 */
+                delay = dist * 2 + r * 20 + (c * 7 + r * 13) % 26;
+
+                dt = t - delay;
+                dx = 0;
+                dy = 0;
+
+                if (dt > 0)
+                {
+                    dir = (cx < VFD_WIDTH / 2) ? -1 : 1;
+                    dx = dir * ((dt * dt) / 9000 + dt / 40); /* 向外飞溅 */
+                    dy = (dt * dt) / 3000;                   /* 重力加速下落 */
+                }
+
+                if (dy >= VFD_HEIGHT)
+                    continue;
+
+                for (int yy = 0; yy < h; yy++)
+                {
+                    int sy = y0 + yy;
+                    int ty = sy + dy;
+
+                    if (ty < 0 || ty >= VFD_HEIGHT)
+                        continue;
+
+                    for (int xx = 0; xx < w; xx++)
+                    {
+                        int tx = x0 + xx + dx;
+                        uint8_t v = g_shatterSnap[x0 + xx][sy];
+
+                        if (v == 0 || tx < 0 || tx >= VFD_WIDTH)
+                            continue;
+
+                        buf[tx * VFD_HEIGHT + ty] = v;
+                    }
+                }
+            }
+        }
+
+        mn11236_send_buffer();
+        osDelay(SHATTER_STEP_MS);
+    }
+
+    mn11236_clear_buffers();
+    mn11236_send_buffer();
+}
+
+/* ============================================================
+ * 新画面从下方拼合上来
+ * 调用前缓冲区里必须是完整的新画面；结束时缓冲区恢复为新画面。
+ * 碎片从屏幕上方落下、由外向内归位，逐块“拼”回完整画面。
+ * ============================================================ */
+#define REBUILD_TOTAL_MS 340 /* 总时长 */
+#define REBUILD_DUR_MS 260   /* 单块碎片落下时长 */
+#define REBUILD_DROP_PX 20   /* 起始悬停高度（整屏高度 18） */
+
+void clock_shatter_rebuild(void)
+{
+    uint8_t *buf = mn11236_get_buffer();
+    int cols = (VFD_WIDTH + SHATTER_SHARD_W - 1) / SHATTER_SHARD_W;
+    int rows = (VFD_HEIGHT + SHATTER_SHARD_H - 1) / SHATTER_SHARD_H;
+
+    /* 抓取新画面 */
+    memcpy(g_shatterSnap, buf, sizeof(g_shatterSnap));
+
+    for (int t = 0; t <= REBUILD_TOTAL_MS; t += SHATTER_STEP_MS)
+    {
+        mn11236_clear_buffers();
+
+        for (int r = 0; r < rows; r++)
+        {
+            for (int c = 0; c < cols; c++)
+            {
+                int x0 = c * SHATTER_SHARD_W - ((r & 1) ? SHATTER_SHARD_W / 2 : 0);
+                int y0 = r * SHATTER_SHARD_H;
+                int w = SHATTER_SHARD_W - 1;
+                int h = SHATTER_SHARD_H - 1;
+                int delay, p, q, dy, dx, cx, dir;
+
+                if (x0 < 0)
+                {
+                    w += x0;
+                    x0 = 0;
+                }
+                if (x0 + w > VFD_WIDTH)
+                    w = VFD_WIDTH - x0;
+                if (y0 + h > VFD_HEIGHT)
+                    h = VFD_HEIGHT - y0;
+                if (w <= 0 || h <= 0)
+                    continue;
+
+                /* 每块错开一点，看起来是一块块拼上去的 */
+                delay = ((c * 5 + r * 11) % 4) * 18;
+
+                p = t - delay;
+                if (p < 0)
+                    p = 0;
+                if (p > REBUILD_DUR_MS)
+                    p = REBUILD_DUR_MS;
+
+                q = REBUILD_DUR_MS - p;
+                /* 从上方落下：先快后慢，最后稳稳落位 */
+                dy = -(REBUILD_DROP_PX * q * q / (REBUILD_DUR_MS * REBUILD_DUR_MS));
+
+                /* 从外侧向内收拢 */
+                cx = x0 + w / 2;
+                dir = (cx < VFD_WIDTH / 2) ? -1 : 1;
+                dx = -dir * (3 * q / REBUILD_DUR_MS);
+
+                if (dy <= -VFD_HEIGHT)
+                    continue;
+
+                for (int yy = 0; yy < h; yy++)
+                {
+                    int sy = y0 + yy;
+                    int ty = sy + dy;
+
+                    if (ty < 0 || ty >= VFD_HEIGHT)
+                        continue;
+
+                    for (int xx = 0; xx < w; xx++)
+                    {
+                        int tx = x0 + xx + dx;
+                        uint8_t v = g_shatterSnap[x0 + xx][sy];
+
+                        if (v == 0 || tx < 0 || tx >= VFD_WIDTH)
+                            continue;
+
+                        buf[tx * VFD_HEIGHT + ty] = v;
+                    }
+                }
+            }
+        }
+
+        mn11236_send_buffer();
+        osDelay(SHATTER_STEP_MS);
+    }
+
+    /* 最后一帧可能还差几个像素，直接恢复完整新画面 */
+    memcpy(buf, g_shatterSnap, sizeof(g_shatterSnap));
     mn11236_send_buffer();
 }
 

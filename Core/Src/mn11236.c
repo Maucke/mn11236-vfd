@@ -8,6 +8,9 @@
 // 用户绘制的像素缓冲区
 static uint8_t display_buffer[VFD_WIDTH][VFD_HEIGHT]; // [x][y][color]
 
+/* 过渡动画期间暂停送屏（避免新画面先闪一帧完整的图） */
+static uint8_t send_hold = 0;
+
 // DMA传输缓冲区（当前正在传输的行）
 #define GRAY_BITS 3
 #define GRAY_PLANES ((1 << GRAY_BITS) - 1)   // =7
@@ -166,11 +169,24 @@ void mn11236_clear_buffers(void)
 }
 
 /**
+ * 暂停/恢复送屏
+ * hold = 1：mn11236_send_buffer() 直接被忽略，屏幕保持上一帧内容
+ * 过渡动画里用来避免“新界面先闪一帧完整的图”
+ */
+void mn11236_hold_send(uint8_t hold)
+{
+    send_hold = hold;
+}
+
+/**
  * 发送缓冲区数据到屏幕
  */
 void mn11236_send_buffer(void)
 {
 	uint8_t blue = 0, red = 0;
+
+	if (send_hold)
+		return;
     /**
      * 一帧点3个像素段： T0 = abc, T1 = def, T2 = ghi ...
      * 每个像素段包含红蓝两种颜色数据
@@ -329,6 +345,16 @@ uint8_t mn11236_read_pixel(uint8_t x, uint8_t y, mn11236_color_t color)
 			return display_buffer[x][y] >> 4;
 		else
 			return display_buffer[x][y] & 0xF;
+}
+
+/**
+ * 获取显示缓冲区首地址
+ * 布局 [x][y]，索引 x * VFD_HEIGHT + y
+ * 每字节低 4 位为蓝色灰度，高 4 位为红色灰度
+ */
+uint8_t *mn11236_get_buffer(void)
+{
+    return &display_buffer[0][0];
 }
 
 void mn11236_gray_test(void)

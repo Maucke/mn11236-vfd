@@ -110,6 +110,8 @@ void refrashSnake(void);
 void setSnakeWidth(uint8_t width);
 void gradient_flow_frame_clock(void);
 void clock_draw_background(uint8_t bg);
+void clock_shatter_anim(void); /* 当前画面碎裂落地（进菜单用） */
+void clock_shatter_rebuild(void); /* 新画面从上方落下拼合（碎裂之后调用） */
 
 void set_g_clockWidth(uint8_t width);
 void set_g_maxGray(uint8_t gray);
