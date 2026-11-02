@@ -921,9 +921,10 @@ static void OBD_DrawText(char *text, uint8_t index)
 /* 冒号错时呼吸：1Hz 周期，上点先亮/先灭，下点滞后 100ms */
 #define COLON_FADE_PERIOD_MS 1000
 #define COLON_FADE_TIME_MS 100
-/* 时间翻页：前半程旧字收缩到中线，后半程新字从中线展开（像翻牌） */
-#define FLIP_HALF_MS 110
-#define FLIP_TOTAL_MS (2 * FLIP_HALF_MS)
+/* 时间切换：旧数字碎掉落下，新数字从上方落下拼合（和菜单切换同一套动画） */
+#define SHARD_FALL_MS 210
+#define SHARD_BUILD_MS 210
+#define SHARD_TOTAL_MS (SHARD_FALL_MS + SHARD_BUILD_MS)
 
 /* 计算冒号上下两点当前亮度（0..7）：上点先亮 100ms，再亮下点；熄灭时上点先灭 */
 static void ColonLevels(uint32_t now, uint8_t *top, uint8_t *bot)
@@ -978,10 +979,10 @@ void AppGUI_Loop(uint8_t timer)
   static char tempstr[16];
   static int rolling = 0;
   static int rpm = 0;
-  /* 翻页动画状态 */
-  static char flipPrev[6] = {0};
-  static uint32_t flipStart = 0;
-  static uint8_t flipActive = 0;
+  /* 翻页（碎裂/拼合）动画状态 */
+  static char shardPrev[6] = {0};
+  static uint32_t shardStart = 0;
+  static uint8_t shardActive = 0;
 
   //	mn11236_gray_test();
   //	osDelay(5000);
@@ -1053,37 +1054,39 @@ void AppGUI_Loop(uint8_t timer)
     timeBuf[4] = timeStr[4];
     timeBuf[5] = '\0';
 
-    /* 时间变化 → 翻页动画（旧字翻走，新字翻出） */
-    if (flipPrev[0] == '\0')
-      memcpy(flipPrev, timeBuf, 5); /* 首次上电不播动画 */
-    else if (!flipActive && memcmp(flipPrev, timeBuf, 5) != 0)
+    /* 时间变化 → 碎裂动画（旧数字碎掉，新数字从上方拼合） */
+    if (shardPrev[0] == '\0')
+      memcpy(shardPrev, timeBuf, 5); /* 首次上电不播动画 */
+    else if (!shardActive && memcmp(shardPrev, timeBuf, 5) != 0)
     {
-      flipActive = 1;
-      flipStart = now;
+      shardActive = 1;
+      shardStart = now;
     }
 
-    if (flipActive && (now - flipStart) >= FLIP_TOTAL_MS)
+    if (shardActive && (now - shardStart) >= SHARD_TOTAL_MS)
     {
-      flipActive = 0;
-      memcpy(flipPrev, timeBuf, 5);
+      shardActive = 0;
+      memcpy(shardPrev, timeBuf, 5);
     }
 
-    uint8_t flipPhase = 0; /* 0=正常 1=旧字压扁 2=新字展开 */
-    uint8_t flipH = 0;
+    uint8_t shardPhase = 0; /* 0=正常 1=旧字碎掉 2=新字拼合 */
+    uint16_t shardEl = 0;
 
-    if (flipActive)
+    if (shardActive)
     {
-      uint32_t el = now - flipStart;
+      uint32_t el = now - shardStart;
 
-      if (el < FLIP_HALF_MS)
+      if (el < SHARD_FALL_MS)
       {
-        flipPhase = 1;
-        flipH = (uint8_t)(15 - (15 * el) / FLIP_HALF_MS);
+        shardPhase = 1;
+        shardEl = (uint16_t)el;
       }
       else
       {
-        flipPhase = 2;
-        flipH = (uint8_t)((15 * (el - FLIP_HALF_MS)) / FLIP_HALF_MS);
+        shardPhase = 2;
+        shardEl = (uint16_t)(el - SHARD_FALL_MS);
+        if (shardEl > SHARD_BUILD_MS)
+          shardEl = SHARD_BUILD_MS;
       }
     }
 
@@ -1095,7 +1098,7 @@ void AppGUI_Loop(uint8_t timer)
     {
       set_g_clockWidth(3);
 
-      if (flipPhase == 0)
+      if (shardPhase == 0)
       {
         draw_str_3x5_wave(timeX, 0, timeBuf, fontColor);
       }
@@ -1103,10 +1106,11 @@ void AppGUI_Loop(uint8_t timer)
       {
         for (int i = 0; i < 5; i++)
         {
-          char shown = (flipPhase == 1) ? flipPrev[i] : timeBuf[i];
+          char shown = (shardPhase == 1) ? shardPrev[i] : timeBuf[i];
 
-          if (flipPrev[i] != timeBuf[i])
-            draw_char_flip(timeX + i * 4, 0, shown, fontColor, flipH, 1);
+          if (shardPrev[i] != timeBuf[i])
+            draw_char_shatter(timeX + i * 4, 0, shown, fontColor, 1,
+                              (shardPhase == 1) ? 0 : 1, shardEl);
           else
             draw_char_3x5_wave(timeX + i * 4, 0, shown, fontColor);
         }
@@ -1125,7 +1129,7 @@ void AppGUI_Loop(uint8_t timer)
     {
       set_g_clockWidth(3);
 
-      if (flipPhase == 0)
+      if (shardPhase == 0)
       {
         draw_str_3x5(timeX, 0, timeBuf, fontColor);
       }
@@ -1133,10 +1137,11 @@ void AppGUI_Loop(uint8_t timer)
       {
         for (int i = 0; i < 5; i++)
         {
-          char shown = (flipPhase == 1) ? flipPrev[i] : timeBuf[i];
+          char shown = (shardPhase == 1) ? shardPrev[i] : timeBuf[i];
 
-          if (flipPrev[i] != timeBuf[i])
-            draw_char_flip(timeX + i * 4, 0, shown, fontColor, flipH, 0);
+          if (shardPrev[i] != timeBuf[i])
+            draw_char_shatter(timeX + i * 4, 0, shown, fontColor, 0,
+                              (shardPhase == 1) ? 0 : 1, shardEl);
           else
             draw_char_3x5(timeX + i * 4, 0, shown, fontColor);
         }

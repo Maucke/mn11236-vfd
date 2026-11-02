@@ -812,7 +812,7 @@ static const uint16_t font_native_9x15[][NATIVE_GLYPH_W] = {
     {0x1FFC, 0x3FFE, 0x6083, 0x4041, 0x4041, 0x4041, 0x60C3, 0x3F86, 0x1F04}, /* '6' */
     {0x0003, 0x7C03, 0x7F03, 0x03C3, 0x00F3, 0x003B, 0x000F, 0x0007, 0x0003}, /* '7' */
     {0x1F1C, 0x3FBE, 0x60E3, 0x4041, 0x4041, 0x4041, 0x60E3, 0x3FBE, 0x1F1C}, /* '8' */
-    {0x00FC, 0x01FE, 0x0303, 0x0301, 0x0201, 0x0201, 0x4303, 0x7FFE, 0x7DFC}, /* '9' */
+    {0x00FC, 0x01FE, 0x4303, 0x4301, 0x4201, 0x6201, 0x6303, 0x7FFE, 0x3DFC}, /* '9' */
     {0x0000, 0x0000, 0x0000, 0x1C1C, 0x1C1C, 0x0000, 0x0000, 0x0000, 0x0000}, /* ':' */
     {0x0000, 0x0000, 0x00C0, 0x00C0, 0x00C0, 0x00C0, 0x00C0, 0x0000, 0x0000}, /* '-' */
     {0x6000, 0x7800, 0x1E00, 0x0780, 0x01E0, 0x0078, 0x001E, 0x0007, 0x0001}, /* '/' */
@@ -1638,6 +1638,118 @@ void draw_char_flip(int x, int y, char ch, Color color, uint8_t visH, uint8_t wa
                     draw_point_wave(p, cellTop + tr, color);
                 else
                     draw_point(p, cellTop + tr, color);
+            }
+        }
+    }
+}
+
+/*
+ * 数字切换的“碎裂/拼合”动画（和菜单切换同一套观感）：
+ * 把字格按 3x3 像素切成 3 列 x 5 行共 15 块碎片，
+ *   phase = 0：旧数字碎掉，碎片带重力下落并向外散开
+ *   phase = 1：新数字从字格上方落下拼合，同时向中间收拢
+ * elapsed：该阶段已经进行的毫秒数
+ * wave = 1：波形背景混色；wave = 0：普通绘制。
+ */
+#define SHARD_TRAVEL_MS 180 /* 单块碎片走完全程的时间 */
+#define SHARD_DROP_PX 20    /* 拼合时碎片起始高度（字格上方多少像素） */
+#define SHARD_GRAVITY 1500  /* 下落加速度：位移 = t^2 / SHARD_GRAVITY */
+
+void draw_char_shatter(int x, int y, char ch, Color color, uint8_t wave,
+                       uint8_t phase, uint16_t elapsed)
+{
+    int16_t offX[5][3];
+    int16_t offY[5][3];
+    int px;
+    int cellTop;
+
+    if (color == None)
+        return;
+
+    px = x * g_clockWidth;
+    cellTop = (y + 1) * g_clockWidth;
+
+    /* 先算出 15 块碎片各自的偏移 */
+    for (int sr = 0; sr < 5; sr++)
+    {
+        for (int sc = 0; sc < 3; sc++)
+        {
+            int delay = ((sr * 3 + sc * 5) % 4) * 8; /* 每块错开 0~24ms，避免整块一起动 */
+            int dt = (int)elapsed - delay;
+
+            if (dt < 0)
+                dt = 0;
+
+            if (phase == 0)
+            {
+                offY[sr][sc] = (int16_t)(dt * dt / SHARD_GRAVITY);
+                offX[sr][sc] = (int16_t)((sc - 1) * (dt * dt / 8000));
+            }
+            else
+            {
+                int q = SHARD_TRAVEL_MS - dt;
+
+                if (q < 0)
+                    q = 0;
+
+                offY[sr][sc] = (int16_t)(-(SHARD_DROP_PX * q * q) /
+                                         (SHARD_TRAVEL_MS * SHARD_TRAVEL_MS));
+                offX[sr][sc] = (int16_t)((sc - 1) * (3 * q / SHARD_TRAVEL_MS));
+            }
+        }
+    }
+
+    if (use_native_font(ch))
+    {
+        const uint16_t *g = native_glyph(ch);
+
+        for (int r = 0; r < NATIVE_GLYPH_H; r++)
+        {
+            int sr = r * 5 / NATIVE_GLYPH_H;
+
+            for (int c = 0; c < NATIVE_GLYPH_W; c++)
+            {
+                int sc;
+
+                if (!(g[c] & (1u << r)))
+                    continue;
+
+                sc = c * 3 / NATIVE_GLYPH_W;
+
+                if (wave)
+                    draw_point_wave(px + c + offX[sr][sc], cellTop + r + offY[sr][sc], color);
+                else
+                    draw_point(px + c + offX[sr][sc], cellTop + r + offY[sr][sc], color);
+            }
+        }
+
+        return;
+    }
+
+    /* 标准 3x5 字模：一个字模行对应 g_clockWidth 个设备行 */
+    {
+        int glyphH = 5 * g_clockWidth;
+        const uint8_t *glyph = clock_glyph(ch);
+
+        for (int r = 0; r < glyphH; r++)
+        {
+            int bit = r / g_clockWidth;
+            int sr = r * 5 / glyphH;
+
+            for (int i = 0; i < 3; i++)
+            {
+                if (!(glyph[i] & (1 << bit)))
+                    continue;
+
+                for (int dx = 0; dx < g_clockWidth; dx++)
+                {
+                    int c = i * g_clockWidth + dx;
+
+                    if (wave)
+                        draw_point_wave(px + c + offX[sr][i], cellTop + r + offY[sr][i], color);
+                    else
+                        draw_point(px + c + offX[sr][i], cellTop + r + offY[sr][i], color);
+                }
             }
         }
     }

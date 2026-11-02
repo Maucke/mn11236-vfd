@@ -118,6 +118,8 @@ void set_g_maxGray(uint8_t gray);
 void clock_set_font_style(uint8_t style); /* 0=标准 3x5 放大 1=原生 9x15 */
 void draw_char_3x5_wave_fade(int x, int y, char ch, Color color, uint8_t level);
 void draw_char_flip(int x, int y, char ch, Color color, uint8_t visH, uint8_t wave);
+/* 碎裂/拼合：phase 0=碎掉下落 1=从上方拼合，elapsed 为该阶段已进行的毫秒数 */
+void draw_char_shatter(int x, int y, char ch, Color color, uint8_t wave, uint8_t phase, uint16_t elapsed);
 void draw_colon_fade(int x, int y, Color color, uint8_t topLevel, uint8_t botLevel, uint8_t wave);
 void draw_icon(int x, int y, IconType type, Color color);
 void draw_icon_wave(int x, int y, IconType type, Color color);
