@@ -291,10 +291,55 @@ LList long_str_list;
 #define SPEED2 0.03f
 #define SPEED3 0.05f
 
-static float t1 = 0;
-static float t2 = 0;
-static float t3 = 0;
+/*
+ * 相位使用 16 位定点累加（1 单位 = 2π/65536），溢出即完成 2π 回绕。
+ * 之前用 float 一直累加：t 增大到 2^20 左右后 ulp(0.125) 大于步进(0.05)，
+ * t += SPEED 不再改变数值，波形就永久停在某一帧（约 29 小时，5ms 一次）。
+ */
+#define PHASE_UNIT (6.28318530718f / 65536.0f)
+#define PHASE_STEP(rad) ((uint16_t)((rad) / PHASE_UNIT + 0.5f))
+
+static uint16_t phase1 = 0;
+static uint16_t phase2 = 0;
+static uint16_t phase3 = 0;
+
 uint8_t frame_wave[MAX_X][MAX_Y]; // 6-4:red, 2-0:blue
+/* ---------------- 背景亮度衰减 ---------------- */
+
+/*
+ * 背景随时间单向变淡：从最亮线性降到最低，之后一直保持最终亮度，不再跳回最亮。
+ * 切换主题（背景类型变化）时重新从最亮开始。
+ */
+#define BG_FADE_PERIOD_MS 8000   /* 从最亮降到最低的耗时 */
+#define BG_DIM_MIN (2.0f / 7.0f) /* 最低仍保证屏上至少 1 级灰度 */
+
+/* 擦除染色主题：帧缓冲里的通道值直接就是屏幕灰度，dim 给 2（ch*0.5*2 = ch） */
+#define BG_WIPE_DIM_BRIGHT 2.0f
+/* 拖尾最亮处（光条旁边）的灰度，7 太亮 */
+#define BG_WIPE_TRAIL_MAX 5.0f
+
+static float g_bgDim = 1.0f;
+
+/* 背景通道值（0~7）-> 屏幕灰度（半亮 + 衰减），点亮的最低保留 1 级
+   dim 为本像素的亮度系数：普通背景用 g_bgDim，光条高光传 1.0 保持亮度 */
+static inline uint8_t bg_map_gray(uint8_t ch, int x, int y, float dim)
+{
+    (void)x;
+    (void)y;
+
+    float v = (float)ch * 0.5f * dim;
+
+    /* 点亮的最低保留 1 级；dim=0 时允许真正熄灭（擦除染色主题的最后一级） */
+    if (ch > 0 && dim > 0.0f && v < 1.0f)
+        v = 1.0f;
+
+    int gray = (int)v;
+
+    if (gray > 7)
+        gray = 7;
+
+    return (uint8_t)gray;
+}
 
 static void flush_frame(void)
 {
@@ -303,26 +348,48 @@ static void flush_frame(void)
         for (int x = 0; x < MAX_X; x++)
         {
             uint8_t p = frame_wave[x][y];
+            float dim;
 
-            uint8_t red = (p >> 4) & 0x07;
-            uint8_t blue = p & 0x07;
+            /* bit7 = 光柱高光：不参与衰减
+               bit3 = 擦除染色主题：通道值就是最终灰度
+               其它 = 普通背景：按当前衰减值 */
+            if (p & 0x80)
+                dim = 1.0f;
+            else if (p & 0x08)
+                dim = BG_WIPE_DIM_BRIGHT;
+            else
+                dim = g_bgDim;
 
-            mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, red / 2);
-            mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, blue / 2);
+            mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, bg_map_gray((p >> 4) & 0x07, x, y, dim));
+            mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, bg_map_gray(p & 0x07, x, y, dim));
         }
     }
 }
+
 void gradient_flow_frame_clock(void)
 {
+    static float sin_x[MAX_X];
+    static float sin_y[MAX_Y];
+    static float sin_diag[MAX_X + MAX_Y];
+
+    float a1 = phase1 * PHASE_UNIT;
+    float a2 = phase2 * PHASE_UNIT;
+    float a3 = phase3 * PHASE_UNIT;
+
+    /* 三个 sin 项按行/列/对角线分别计算，避免每个像素都调用一次 sinf */
+    for (int x = 0; x < MAX_X; x++)
+        sin_x[x] = sinf(x * W1 + a1);
+    for (int y = 0; y < MAX_Y; y++)
+        sin_y[y] = sinf(y * W2 + a2);
+    for (int d = 0; d < MAX_X + MAX_Y; d++)
+        sin_diag[d] = sinf(d * W3 + a3);
+
     for (int y = 0; y < MAX_Y; y++)
     {
         for (int x = 0; x < MAX_X; x++)
         {
             // ===== 多波叠加 =====
-            float v =
-                sinf(x * W1 + t1) +
-                sinf(y * W2 + t2) +
-                sinf((x + y) * W3 + t3);
+            float v = sin_x[x] + sin_y[y] + sin_diag[x + y];
             // 归一化到 0~1
             v = (v + 3.0f) / 6.0f;
 
@@ -340,10 +407,310 @@ void gradient_flow_frame_clock(void)
     }
 
     flush_frame();
-    t1 += SPEED1;
-    t2 += SPEED2;
-    t3 += SPEED3;
+    phase1 += PHASE_STEP(SPEED1);
+    phase2 += PHASE_STEP(SPEED2);
+    phase3 += PHASE_STEP(SPEED3);
 }
+
+/* ---------------- 背景动画组 ---------------- */
+
+/* 把 0~1 的亮度写进波形缓冲：v 越大越蓝，越小越红 */
+static inline void bg_put(int x, int y, float v)
+{
+    if (v < 0.0f)
+        v = 0.0f;
+    if (v > 1.0f)
+        v = 1.0f;
+
+    uint8_t blue = (uint8_t)(v * 7.0f);
+    uint8_t red = (uint8_t)((1.0f - v) * 7.0f);
+
+    frame_wave[x][y] = (red << 4) | (blue & 0x07);
+}
+
+/* 横向光带：上下流动的条纹，带一点倾斜 */
+static void bg_frame_bands(void)
+{
+    static uint16_t ph = 0;
+    static float row[MAX_Y];
+    static float col[MAX_X];
+
+    float t = ph * PHASE_UNIT;
+
+    for (int y = 0; y < MAX_Y; y++)
+        row[y] = sinf(y * 0.42f + t);
+    for (int x = 0; x < MAX_X; x++)
+        col[x] = sinf(x * 0.09f - 2.0f * t);
+
+    for (int y = 0; y < MAX_Y; y++)
+        for (int x = 0; x < MAX_X; x++)
+            bg_put(x, y, 0.5f + 0.4f * row[y] + 0.12f * col[x]);
+
+    ph += PHASE_STEP(0.06f);
+}
+
+/* 中心光晕：柔和的径向光斑缓慢漂移、轻微呼吸（不再是高速扩散的同心圆，避免眩晕） */
+#define GLOW_TABLE_SIZE 128
+static void bg_frame_glow(void)
+{
+    static uint16_t ph = 0;
+    static float glow[GLOW_TABLE_SIZE];
+    static uint8_t inited = 0;
+
+    if (!inited)
+    {
+        for (int i = 0; i < GLOW_TABLE_SIZE; i++)
+        {
+            float r2 = (float)(i * 32);
+            glow[i] = 1.0f / (1.0f + r2 * 0.0035f);
+        }
+        inited = 1;
+    }
+
+    float t = ph * PHASE_UNIT;
+    float cx = (MAX_X - 1) * 0.5f + 18.0f * sinf(t);
+    float cy = (MAX_Y - 1) * 0.5f;
+    float breath = 0.85f + 0.15f * sinf(t);
+
+    for (int y = 0; y < MAX_Y; y++)
+    {
+        float dy = (y - cy) * 2.2f; /* 纵向拉伸，补偿像素长宽比 */
+        for (int x = 0; x < MAX_X; x++)
+        {
+            float dx = x - cx;
+            int idx = (int)((dx * dx + dy * dy) * (1.0f / 32.0f));
+
+            if (idx >= GLOW_TABLE_SIZE)
+                idx = GLOW_TABLE_SIZE - 1;
+
+            bg_put(x, y, 0.30f + 0.65f * glow[idx] * breath);
+        }
+    }
+
+    ph += PHASE_STEP(0.02f);
+}
+
+/* 直接写 red/blue 两个通道（范围 0~7） */
+static inline void bg_put_rgb(int x, int y, float red, float blue)
+{
+    if (red < 0.0f)
+        red = 0.0f;
+    if (red > 7.0f)
+        red = 7.0f;
+    if (blue < 0.0f)
+        blue = 0.0f;
+    if (blue > 7.0f)
+        blue = 7.0f;
+
+    frame_wave[x][y] = ((uint8_t)red << 4) | ((uint8_t)blue & 0x07);
+}
+
+/* 斜向光条参数（擦除染色主题共用）：
+ * 光条与水平方向成 30°，从右向左单向扫描；扫一次 1s，然后空闲 1s */
+#define BEAM_SLOPE 0.5773503f /* tan(30°) */
+#define BEAM_SWEEP_MS 1000    /* 扫描耗时 1s */
+#define BEAM_PERIOD_MS 2000   /* 周期 2s（扫描 1s + 空闲 1s） */
+
+/* 擦除染色：一轮蓝、一轮红交替
+ * 每个周期 2s：
+ *   后 1s —— 白色光条从右向左扫过，身后留下该颜色的拖尾：
+ *            离光条越远越暗，一直暗到全黑；光条前方全黑；
+ *   前 1s —— 上一轮留下的拖尾整体继续变暗消失。
+ */
+static void bg_frame_wipe(void)
+{
+    const float s_max = (MAX_X - 1) + BEAM_SLOPE * (MAX_Y - 1);
+    const float d_scale = 1.0f / sqrtf(1.0f + BEAM_SLOPE * BEAM_SLOPE);
+    const float trail_len = s_max; /* 拖尾长度 ≈ 屏幕斜向跨度 */
+
+    uint32_t tick = HAL_GetTick();
+    uint32_t now_ms = tick % BEAM_PERIOD_MS;
+    /* 偶数轮蓝色、奇数轮红色 */
+    uint8_t is_blue = ((tick / BEAM_PERIOD_MS) & 1u) == 0u;
+
+    float pos;  /* 光条位置（斜向坐标） */
+    float fade; /* 整条拖尾的整体亮度 */
+    float bar;  /* 光条亮度：1 = 在屏上，0 = 已扫出屏幕 */
+    float base; /* 拖尾颜色：1 = 蓝，0 = 红 */
+
+    if (now_ms < BEAM_SWEEP_MS)
+    {
+        /* ---------- 前 1s：上一轮扫完后留下的拖尾继续变暗消失 ---------- */
+        float p = (float)now_ms / (float)BEAM_SWEEP_MS;
+
+        pos = -20.0f; /* 上一轮结束时光条停在左侧屏外 */
+        fade = 1.0f - p;
+        bar = 0.0f;
+        base = is_blue ? 1.0f : 0.0f; /* 上一轮扫进来的是本轮的颜色 */
+    }
+    else
+    {
+        /* ---------- 后 1s：白色光条从右向左扫过，身后留下渐暗的拖尾 ---------- */
+        float u = (float)(now_ms - BEAM_SWEEP_MS) / (float)BEAM_SWEEP_MS;
+        float e = 1.0f - (1.0f - u) * (1.0f - u); /* 与光柱相同的缓出曲线 */
+
+        pos = (s_max + 20.0f) - e * (s_max + 40.0f);
+        fade = 1.0f;
+        bar = 1.0f;
+        base = is_blue ? 0.0f : 1.0f; /* 本轮光条带来的是另一种颜色 */
+    }
+
+    g_bgDim = 0.0f; /* 没被扫到的地方全黑 */
+
+    for (int y = 0; y < MAX_Y; y++)
+    {
+        for (int x = 0; x < MAX_X; x++)
+        {
+            float s = x + BEAM_SLOPE * y;
+
+            /* 拖尾：光条后方越远越暗，前方全黑 */
+            float trail = (s < pos) ? 0.0f : 1.0f - (s - pos) / trail_len;
+
+            if (trail < 0.0f)
+                trail = 0.0f;
+
+            float val = BG_WIPE_TRAIL_MAX * trail * fade;
+
+            float red = (1.0f - base) * val;
+            float blue = base * val;
+
+            /* 光条：向白色抬升，形成明亮的扫过边沿 */
+            float d = (s - pos) * d_scale;
+            float g = bar / (1.0f + d * d * 0.022f);
+
+            red += (BG_WIPE_TRAIL_MAX - red) * g;
+            blue += (BG_WIPE_TRAIL_MAX - blue) * g;
+
+            /* 通道值即最终灰度（bit3 让 flush 不做衰减），+0.5 取整 */
+            bg_put_rgb(x, y, red + 0.5f, blue + 0.5f);
+            frame_wave[x][y] |= 0x08;
+        }
+    }
+}
+
+/* 流动渐变：明暗过渡从一侧缓慢流向另一侧（不对称） */
+static void bg_frame_flow(void)
+{
+    static uint16_t ph = 0;
+    static float col[MAX_X];
+    static float row[MAX_Y];
+
+    float t = ph * PHASE_UNIT;
+
+    for (int x = 0; x < MAX_X; x++)
+        col[x] = sinf(x * 0.055f + t); /* 波长约两屏宽，横向缓慢流动 */
+    for (int y = 0; y < MAX_Y; y++)
+        row[y] = 0.15f * sinf(y * 0.26f - t);
+
+    for (int y = 0; y < MAX_Y; y++)
+        for (int x = 0; x < MAX_X; x++)
+            bg_put(x, y, 0.5f + 0.42f * col[x] + row[y]);
+
+    ph += PHASE_STEP(0.02f);
+}
+
+/* 等离子：两组正弦相乘形成的流动斑块 */
+static void bg_frame_plasma(void)
+{
+    static uint16_t ph = 0;
+    static float col[MAX_X];
+    static float row[MAX_Y];
+
+    float t = ph * PHASE_UNIT;
+
+    for (int x = 0; x < MAX_X; x++)
+        col[x] = sinf(x * 0.09f + t);
+    for (int y = 0; y < MAX_Y; y++)
+        row[y] = sinf(y * 0.34f - t);
+
+    for (int y = 0; y < MAX_Y; y++)
+        for (int x = 0; x < MAX_X; x++)
+            bg_put(x, y, 0.5f + 0.5f * col[x] * row[y]);
+
+    ph += PHASE_STEP(0.07f);
+}
+
+/* 呼吸：整屏明暗缓慢起伏 */
+static void bg_frame_breathe(void)
+{
+    static uint16_t ph = 0;
+    static float row[MAX_Y];
+
+    float t = ph * PHASE_UNIT;
+    float base = 0.5f + 0.35f * sinf(t);
+
+    for (int y = 0; y < MAX_Y; y++)
+        row[y] = base + 0.12f * sinf(y * 0.22f + t);
+
+    for (int y = 0; y < MAX_Y; y++)
+        for (int x = 0; x < MAX_X; x++)
+            bg_put(x, y, row[y]);
+
+    ph += PHASE_STEP(0.03f);
+}
+
+/* 按主题选择背景动画并刷到显存 */
+void clock_draw_background(uint8_t bg)
+{
+    static uint8_t last_bg = 0xFF;
+    static uint32_t dim_start = 0;
+
+    /* 只在切换主题时重新从最亮开始；之后一直保持最终亮度，不再跳回 */
+    if (bg != last_bg)
+    {
+        last_bg = bg;
+        dim_start = HAL_GetTick();
+    }
+
+    /* 擦除染色主题自己按周期控制亮度（亮->淡->扫过变亮），这里不参与 */
+    if (bg != CLOCK_BG_WIPE)
+    {
+        uint32_t elapsed = HAL_GetTick() - dim_start;
+        float p = (float)elapsed / (float)BG_FADE_PERIOD_MS;
+
+        if (p > 1.0f)
+            p = 1.0f;
+
+        g_bgDim = 1.0f - (1.0f - BG_DIM_MIN) * p;
+    }
+
+    switch (bg)
+    {
+    case CLOCK_BG_WAVE:
+        gradient_flow_frame_clock(); /* 内部已经 flush */
+        return;
+
+    case CLOCK_BG_BANDS:
+        bg_frame_bands();
+        break;
+
+    case CLOCK_BG_GLOW:
+        bg_frame_glow();
+        break;
+
+    case CLOCK_BG_WIPE:
+        bg_frame_wipe();
+        break;
+
+    case CLOCK_BG_FLOW:
+        bg_frame_flow();
+        break;
+
+    case CLOCK_BG_PLASMA:
+        bg_frame_plasma();
+        break;
+
+    case CLOCK_BG_BREATHE:
+        bg_frame_breathe();
+        break;
+
+    default:
+        return; /* CLOCK_BG_NONE：保留纯黑背景 */
+    }
+
+    flush_frame();
+}
+
 void clock_init()
 {
     llist_init(&long_str_list);
@@ -445,6 +812,18 @@ static void draw_bits(uint8_t bit_mask, int x, int y, Color color)
             draw_clock_block(x, bit + y, color);
         }
     }
+}
+
+/* 纯字主题：文字右侧阴影的固定亮度 */
+#define CLOCK_SHADOW_GRAY 2
+
+static void draw_bits_gray(uint8_t bit_mask, int x, int y, Color color, uint8_t gray)
+{
+    uint8_t old = g_maxGray;
+
+    g_maxGray = gray;
+    draw_bits(bit_mask, x, y, color);
+    g_maxGray = old;
 }
 
 static int roll_long_str(LongStr_t *s)
@@ -612,6 +991,105 @@ void draw_char_3x5_wave(int x, int y, char ch, Color color)
     }
 }
 
+/* 在已绘制好的背景上淡入淡出地绘制一个点：
+ * level = 0 时保持背景原样，level = 7 时是正常字符亮度，
+ * 这样字符熄灭时露出的是背景（渐变或纯黑），而不会留下黑色空洞。 */
+static void draw_point_wave_fade(int x, int y, Color color, uint8_t level)
+{
+    if (x >= MAX_X || y >= MAX_Y || x < 0 || y < 0)
+        return;
+    if (level > 7)
+        level = 7;
+
+    /* 背景取当前缓冲区里已经画好的颜色 */
+    int bg_red = mn11236_read_pixel(x, y, MN11236_COLOR_RED);
+    int bg_blue = mn11236_read_pixel(x, y, MN11236_COLOR_BLUE);
+
+    /* 字符满亮度时的取色规则与 draw_point_wave 保持一致 */
+    int fg_red, fg_blue;
+    if (color == None)
+    {
+        /* 阴影：和原来一样是黑色，但会随字符一起淡入淡出 */
+        fg_red = 0;
+        fg_blue = 0;
+    }
+    else if (color == Red)
+    {
+        uint8_t p = frame_wave[x][y];
+        uint8_t red = (p >> 4) & 0x07;
+        uint8_t blue = p & 0x07;
+
+        if (red > blue)
+        {
+            fg_red = g_maxGray;
+            fg_blue = 0;
+        }
+        else
+        {
+            fg_red = 0;
+            fg_blue = g_maxGray;
+        }
+    }
+    else if (color == Cyan)
+    {
+        uint8_t p = frame_wave[x][y];
+
+        fg_red = (p >> 4) & 0x07;
+        fg_blue = p & 0x07;
+    }
+    else
+    {
+        fg_red = g_maxGray;
+        fg_blue = g_maxGray;
+    }
+
+    mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED,
+                            (uint8_t)(bg_red + (fg_red - bg_red) * level / 7));
+    mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE,
+                            (uint8_t)(bg_blue + (fg_blue - bg_blue) * level / 7));
+}
+
+static inline void draw_clock_block_wave_fade(int x, int y, Color color, uint8_t level)
+{
+    int px = x * g_clockWidth;
+    int py = y * g_clockWidth;
+
+    for (int dx = 0; dx < g_clockWidth; dx++)
+        for (int dy = 0; dy < g_clockWidth; dy++)
+            draw_point_wave_fade(px + dx, py + dy, color, level);
+}
+
+static void draw_bits_wave_fade(uint8_t bit_mask, int x, int y, Color color, uint8_t level)
+{
+    for (int bit = 0; bit < 8; bit++)
+    {
+        if (bit_mask & (1 << bit))
+            draw_clock_block_wave_fade(x, bit + y, color, level);
+    }
+}
+
+/* 波形背景下的字符淡入淡出，保留字符右侧 1 像素的阴影 */
+void draw_char_3x5_wave_fade(int x, int y, char ch, Color color, uint8_t level)
+{
+    if (color == None)
+        return;
+
+    for (int i = 0; i < 3; i++)
+    {
+        if ((i + x) < MAX_X && ((i + x) >= 0))
+        {
+            uint8_t bit_mask = hex_codes_3x5[ch - ' '][i];
+            if (bit_mask == 0)
+                continue;
+            draw_bits_wave_fade(bit_mask, i + x, y + 1, color, level);
+
+            // x+1不越界时，绘制右侧阴影（None = 黑色，随亮度一起淡出）
+            if (i + x + 1 < MAX_X)
+                draw_bits_wave_fade(bit_mask, i + x + 1, y + 1, None, level);
+        }
+    }
+}
+
 void draw_char_3x5(int x, int y, char ch, Color color)
 {
     if (color == None)
@@ -633,12 +1111,15 @@ void draw_char_3x5(int x, int y, char ch, Color color)
             // x+1不越界时，处理偏移坐标
             if (x + 1 < MAX_X)
             {
-                // 颜色掩码4：青，x+1坐标 → 调用封装函数
+                /* 纯字主题：右侧阴影固定用 5 级亮度（调暗时不高于当前最大灰度） */
+                uint8_t shadow = (g_maxGray < CLOCK_SHADOW_GRAY) ? g_maxGray : CLOCK_SHADOW_GRAY;
+
+                // 颜色掩码4：青，x+1坐标 → 阴影
                 if (color & 4)
-                    draw_bits(bit_mask, i + x + 1, y + 1, Cyan);
-                // 颜色掩码8：红，x+1坐标 → 调用封装函数
+                    draw_bits_gray(bit_mask, i + x + 1, y + 1, Cyan, shadow);
+                // 颜色掩码8：红，x+1坐标 → 阴影
                 if (color & 8)
-                    draw_bits(bit_mask, i + x + 1, y + 1, Red);
+                    draw_bits_gray(bit_mask, i + x + 1, y + 1, Red, shadow);
             }
         }
     }

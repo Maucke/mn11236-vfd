@@ -36,6 +36,7 @@
 
 #include "easy_key.h"
 #include "easy_ui_user_app.h"
+#include "clockui.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -358,7 +359,7 @@ int main(void)
   }
 
   userInfo.clockdimming %= 5;
-  userInfo.clocktheme %= 5;
+  userInfo.clocktheme %= CLOCK_THEME_COUNT;
   userInfo.musictheme %= 12;
   HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 1, 0); // 让扫描中断不被打断
 

@@ -39,8 +39,26 @@ typedef struct
 {
 	Color border;
 	Color font;
-	uint8_t type;
+	uint8_t type; // 0=波形文字 1=普通文字
+	uint8_t bg;   // 背景动画，见 ClockBg_t
 } ClockTheme_t;
+
+/* 背景动画组 */
+typedef enum
+{
+	CLOCK_BG_NONE = 0,  // 无背景动画（纯黑背景）
+	CLOCK_BG_WAVE,	    // 三波叠加渐变（原 gradient_flow）
+	CLOCK_BG_BANDS,	    // 流动光带
+	CLOCK_BG_GLOW,      // 中心光晕
+	CLOCK_BG_WIPE,      // 光条擦除染色（蓝/红交替）
+	CLOCK_BG_FLOW,      // 流动渐变
+	CLOCK_BG_PLASMA,    // 等离子斑块
+	CLOCK_BG_BREATHE,   // 整屏明暗呼吸
+	CLOCK_BG_COUNT
+} ClockBg_t;
+
+/* clockTheme[] 的主题数量，必须与数组实际长度一致 */
+#define CLOCK_THEME_COUNT 10
 
 typedef struct
 {
@@ -89,9 +107,11 @@ void beginSnake(void);
 void refrashSnake(void);
 void setSnakeWidth(uint8_t width);
 void gradient_flow_frame_clock(void);
+void clock_draw_background(uint8_t bg);
 
 void set_g_clockWidth(uint8_t width);
 void set_g_maxGray(uint8_t gray);
+void draw_char_3x5_wave_fade(int x, int y, char ch, Color color, uint8_t level);
 void draw_icon(int x, int y, IconType type, Color color);
 void draw_icon_wave(int x, int y, IconType type, Color color);
 void draw_bitmap(int x, int y, const uint8_t *bitmap, int width, int height, Color color);

@@ -5,6 +5,7 @@
 #include <time.h>
 #include "stm32_rx8900.h"
 #include "nexlink_app.h"
+#include "clockui.h"
 
 /*定义按键对象*/
 ButtonEvent btKey1;
@@ -74,7 +75,7 @@ static void Button_EventHandler(void *btn, int event)
             if (userInfo.sysmode == Time)
             {
                 userInfo.clocktheme++;
-                userInfo.clocktheme %= 4;
+                userInfo.clocktheme %= CLOCK_THEME_COUNT;
                 STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t)/ sizeof(uint32_t));
             }
             else if (userInfo.sysmode == Snake)

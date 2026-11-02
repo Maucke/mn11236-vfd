@@ -100,7 +100,7 @@ void EasyUIKeyActionMonitor() // Interrupt trigger, No EasyUIDelay_ms(xx)
 #endif
 }
 
-char *EasyUIVersion = "Ver. 3.1.0";
+char *EasyUIVersion = "Ver. 3.2.0";
 void PageAbout(EasyUIPage_t *page)
 {
   static uint8_t pageIndex = 0;
@@ -634,7 +634,7 @@ void AppGUI_Init(UserInfo_t *userinfo)
   EasyUIAddItem(&pageSetting, &itemSetTime, "Set Time", ITEM_JUMP_PAGE, pageSetTime.id);
   EasyUIAddItem(&pageSetting, &itemEspEn, "ESP EN", ITEM_CHECKBOX, &pUserInfo->esp_en);
   EasyUIAddItem(&pageSetting, &itemMusicTheme, "FFT Theme", ITEM_PROGRESS_BAR, &pUserInfo->musictheme, 11, EventChangeValue);
-  EasyUIAddItem(&pageSetting, &itemClockTheme, "Clock Theme", ITEM_PROGRESS_BAR, &pUserInfo->clocktheme, 4, EventChangeValue);
+  EasyUIAddItem(&pageSetting, &itemClockTheme, "Clock Theme", ITEM_PROGRESS_BAR, &pUserInfo->clocktheme, CLOCK_THEME_COUNT - 1, EventChangeValue);
   EasyUIAddItem(&pageSetting, &itemDefaultFunc, "Default Func", ITEM_PROGRESS_BAR, &pUserInfo->defaultfunc, 3, EventChangeValue);
   EasyUIAddItem(&pageSetting, &itemClockDimming, "Clock Dimming", ITEM_PROGRESS_BAR, &pUserInfo->clockdimming, 4, EventChangeValue);
   EasyUIAddItem(&pageSetting, &itemScreenOnHour,
@@ -711,12 +711,22 @@ extern char date[10];
 extern char week[10];
 
 const ClockTheme_t clockTheme[] = {
-    {Red, Red, 0},
-    {Red, Cyan, 0},
-    {Cyan, White, 0},
-    //    {Cyan, White, 2},
-    {Red, WhiteWithCyan, 1},
-    {Cyan, WhiteWithRed, 1}};
+    // 动画背景 + 波形文字
+    {Red, Red, 0, CLOCK_BG_WAVE},       // 三波叠加渐变
+    {Cyan, White, 0, CLOCK_BG_WAVE},    // 三波叠加渐变（白字）
+    {Cyan, White, 0, CLOCK_BG_BANDS},      // 流动光带
+    {Cyan, White, 0, CLOCK_BG_GLOW},  // 中心光晕
+    {Cyan, White, 0, CLOCK_BG_WIPE},       // 光条擦除染色（蓝/红交替）
+    {Cyan, White, 0, CLOCK_BG_FLOW},  // 流动渐变
+    {Cyan, White, 0, CLOCK_BG_PLASMA},     // 等离子斑块
+    {Cyan, White, 0, CLOCK_BG_BREATHE}, // 整屏明暗呼吸
+    // 纯字主题（无背景动画）
+    {Red, WhiteWithCyan, 1, CLOCK_BG_NONE},
+    {Cyan, WhiteWithRed, 1, CLOCK_BG_NONE}};
+
+/* 主题数量必须与 CLOCK_THEME_COUNT 一致 */
+typedef char clock_theme_count_check[
+    (sizeof(clockTheme) / sizeof(clockTheme[0]) == CLOCK_THEME_COUNT) ? 1 : -1];
 
 void ExternUI_Init()
 {
@@ -869,7 +879,8 @@ static void OBD_DrawText(char *text, uint8_t index)
 
   if (cfg->has_icon && theme->type == 0)
   {
-    gradient_flow_frame_clock();
+    if (theme->bg != CLOCK_BG_NONE)
+      clock_draw_background(theme->bg);
     set_g_clockWidth(3);
     draw_str_3x5_wave(x, 0, text, theme->font);
     set_g_clockWidth(1);
@@ -894,6 +905,9 @@ static void OBD_DrawText(char *text, uint8_t index)
   }
 }
 #define OBD_TIMEOUT_MS 2000
+/* 冒号呼吸：完整一个亮->暗->亮周期 1Hz(1000ms)，单次过渡占 100ms，其余时间保持亮/灭 */
+#define COLON_FADE_PERIOD_MS 1000
+#define COLON_FADE_TIME_MS 100
 void AppGUI_Loop(uint8_t timer)
 {
   static char tempstr[16];
@@ -943,6 +957,7 @@ void AppGUI_Loop(uint8_t timer)
   switch (disp_mode)
   {
   case DISP_MODE_CLOCK:
+  {
     if (timeupdateflag != timeStr[4])
     {
       EasyUITransitionAnim();
@@ -951,34 +966,64 @@ void AppGUI_Loop(uint8_t timer)
     clear_gram(White);
 
     set_g_maxGray(pUserInfo->clockdimming + 3);
-    if (clockTheme[pUserInfo->clocktheme].type == 0)
+
+    // 冒号呼吸灯：1Hz 周期，100ms 内完成渐亮/渐暗，其余时间保持全亮/全灭
+    uint32_t fadePhase = now % COLON_FADE_PERIOD_MS;
+    uint32_t fadeHalf = COLON_FADE_PERIOD_MS / 2;
+    uint8_t colonFadeGray;
+    if (fadePhase < fadeHalf)
     {
-      gradient_flow_frame_clock();
+      // 亮 -> 暗：前 100ms 渐变，之后保持熄灭
+      if (fadePhase < COLON_FADE_TIME_MS)
+        colonFadeGray = (uint8_t)(7 * (COLON_FADE_TIME_MS - 1 - fadePhase) / (COLON_FADE_TIME_MS - 1));
+      else
+        colonFadeGray = 0;
+    }
+    else
+    {
+      // 暗 -> 亮：前 100ms 渐变，之后保持全亮
+      uint32_t p = fadePhase - fadeHalf;
+      if (p < COLON_FADE_TIME_MS)
+        colonFadeGray = (uint8_t)(7 * p / (COLON_FADE_TIME_MS - 1));
+      else
+        colonFadeGray = 7;
+    }
+
+    int timeX = (SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 3;
+    const ClockTheme_t *theme = &clockTheme[pUserInfo->clocktheme];
+    Color fontColor = theme->font;
+    char timeBuf[8];
+    timeBuf[0] = timeStr[0];
+    timeBuf[1] = timeStr[1];
+    timeBuf[2] = ' ';
+    timeBuf[3] = timeStr[3];
+    timeBuf[4] = timeStr[4];
+    timeBuf[5] = '\0';
+
+    // 背景动画
+    if (theme->bg != CLOCK_BG_NONE)
+      clock_draw_background(theme->bg);
+
+    if (theme->type == 0)
+    {
       set_g_clockWidth(3);
-      draw_str_3x5_wave((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 3, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
+      draw_str_3x5_wave(timeX, 0, timeBuf, fontColor);
+      draw_char_3x5_wave_fade(timeX + 8, 0, ':', fontColor, colonFadeGray);
       set_g_clockWidth(1);
-      draw_str_3x5_wave(SCREEN_WIDTH - 24, 12, date, clockTheme[pUserInfo->clocktheme].font);
+      draw_str_3x5_wave(SCREEN_WIDTH - 24, 12, date, fontColor);
     }
-    else if (clockTheme[pUserInfo->clocktheme].type == 1)
+    else
     {
       set_g_clockWidth(3);
-      draw_str_3x5((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 3, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
-      //			set_g_clockWidth(1);
-      //			draw_icon_rpm(SCREEN_WIDTH - 24, 12+2, clockTheme[pUserInfo->clocktheme].font);
+      draw_str_3x5(timeX, 0, timeBuf, fontColor);
+      set_g_maxGray(colonFadeGray);
+      draw_str_3x5(timeX + 8, 0, ":", fontColor);
+      set_g_maxGray(pUserInfo->clockdimming + 3);
     }
-    else if (clockTheme[pUserInfo->clocktheme].type == 2)
-    {
-      set_g_clockWidth(3);
-      draw_str_3x5_wave((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 3, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
-      //			set_g_clockWidth(1);
-      //			draw_str_3x5(SCREEN_WIDTH - 24, 12, date, clockTheme[pUserInfo->clocktheme].font);
-    }
-    // set_g_clockWidth(1);
-    // draw_str_3x5_wave(0, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
-    //
     roll_all_long_str();
     refrash_gram();
     break;
+  }
   case DISP_MODE_OBD:
   {
     uint8_t i = obd_display_index;
@@ -1093,7 +1138,7 @@ void AppGUI_Loop(uint8_t timer)
       if (disp_mode == DISP_MODE_FFT)
         pUserInfo->musictheme = (pUserInfo->musictheme + 1) % 12;
       else if (disp_mode == DISP_MODE_CLOCK || disp_mode == DISP_MODE_OBD)
-        pUserInfo->clocktheme = (pUserInfo->clocktheme + 1) % 5;
+        pUserInfo->clocktheme = (pUserInfo->clocktheme + 1) % CLOCK_THEME_COUNT;
       else if (disp_mode == DISP_MODE_SNAKE)
       {
         pUserInfo->snakewidth = (pUserInfo->snakewidth + 1) % 5;
