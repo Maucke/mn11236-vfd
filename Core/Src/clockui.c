@@ -1563,6 +1563,190 @@ void draw_point_gray(int x, int y, Color color,
     }
 }
 
+/*
+ * 翻页动画：把字符按“可见高度” visH（0..15 行）压扁，
+ * 以字格垂直中线为轴收缩/展开（像卡片翻面）。
+ * visH = 满高时和正常绘制一致，visH = 0 时什么都不画（正好在折页线上）。
+ * wave = 1：波形背景混色（动画背景主题）；wave = 0：普通绘制。
+ */
+void draw_char_flip(int x, int y, char ch, Color color, uint8_t visH, uint8_t wave)
+{
+    int px;
+    int cellTop;
+    int glyphH;
+
+    if (color == None || visH == 0)
+        return;
+
+    px = x * g_clockWidth;
+    cellTop = (y + 1) * g_clockWidth;
+
+    if (use_native_font(ch))
+    {
+        const uint16_t *g = native_glyph(ch);
+        int top;
+
+        if (visH > NATIVE_GLYPH_H)
+            visH = NATIVE_GLYPH_H;
+
+        top = (NATIVE_GLYPH_H - visH) / 2;
+
+        for (int rs = 0; rs < NATIVE_GLYPH_H; rs++)
+        {
+            int tr = top + rs * visH / NATIVE_GLYPH_H;
+
+            for (int c = 0; c < NATIVE_GLYPH_W; c++)
+            {
+                if (!(g[c] & (1u << rs)))
+                    continue;
+
+                if (wave)
+                    draw_point_wave(px + c, cellTop + tr, color);
+                else
+                    draw_point(px + c, cellTop + tr, color);
+            }
+        }
+
+        return;
+    }
+
+    /* 标准 3x5 字模：一个字模行对应 g_clockWidth 个设备行 */
+    glyphH = 5 * g_clockWidth;
+
+    if (visH > glyphH)
+        visH = glyphH;
+
+    int top = (glyphH - visH) / 2;
+
+    for (int rs = 0; rs < glyphH; rs++)
+    {
+        int tr = top + rs * visH / glyphH;
+        int bit = rs / g_clockWidth;
+        const uint8_t *glyph = clock_glyph(ch);
+
+        for (int i = 0; i < 3; i++)
+        {
+            if (!(glyph[i] & (1 << bit)))
+                continue;
+
+            for (int dx = 0; dx < g_clockWidth; dx++)
+            {
+                int p = px + i * g_clockWidth + dx;
+
+                if (wave)
+                    draw_point_wave(p, cellTop + tr, color);
+                else
+                    draw_point(p, cellTop + tr, color);
+            }
+        }
+    }
+}
+
+/*
+ * 冒号上下两点分别给亮度（0..7），用来做错时呼吸：
+ * 上点先亮、下点滞后，熄灭时也是上点先灭。
+ * wave = 1：波形背景混色；wave = 0：普通绘制（纯字主题）。
+ */
+void draw_colon_fade(int x, int y, Color color, uint8_t topLevel, uint8_t botLevel, uint8_t wave)
+{
+    int px;
+    int cellTop;
+    int glyphH;
+
+    if (color == None)
+        return;
+
+    if (topLevel > 7)
+        topLevel = 7;
+    if (botLevel > 7)
+        botLevel = 7;
+
+    px = x * g_clockWidth;
+    cellTop = (y + 1) * g_clockWidth;
+
+    if (use_native_font(':'))
+    {
+        const uint16_t *g = native_glyph(':');
+
+        for (int rs = 0; rs < NATIVE_GLYPH_H; rs++)
+        {
+            uint8_t level = (rs < NATIVE_GLYPH_H / 2) ? topLevel : botLevel;
+            int edge = native_right_edge(g, rs);
+
+            if (wave)
+            {
+                /* 右侧阴影：黑色，随该点一起淡入淡出 */
+                if (edge >= 0)
+                    draw_point_wave_fade(px + edge + 1, cellTop + rs, None, level);
+
+                for (int c = 0; c < NATIVE_GLYPH_W; c++)
+                    if (g[c] & (1u << rs))
+                        draw_point_wave_fade(px + c, cellTop + rs, color, level);
+            }
+            else
+            {
+                for (int c = 0; c < NATIVE_GLYPH_W; c++)
+                    if (g[c] & (1u << rs))
+                        draw_point_gray(px + c, cellTop + rs, (Color)(color & 0x03), level);
+
+                if (edge >= 0 && (color & 0x0C))
+                {
+                    uint8_t sh = (level < CLOCK_SHADOW_GRAY) ? level : CLOCK_SHADOW_GRAY;
+
+                    draw_point_gray(px + edge + 1, cellTop + rs,
+                                    (Color)(((color & 0x0C) >> 2) & 0x03), sh);
+                }
+            }
+        }
+
+        return;
+    }
+
+    /* 标准 3x5 字模 */
+    glyphH = 5 * g_clockWidth;
+
+    for (int rs = 0; rs < glyphH; rs++)
+    {
+        uint8_t level = (rs < glyphH / 2) ? topLevel : botLevel;
+        int bit = rs / g_clockWidth;
+        const uint8_t *glyph = clock_glyph(':');
+
+        for (int i = 0; i < 3; i++)
+        {
+            if (!(glyph[i] & (1 << bit)))
+                continue;
+
+            for (int dx = 0; dx < g_clockWidth; dx++)
+            {
+                int p = px + i * g_clockWidth + dx;
+
+                if (wave)
+                    draw_point_wave_fade(p, cellTop + rs, color, level);
+                else
+                    draw_point_gray(p, cellTop + rs, (Color)(color & 0x03), level);
+            }
+
+            /* 右侧阴影：波形主题留 1 个字符格的黑色，纯字主题用阴影色 */
+            if (wave)
+            {
+                int sp = px + (i + 1) * g_clockWidth;
+
+                for (int dx = 0; dx < g_clockWidth; dx++)
+                    draw_point_wave_fade(sp + dx, cellTop + rs, None, level);
+            }
+            else if (color & 0x0C)
+            {
+                uint8_t sh = (level < CLOCK_SHADOW_GRAY) ? level : CLOCK_SHADOW_GRAY;
+                int sp = px + (i + 1) * g_clockWidth;
+
+                for (int dx = 0; dx < g_clockWidth; dx++)
+                    draw_point_gray(sp + dx, cellTop + rs,
+                                    (Color)(((color & 0x0C) >> 2) & 0x03), sh);
+            }
+        }
+    }
+}
+
 void draw_icon(int x, int y, IconType type, Color color)
 {
     const uint8_t *icon_data;

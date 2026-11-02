@@ -89,6 +89,7 @@ typedef struct
 } FFTDisplay_t;
 
 void draw_char_3x5(int x,int y, char ch, Color color);
+void draw_char_3x5_wave(int x, int y, char ch, Color color);
 void draw_char(int x,int y, char ch, Color color);
 int roll_long_str(LongStr_t *s);
 void clear_all_long_str(void);
@@ -114,6 +115,8 @@ void set_g_clockWidth(uint8_t width);
 void set_g_maxGray(uint8_t gray);
 void clock_set_font_style(uint8_t style); /* 0=标准 3x5 放大 1=原生 9x15 */
 void draw_char_3x5_wave_fade(int x, int y, char ch, Color color, uint8_t level);
+void draw_char_flip(int x, int y, char ch, Color color, uint8_t visH, uint8_t wave);
+void draw_colon_fade(int x, int y, Color color, uint8_t topLevel, uint8_t botLevel, uint8_t wave);
 void draw_icon(int x, int y, IconType type, Color color);
 void draw_icon_wave(int x, int y, IconType type, Color color);
 void draw_bitmap(int x, int y, const uint8_t *bitmap, int width, int height, Color color);
