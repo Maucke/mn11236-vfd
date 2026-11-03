@@ -59,7 +59,7 @@ typedef enum
 } ClockBg_t;
 
 /* clockTheme[] 的主题数量，必须与数组实际长度一致 */
-#define CLOCK_THEME_COUNT 20
+#define CLOCK_THEME_COUNT 14
 
 typedef struct
 {

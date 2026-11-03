@@ -53,6 +53,7 @@
 #include "lv_anim_light.h"
 #include "animation.h"
 #include "fftaffect.h"
+#include "iwdg.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -319,12 +320,14 @@ __weak void StartClockTask(void *argument)
   RX8900_Init();
 	MPU6050_Init();
   // RX8900_SetTime(&tm_local);
-  osDelay(500);
+  MX_IWDG_Init();
   for (;;)
   {  
 		__HAL_RCC_I2C1_FORCE_RESET();
 		__HAL_RCC_I2C1_RELEASE_RESET();
 		HAL_I2C_Init(&hi2c1);
+		
+		HAL_IWDG_Refresh(&hiwdg);
 //		if (MPU6050_Read(&ax, &ay, &az, &gx, &gy, &gz))
 //		{
 //			nexlink_log("A: %d %d %d\n", (int)ax, (int)ay, (int)az);
@@ -349,7 +352,7 @@ __weak void StartClockTask(void *argument)
 				// draw_long_str(tempstr, Red, 0);
 			}
     }
-    osDelay(500);
+    osDelay(250);
   }
 }
 

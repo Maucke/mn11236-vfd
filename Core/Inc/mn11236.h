@@ -73,5 +73,9 @@ void mn11236_gray_test(void);
 
 void mn11236_setbrightness(uint8_t bright);
 
+/* 停止 / 恢复整屏扫描（写 Flash、睡眠期间不刷新） */
+void mn11236_scan_stop(void);
+void mn11236_scan_start(void);
+
 
 #endif

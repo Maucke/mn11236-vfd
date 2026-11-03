@@ -11,6 +11,9 @@ static uint8_t display_buffer[VFD_WIDTH][VFD_HEIGHT]; // [x][y][color]
 /* 过渡动画期间暂停送屏（避免新画面先闪一帧完整的图） */
 static uint8_t send_hold = 0;
 
+/* 扫描开关：0 = DMA 不再接力，屏停在最后一段，完全不刷新 */
+static volatile uint8_t scan_run = 1;
+
 // DMA传输缓冲区（当前正在传输的行）
 #define GRAY_BITS 3
 #define GRAY_PLANES ((1 << GRAY_BITS) - 1)   // =7
@@ -136,6 +139,11 @@ void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
 
     HAL_GPIO_WritePin(VFD_LAT_GPIO_Port, VFD_LAT_Pin, GPIO_PIN_SET);
     HAL_GPIO_WritePin(VFD_LAT_GPIO_Port, VFD_LAT_Pin, GPIO_PIN_RESET);
+
+    /* 停扫：不再接力。注意这里不能做"送全 0 遮挡"——写 Flash 时这个
+     * 中断本身就会被 Flash 总线停住推迟到擦除结束，等于没遮。 */
+    if (!scan_run)
+        return;
 		   
 		plane_repeat++;
 
@@ -166,6 +174,67 @@ void mn11236_clear_buffers(void)
 {
     // 清空像素缓冲区
     memset(display_buffer, 0, sizeof(display_buffer));
+}
+
+/* 把 DMA 缓冲的像素位清 0，保留每帧的栅极激活位
+ * （栅极位一起清掉的话，恢复后 send_buffer 只写像素位，栅极就再也没人设置了） */
+static void blank_dma_pixels(void)
+{
+    for (uint8_t f = 0; f < VFD_FRAMES; f++)
+    {
+        for (uint8_t g = 0; g < GRAY_BITS; g++)
+        {
+            memset(dma_tx_buffer[f][g], 0, DMA_BUFFER_SIZE);
+            set_bit(dma_tx_buffer[f][g], GRIDS_OFFSET - f);
+            set_bit(dma_tx_buffer[f][g], GRIDS_OFFSET - (f + 1));
+        }
+    }
+}
+
+/**
+ * 停止整屏扫描。
+ *
+ * VFD 是动态扫描，停在哪一格哪一格就一直亮（占空比从 1/37 变成 100%，
+ * 看起来是一条特别亮的线），所以停之前必须让屏上锁存的最后一段是黑的。
+ *
+ * 做法：把整块 DMA 缓冲换成黑画面，靠正在跑的扫描把它扫上去并锁存，
+ * 再停链条。不能在 SPI 完成中断里送全 0 —— 写 Flash 时那个中断本身
+ * 会被 Flash 总线停住，推迟到擦除结束才执行，等于没遮。
+ */
+void mn11236_scan_stop(void)
+{
+    if (!scan_run)
+        return;
+
+    /* 1. 整块 DMA 缓冲换成黑画面（保留栅极位），之后每一段都是暗的 */
+    blank_dma_pixels();
+
+    /* 2. 等黑画面真正扫上去并锁存。
+     *    这里必须给足 1ms 以上：osDelay(1) 是"等到下一个 tick"，可能
+     *    几乎立刻返回，那时正在传的还是旧数据，一停就是一条亮线。 */
+    osDelay(2);
+
+    /* 3. 停链条：此刻最后锁存的一定是黑的那一段 */
+    scan_run = 0;
+}
+
+/**
+ * 恢复扫描。停扫时链条是自然结束的（SPI 已回到 READY），直接从上次的
+ * 格/子场接着扫；万一调用时刚好还有一段在传，它传完的回调会看到
+ * scan_run=1 自己接上。
+ */
+void mn11236_scan_start(void)
+{
+    if (scan_run)
+        return;
+
+    scan_run = 1;
+
+    if (hspi2.State == HAL_SPI_STATE_READY)
+        HAL_SPI_Transmit_DMA(
+            &hspi2,
+            (uint8_t *)dma_tx_buffer[current_grid][current_plane],
+            DMA_BUFFER_SIZE);
 }
 
 /**

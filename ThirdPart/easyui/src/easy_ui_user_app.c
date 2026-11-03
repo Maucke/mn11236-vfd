@@ -517,18 +517,23 @@ static bool firstsave = true;
 
 void SaveInfo()
 {
-  mn11236_setbrightness(0);
+  /* 存数据期间不刷屏：scan_stop 内部会先刷一帧全 0 再停，
+   * 所以屏上定格的是一片黑，不会留亮线。写完恢复扫描并立刻把画面送回。 */
+  mn11236_scan_stop();
+
   xSemaphoreTake(flashMutex, portMAX_DELAY);
-  taskENTER_CRITICAL();
   STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)pUserInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
-  taskEXIT_CRITICAL();
-  xSemaphoreGive(flashMutex);
-  mn11236_setbrightness(100);
   if (firstsave)
   {
     firstsave = false;
-    SaveInfo();
+    /* 第一次写有失败的情况，补写一次；仍在同一次停扫窗口里 */
+    STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)pUserInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
   }
+  xSemaphoreGive(flashMutex);
+
+  /* 恢复扫描，并把原来那一帧重新写回 DMA 缓冲 */
+  mn11236_scan_start();
+  mn11236_send_buffer();
 }
 
 void InitInfo()
@@ -716,18 +721,18 @@ const ClockTheme_t clockTheme[] = {
     {Red, Red, 0, CLOCK_BG_WAVE, 1},       // 三波叠加渐变
     {Cyan, White, 0, CLOCK_BG_WAVE, 0},    // 三波叠加渐变（白字）
     {Cyan, White, 0, CLOCK_BG_WAVE, 1},    // 三波叠加渐变（白字）
-    {Cyan, White, 0, CLOCK_BG_BANDS, 0},   // 流动光带
-    {Cyan, White, 0, CLOCK_BG_BANDS, 1},   // 流动光带
-    {Cyan, White, 0, CLOCK_BG_GLOW, 0},    // 中心光晕
-    {Cyan, White, 0, CLOCK_BG_GLOW, 1},    // 中心光晕
+//    {Cyan, White, 0, CLOCK_BG_BANDS, 0},   // 流动光带
+//    {Cyan, White, 0, CLOCK_BG_BANDS, 1},   // 流动光带
+//    {Cyan, White, 0, CLOCK_BG_GLOW, 0},    // 中心光晕
+//    {Cyan, White, 0, CLOCK_BG_GLOW, 1},    // 中心光晕
     {Cyan, White, 0, CLOCK_BG_WIPE, 0},    // 光条擦除染色（蓝/红交替）
     {Cyan, White, 0, CLOCK_BG_WIPE, 1},    // 光条擦除染色（蓝/红交替）
     {Cyan, White, 0, CLOCK_BG_FLOW, 0},    // 流动渐变
     {Cyan, White, 0, CLOCK_BG_FLOW, 1},    // 流动渐变
     {Cyan, White, 0, CLOCK_BG_PLASMA, 0},  // 等离子斑块
     {Cyan, White, 0, CLOCK_BG_PLASMA, 1},  // 等离子斑块
-    {Cyan, White, 0, CLOCK_BG_BREATHE, 0}, // 整屏明暗呼吸
-    {Cyan, White, 0, CLOCK_BG_BREATHE, 1}, // 整屏明暗呼吸
+//    {Cyan, White, 0, CLOCK_BG_BREATHE, 0}, // 整屏明暗呼吸
+//    {Cyan, White, 0, CLOCK_BG_BREATHE, 1}, // 整屏明暗呼吸
     // 纯字主题（无背景动画）
     {Red, WhiteWithCyan, 1, CLOCK_BG_NONE, 0},
     {Red, WhiteWithCyan, 1, CLOCK_BG_NONE, 1},
@@ -1009,14 +1014,15 @@ void AppGUI_Loop(uint8_t timer)
     if (HAL_GPIO_ReadPin(VFD_EN_GPIO_Port, VFD_EN_Pin))
     {
       EasyUITransitionAnim();
+      /* 熄屏前确保送屏没有被过渡动画挂起 */
+      pending_rebuild = 0;
+      mn11236_hold_send(0);
+      mn11236_clear_buffers();
+      /* scan_stop 内部先刷一帧全 0 再停扫，睡眠期间彻底不刷新 */
+      mn11236_scan_stop();
+      HAL_GPIO_WritePin(VFD_EN_GPIO_Port, VFD_EN_Pin, GPIO_PIN_RESET);
+//      HAL_GPIO_WritePin(ESP_EN_GPIO_Port, ESP_EN_Pin, GPIO_PIN_RESET);
     }
-    /* 熄屏前确保送屏没有被过渡动画挂起 */
-    pending_rebuild = 0;
-    mn11236_hold_send(0);
-    mn11236_clear_buffers();
-    mn11236_send_buffer();
-    HAL_GPIO_WritePin(VFD_EN_GPIO_Port, VFD_EN_Pin, GPIO_PIN_RESET);
-//    HAL_GPIO_WritePin(ESP_EN_GPIO_Port, ESP_EN_Pin, GPIO_PIN_RESET);
     osDelay(200);
     return;
   }
@@ -1025,6 +1031,7 @@ void AppGUI_Loop(uint8_t timer)
     opnUp = opnDown = opnEnter = opnExit = 0;
   }
   HAL_GPIO_WritePin(VFD_EN_GPIO_Port, VFD_EN_Pin, GPIO_PIN_SET);
+  mn11236_scan_start(); /* 睡眠/停扫后恢复刷新（已在扫则直接返回） */
   HAL_GPIO_WritePin(ESP_EN_GPIO_Port, ESP_EN_Pin, pUserInfo->esp_en);
 
   switch (disp_mode)
@@ -1042,6 +1049,9 @@ void AppGUI_Loop(uint8_t timer)
     int timeX = (SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 3;
     const ClockTheme_t *theme = &clockTheme[pUserInfo->clocktheme];
     Color fontColor = theme->font;
+
+    if (theme->style == 1 || theme->type == 1)
+      timeX += 1;
 
     /* 主题字体：0=标准 3x5 放大，1=原生 9x15 */
     clock_set_font_style(theme->style);
