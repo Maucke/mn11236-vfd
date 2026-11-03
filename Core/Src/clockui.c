@@ -666,6 +666,732 @@ static void bg_frame_breathe(void)
     ph += PHASE_STEP(0.03f);
 }
 
+/* ============================================================
+ * 俄罗斯方块界面（DISP_MODE_TETRIS）
+ * 3x3 像素一格：37 列 x 6 行（右侧余 1 像素）
+ *   - 方块统一从屏幕正中出现，再缓入缓出滑到 AI 选好的列
+ *   - 每块随机红/蓝/白；拼块内部满亮度，轮廓与块间暗缝用灰度 3
+ *   - 满行先变白（白条同样带暗边），再从中间向两边擦掉，上方整体下落
+ *   - 堆到顶部后停止掉落，加速逐行消除，清空后重新开始
+ * ============================================================ */
+/* 定义在文件后面的逐点绘制函数，这里先声明（C99 不允许隐式声明） */
+void draw_point_gray(int x, int y, Color color, uint8_t gray);
+
+#define TET_PX 3
+#define TET_COLS (MAX_X / TET_PX) /* 37 列 */
+#define TET_ROWS (MAX_Y / TET_PX) /* 6 行 */
+
+#define TET_DROP_MS 300        /* 每 300ms 下落一格 */
+#define TET_SLIDE_MS 280       /* 从中间滑到目标列的时长 */
+#define TET_WIPE_MS 320        /* 满行擦除时长 */
+#define TET_TOPOUT_WIPE_MS 110 /* 顶满后逐行加速消除 */
+
+#define TET_CELL_RED 1
+#define TET_CELL_BLUE 2
+#define TET_CELL_WHITE 3
+
+/* 棋盘格编码：高 6 位拼块编号、低 2 位颜色，0 表示空。
+ * 拼块编号用来在相邻的不同拼块之间留一条暗缝。 */
+#define TET_PID_SHIFT 2
+#define TET_COLOR_MASK 0x03
+#define TET_PID_MAX 63
+
+#define TET_ST_FALL 0
+#define TET_ST_CLEAR 1
+#define TET_ST_SLIDE 2
+
+static uint8_t tet_board[TET_ROWS][TET_COLS]; /* 0 空 / 1 红 / 2 蓝 */
+static uint16_t tet_shape[7][4];              /* 7 种形状 x 4 个旋转，已左上角对齐 */
+static uint8_t tet_inited;
+
+static uint8_t tet_state;
+static uint8_t tet_active; /* 当前方块是否还在下落 */
+static uint8_t tet_topout; /* 顶满后的加速消行模式 */
+static uint8_t tet_shape_id;
+static uint8_t tet_rot_id;
+static uint8_t tet_color;
+static uint8_t tet_pid = 1; /* 当前拼块编号（每生成一块 +1） */
+static int8_t tet_x, tet_y;
+static int8_t tet_x_from, tet_x_to; /* 出场滑动：起点列（屏幕正中）/ 目标列 */
+static uint32_t tet_slide_t0;       /* 滑动起点时刻 */
+
+static uint16_t tet_clears; /* 正在消除的行（bit0 = 第 0 行） */
+static uint32_t tet_clear_ms;
+static uint32_t tet_t0;   /* 消除动画起点 */
+static uint32_t tet_last; /* 上次下落的时刻 */
+
+static uint32_t tet_rnd = 0x9E3779B9u;
+
+static uint32_t tet_rand(void)
+{
+    tet_rnd = tet_rnd * 1664525u + 1013904223u;
+    return tet_rnd >> 8;
+}
+
+/* 顺时针旋转 90°（4x4 框内） */
+static uint16_t tet_rot90(uint16_t m)
+{
+    uint16_t r = 0;
+
+    for (int y = 0; y < 4; y++)
+        for (int x = 0; x < 4; x++)
+            if (m & (uint16_t)(1u << (y * 4 + x)))
+                r |= (uint16_t)(1u << (x * 4 + (3 - y)));
+
+    return r;
+}
+
+/* 把形状挪到 4x4 框左上角，方便按格数算宽高 */
+static uint16_t tet_align(uint16_t m)
+{
+    int minx = 4, miny = 4;
+    uint16_t r = 0;
+
+    for (int y = 0; y < 4; y++)
+        for (int x = 0; x < 4; x++)
+            if (m & (uint16_t)(1u << (y * 4 + x)))
+            {
+                if (x < minx)
+                    minx = x;
+                if (y < miny)
+                    miny = y;
+            }
+
+    if (minx == 4)
+        return 0;
+
+    for (int y = 0; y < 4; y++)
+        for (int x = 0; x < 4; x++)
+            if (m & (uint16_t)(1u << (y * 4 + x)))
+                r |= (uint16_t)(1u << ((y - miny) * 4 + (x - minx)));
+
+    return r;
+}
+
+static int tet_mask_w(uint16_t m)
+{
+    int w = 0;
+
+    for (int x = 0; x < 4; x++)
+        for (int y = 0; y < 4; y++)
+            if (m & (uint16_t)(1u << (y * 4 + x)))
+            {
+                if (x + 1 > w)
+                    w = x + 1;
+                break;
+            }
+
+    return w;
+}
+
+static int tet_mask_h(uint16_t m)
+{
+    int h = 0;
+
+    for (int y = 0; y < 4; y++)
+        for (int x = 0; x < 4; x++)
+            if (m & (uint16_t)(1u << (y * 4 + x)))
+            {
+                h = y + 1;
+                break;
+            }
+
+    return h;
+}
+
+/* 方块框左上角放在 (x,y) 时是否越界/重叠（y<0 表示还在屏幕上方，允许） */
+static uint8_t tet_hits(int x, int y, uint16_t m)
+{
+    for (int by = 0; by < 4; by++)
+        for (int bx = 0; bx < 4; bx++)
+        {
+            int cx, cy;
+
+            if (!(m & (uint16_t)(1u << (by * 4 + bx))))
+                continue;
+
+            cx = x + bx;
+            cy = y + by;
+
+            if (cx < 0 || cx >= TET_COLS)
+                return 1;
+            if (cy >= TET_ROWS)
+                return 1;
+            if (cy >= 0 && tet_board[cy][cx])
+                return 1;
+        }
+
+    return 0;
+}
+
+static void tet_heights(uint8_t *h)
+{
+    for (int c = 0; c < TET_COLS; c++)
+    {
+        int r = 0;
+
+        while (r < TET_ROWS && tet_board[r][c] == 0)
+            r++;
+
+        h[c] = (uint8_t)(TET_ROWS - r);
+    }
+}
+
+/* 落点评分：低、平、能消行最好；留洞、堆到屏幕外重罚 */
+static int32_t tet_score(uint16_t m, int x, const uint8_t *h)
+{
+    uint8_t nh[TET_COLS];
+    int rest[4] = {-1, -1, -1, -1};
+    int land = 1 << 14;
+    int agg = 0, bump = 0, minh = 255, over = 0, cleared;
+    int holes = 0;
+    int32_t sumsq = 0;
+
+    for (int bx = 0; bx < 4; bx++)
+    {
+        int bot = -1;
+
+        for (int by = 3; by >= 0; by--)
+            if (m & (uint16_t)(1u << (by * 4 + bx)))
+            {
+                bot = by;
+                break;
+            }
+
+        if (bot < 0)
+            continue;
+
+        rest[bx] = (TET_ROWS - 1 - (int)h[x + bx]) - bot;
+        if (rest[bx] < land)
+            land = rest[bx];
+    }
+
+    if (land == (1 << 14))
+        return -100000;
+
+    /* 悬空盖住的空格：这一列贴地比最低列还高多少，就留几个洞 */
+    for (int bx = 0; bx < 4; bx++)
+        if (rest[bx] >= 0)
+            holes += rest[bx] - land;
+
+    for (int c = 0; c < TET_COLS; c++)
+        nh[c] = h[c];
+
+    for (int bx = 0; bx < 4; bx++)
+    {
+        int top = -1, c, hh;
+
+        for (int by = 0; by < 4; by++)
+            if (m & (uint16_t)(1u << (by * 4 + bx)))
+            {
+                top = by;
+                break;
+            }
+
+        if (top < 0)
+            continue;
+
+        c = x + bx;
+        hh = TET_ROWS - (land + top);
+        if (hh > (int)nh[c])
+            nh[c] = (uint8_t)(hh > 255 ? 255 : hh);
+    }
+
+    for (int c = 0; c < TET_COLS; c++)
+    {
+        agg += nh[c];
+        sumsq += (int32_t)nh[c] * nh[c];
+        if (nh[c] < minh)
+            minh = nh[c];
+        if (nh[c] > TET_ROWS)
+            over += nh[c] - TET_ROWS;
+        if (c)
+            bump += (nh[c] > nh[c - 1]) ? (nh[c] - nh[c - 1]) : (nh[c - 1] - nh[c]);
+    }
+
+    /* 底部连续填满的行数（近似消行数） */
+    cleared = (minh > TET_ROWS) ? TET_ROWS : minh;
+    agg -= cleared * TET_COLS;
+    if (agg < 0)
+        agg = 0;
+
+    /* 高度平方和这一项很关键：只看相邻列高差的话，格子多而扁时会堆成一边高一边低的斜坡 */
+    return (int32_t)cleared * 40 - (int32_t)agg - (int32_t)bump * 2 -
+           (int32_t)holes * 200 - sumsq * 3 - (int32_t)over * 200;
+}
+
+static void tet_pick(uint8_t shape, int *out_x, int *out_rot)
+{
+    uint8_t h[TET_COLS];
+    int32_t best = -0x7FFFFFFF;
+    int bx = 0, br = 0;
+
+    tet_heights(h);
+
+    for (int r = 0; r < 4; r++)
+    {
+        int w = tet_mask_w(tet_shape[shape][r]);
+
+        for (int x = 0; x + w <= TET_COLS; x++)
+        {
+            int32_t s = tet_score(tet_shape[shape][r], x, h);
+
+            if (s > best)
+            {
+                best = s;
+                bx = x;
+                br = r;
+            }
+        }
+    }
+
+    *out_x = bx;
+    *out_rot = br;
+}
+
+static int tet_lowest_row(void)
+{
+    for (int r = TET_ROWS - 1; r >= 0; r--)
+        for (int c = 0; c < TET_COLS; c++)
+            if (tet_board[r][c])
+                return r;
+
+    return -1;
+}
+
+static uint8_t tet_row_full(int r)
+{
+    for (int c = 0; c < TET_COLS; c++)
+        if (tet_board[r][c] == 0)
+            return 0;
+
+    return 1;
+}
+
+static void tet_spawn(uint32_t now)
+{
+    int x, rot, w, h, x0, y0;
+    uint8_t shape = (uint8_t)(tet_rand() % 7);
+    uint16_t m;
+
+    tet_pick(shape, &x, &rot);
+
+    tet_shape_id = shape;
+    tet_rot_id = (uint8_t)rot;
+    tet_color = (uint8_t)(TET_CELL_RED + tet_rand() % 3); /* 红 / 蓝 / 白随机 */
+    tet_pid = (uint8_t)(tet_pid % TET_PID_MAX + 1);       /* 换一个拼块编号，和旧块之间留暗缝 */
+
+    m = tet_shape[shape][rot];
+    w = tet_mask_w(m);
+    h = tet_mask_h(m);
+
+    /* 一律从屏幕正中出场，再滑到 AI 选好的列。
+     * 竖直位置尽量往下放，让整块露在屏幕里；上面真挤了才退回屏幕外。 */
+    x0 = (TET_COLS - w) / 2;
+    y0 = 0;
+
+    if (tet_hits(x0, y0, m) || tet_hits(x, y0, m))
+    {
+        y0 = 1 - h; /* 露一行 */
+
+        if (tet_hits(x0, y0, m) || tet_hits(x, y0, m))
+            y0 = -h; /* 顶行也堆满了：整块退回屏幕外 */
+    }
+
+    tet_x_from = (int8_t)x0;
+    tet_x_to = (int8_t)x;
+    tet_x = tet_x_from;
+    tet_y = (int8_t)y0;
+    tet_active = 1;
+
+    if (x0 == x) /* 就在中间，不用滑 */
+    {
+        tet_state = TET_ST_FALL;
+        tet_last = now;
+        return;
+    }
+
+    tet_state = TET_ST_SLIDE;
+    tet_slide_t0 = now;
+}
+
+static void tet_lock(uint32_t now)
+{
+    uint16_t m = tet_shape[tet_shape_id][tet_rot_id];
+    uint16_t full = 0;
+    uint8_t above = 0;
+    int low;
+
+    for (int by = 0; by < 4; by++)
+        for (int bx = 0; bx < 4; bx++)
+        {
+            int cx, cy;
+
+            if (!(m & (uint16_t)(1u << (by * 4 + bx))))
+                continue;
+
+            cx = tet_x + bx;
+            cy = tet_y + by;
+
+            if (cx < 0 || cx >= TET_COLS)
+                continue;
+            if (cy < 0)
+            {
+                above = 1;
+                continue;
+            }
+            if (cy >= TET_ROWS)
+                continue;
+
+            tet_board[cy][cx] = (uint8_t)((tet_pid << TET_PID_SHIFT) | tet_color);
+        }
+
+    tet_active = 0;
+
+    if (above) /* 已经堆出屏幕：进入加速消行 */
+    {
+        low = tet_lowest_row();
+
+        tet_topout = 1;
+        tet_state = TET_ST_CLEAR;
+        tet_clear_ms = TET_TOPOUT_WIPE_MS;
+        tet_t0 = now;
+        tet_clears = (low >= 0) ? (uint16_t)(1u << low) : 0;
+        return;
+    }
+
+    for (int r = 0; r < TET_ROWS; r++)
+        if (tet_row_full(r))
+            full |= (uint16_t)(1u << r);
+
+    if (full)
+    {
+        tet_clears = full;
+        tet_clear_ms = TET_WIPE_MS;
+        tet_t0 = now;
+        tet_state = TET_ST_CLEAR;
+    }
+    else
+    {
+        tet_spawn(now);
+    }
+}
+
+static void tet_remove_rows(uint16_t mask)
+{
+    int dst = TET_ROWS - 1;
+
+    for (int r = TET_ROWS - 1; r >= 0; r--)
+    {
+        if (mask & (uint16_t)(1u << r))
+            continue;
+        if (dst != r)
+            memcpy(tet_board[dst], tet_board[r], TET_COLS);
+        dst--;
+    }
+
+    for (; dst >= 0; dst--)
+        memset(tet_board[dst], 0, TET_COLS);
+}
+
+static void tet_finish_clear(uint32_t now)
+{
+    int low;
+
+    tet_remove_rows(tet_clears);
+    tet_clears = 0;
+
+    if (tet_topout)
+    {
+        low = tet_lowest_row();
+
+        if (low < 0) /* 清空了，重新开始堆 */
+        {
+            tet_topout = 0;
+            tet_spawn(now);
+            return;
+        }
+
+        tet_clears = (uint16_t)(1u << low);
+        tet_clear_ms = TET_TOPOUT_WIPE_MS;
+        tet_t0 = now;
+        return;
+    }
+
+    tet_spawn(now);
+}
+
+static void tet_step(uint32_t now)
+{
+    if (tet_state == TET_ST_CLEAR)
+    {
+        if (now - tet_t0 >= tet_clear_ms)
+            tet_finish_clear(now);
+        return;
+    }
+
+    if (!tet_active)
+        return;
+
+    if (tet_state == TET_ST_SLIDE)
+    {
+        uint32_t el = now - tet_slide_t0;
+        int32_t p, e, span, dx;
+
+        if (el < TET_SLIDE_MS)
+        {
+            /* smoothstep(0..1) 的 Q8 版本：两头慢、中间快 */
+            p = (int32_t)(el * 256u / TET_SLIDE_MS);
+            e = p * p * (768 - 2 * p) / 65536;
+            span = (int32_t)tet_x_to - (int32_t)tet_x_from;
+            dx = span * e;
+            dx = (dx >= 0) ? (dx + 128) / 256 : (dx - 128) / 256;
+            tet_x = (int8_t)(tet_x_from + (int8_t)dx);
+            return;
+        }
+
+        tet_x = tet_x_to;
+        tet_state = TET_ST_FALL;
+        tet_last = now;
+        return;
+    }
+
+    if (now - tet_last < TET_DROP_MS)
+        return;
+
+    tet_last += TET_DROP_MS;
+
+    if (tet_hits(tet_x, tet_y + 1, tet_shape[tet_shape_id][tet_rot_id]))
+        tet_lock(now);
+    else
+        tet_y++;
+}
+
+/* 拼块边缘压暗、内部满亮度：
+ * 只有"邻格不是同一拼块（空格或别的块）"的那一侧才压暗，
+ * 所以每块 4 格内部是成片的亮色，块与块之间、块与背景之间都留一条暗缝。
+ * 斜对角也参与判断，否则凹进去的内折角会缺一个暗像素，轮廓断个口。 */
+#define TET_EDGE_GRAY 3
+#define TET_FILL_GRAY 7
+
+/* 当前是否有一块在场（下落 or 出场滑动） */
+static uint8_t tet_piece_alive(void)
+{
+    return (uint8_t)(tet_active && (tet_state == TET_ST_FALL || tet_state == TET_ST_SLIDE));
+}
+
+/* 取一格的占用值：高 6 位拼块编号、低 2 位颜色，0 = 空 */
+static uint8_t tet_cell_at(int c, int r)
+{
+    if (c < 0 || c >= TET_COLS || r < 0 || r >= TET_ROWS)
+        return 0;
+
+    if (tet_board[r][c])
+        return tet_board[r][c];
+
+    if (tet_piece_alive())
+    {
+        int bx = c - tet_x, by = r - tet_y;
+
+        if (bx >= 0 && bx < 4 && by >= 0 && by < 4 &&
+            (tet_shape[tet_shape_id][tet_rot_id] & (uint16_t)(1u << (by * 4 + bx))))
+            return (uint8_t)((tet_pid << TET_PID_SHIFT) | tet_color);
+    }
+
+    return 0;
+}
+
+/* 相邻格不是同一拼块（空、别块、屏幕外）→ 这一侧压暗 */
+static uint8_t tet_seam(int c, int r, int dc, int dr, uint8_t self)
+{
+    return (uint8_t)(tet_cell_at(c + dc, r + dr) != self);
+}
+
+static void tet_put_cell(int c, int r, Color color)
+{
+    int x0, y0;
+    uint8_t self, edge_l, edge_r, edge_u, edge_d;
+    uint8_t dg_lu, dg_ru, dg_ld, dg_rd;
+
+    if (c < 0 || c >= TET_COLS || r < 0 || r >= TET_ROWS)
+        return;
+
+    self = tet_cell_at(c, r);
+    edge_l = tet_seam(c, r, -1, 0, self);
+    edge_r = tet_seam(c, r, 1, 0, self);
+    edge_u = tet_seam(c, r, 0, -1, self);
+    edge_d = tet_seam(c, r, 0, 1, self);
+    dg_lu = tet_seam(c, r, -1, -1, self);
+    dg_ru = tet_seam(c, r, 1, -1, self);
+    dg_ld = tet_seam(c, r, -1, 1, self);
+    dg_rd = tet_seam(c, r, 1, 1, self);
+
+    x0 = c * TET_PX;
+    y0 = r * TET_PX;
+
+    for (int dy = 0; dy < TET_PX; dy++)
+        for (int dx = 0; dx < TET_PX; dx++)
+        {
+            uint8_t edge = 0;
+
+            if (dx == 0 && edge_l)
+                edge = 1;
+            if (dx == TET_PX - 1 && edge_r)
+                edge = 1;
+            if (dy == 0 && edge_u)
+                edge = 1;
+            if (dy == TET_PX - 1 && edge_d)
+                edge = 1;
+
+            /* 内折角：斜对角的格子空着时，这个角像素也要压暗 */
+            if (dx == 0 && dy == 0 && dg_lu)
+                edge = 1;
+            if (dx == TET_PX - 1 && dy == 0 && dg_ru)
+                edge = 1;
+            if (dx == 0 && dy == TET_PX - 1 && dg_ld)
+                edge = 1;
+            if (dx == TET_PX - 1 && dy == TET_PX - 1 && dg_rd)
+                edge = 1;
+
+            draw_point_gray(x0 + dx, y0 + dy, color, edge ? TET_EDGE_GRAY : TET_FILL_GRAY);
+        }
+}
+
+/* 消行时整行刷白：整行当成一块来画，上下沿、左右到屏幕边都压暗边，
+ * 中间连续满亮度。相邻行也在消行时不断开，几条一起消就是一条完整的白带。 */
+static void tet_put_cell_solid(int c, int r, Color color)
+{
+    int x0, y0;
+    uint8_t edge_l, edge_r, edge_u, edge_d;
+
+    if (c < 0 || c >= TET_COLS || r < 0 || r >= TET_ROWS)
+        return;
+
+    edge_l = (uint8_t)(c == 0);            /* 屏幕左边缘 */
+    edge_r = (uint8_t)(c == TET_COLS - 1); /* 屏幕右边缘 */
+    edge_u = (uint8_t)(r == 0 || !((tet_clears >> (r - 1)) & 1u));
+    edge_d = (uint8_t)(r == TET_ROWS - 1 || !((tet_clears >> (r + 1)) & 1u));
+
+    x0 = c * TET_PX;
+    y0 = r * TET_PX;
+
+    for (int dy = 0; dy < TET_PX; dy++)
+        for (int dx = 0; dx < TET_PX; dx++)
+        {
+            uint8_t edge = (uint8_t)((dy == 0 && edge_u) ||
+                                     (dy == TET_PX - 1 && edge_d) ||
+                                     (dx == 0 && edge_l) ||
+                                     (dx == TET_PX - 1 && edge_r));
+
+            draw_point_gray(x0 + dx, y0 + dy, color, edge ? TET_EDGE_GRAY : TET_FILL_GRAY);
+        }
+}
+
+/* 棋盘颜色值 -> 屏幕颜色（低 2 位才是颜色） */
+static Color tet_cell_color(uint8_t v)
+{
+    v &= TET_COLOR_MASK;
+
+    if (v == TET_CELL_RED)
+        return Red;
+    if (v == TET_CELL_BLUE)
+        return Cyan;
+    if (v == TET_CELL_WHITE)
+        return White;
+
+    return None;
+}
+
+static void tet_render(uint32_t now)
+{
+    int wipe = 0;
+    int c0, c1;
+
+    /* 消行：整行先变白，再从中间向两边擦掉 */
+    if (tet_clears)
+    {
+        uint32_t el = now - tet_t0;
+
+        if (el > tet_clear_ms)
+            el = tet_clear_ms;
+
+        wipe = (int)((uint32_t)(TET_COLS / 2) * el / tet_clear_ms);
+    }
+
+    c0 = TET_COLS / 2 - wipe;
+    c1 = TET_COLS / 2 + wipe;
+
+    for (int r = 0; r < TET_ROWS; r++)
+    {
+        uint8_t clearing = (uint8_t)((tet_clears >> r) & 1u);
+
+        for (int c = 0; c < TET_COLS; c++)
+        {
+            if (clearing)
+            {
+                /* 中间已经擦掉的部分留黑，还没擦到的部分保持白色 */
+                if (c < c0 || c >= c1)
+                    tet_put_cell_solid(c, r, White);
+                continue;
+            }
+
+            if (tet_board[r][c])
+                tet_put_cell(c, r, tet_cell_color(tet_board[r][c]));
+        }
+    }
+
+    /* 正在出场滑动 / 下落的方块 */
+    if (tet_piece_alive())
+    {
+        uint16_t m = tet_shape[tet_shape_id][tet_rot_id];
+        Color color = tet_cell_color(tet_color);
+
+        for (int by = 0; by < 4; by++)
+            for (int bx = 0; bx < 4; bx++)
+                if (m & (uint16_t)(1u << (by * 4 + bx)))
+                    tet_put_cell(tet_x + bx, tet_y + by, color);
+    }
+}
+
+/* 俄罗斯方块界面：推进一帧并画到显存（调用方负责先清屏） */
+void refrashTetris(void)
+{
+    uint32_t now = clock_anim_tick();
+
+    if (!tet_inited)
+    {
+        static const uint16_t base[7] = {
+            0x00F0, /* I */
+            0x0033, /* O */
+            0x0072, /* T */
+            0x0036, /* S */
+            0x0063, /* Z */
+            0x0071, /* J */
+            0x0074, /* L */
+        };
+
+        memset(tet_board, 0, sizeof(tet_board));
+        for (int s = 0; s < 7; s++)
+        {
+            tet_shape[s][0] = tet_align(base[s]);
+            for (int r = 1; r < 4; r++)
+                tet_shape[s][r] = tet_align(tet_rot90(tet_shape[s][r - 1]));
+        }
+
+        tet_state = TET_ST_FALL;
+        tet_last = now;
+        tet_inited = 1;
+        tet_spawn(now);
+    }
+
+    /* 切走界面 / 长时间没画之后回来：不要一次补几十步 */
+    if (now - tet_last > 1000)
+        tet_last = now;
+
+    tet_step(now);
+    tet_render(now);
+}
+
 /* 按主题选择背景动画并刷到显存 */
 void clock_draw_background(uint8_t bg)
 {

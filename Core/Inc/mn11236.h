@@ -42,6 +42,12 @@ void mn11236_send_buffer(void);
 void mn11236_hold_send(uint8_t hold);
 
 /**
+ * 每送完一帧显存数据回调一次（驱动里是 __weak 空实现）
+ * 应用层覆写它即可把每一帧画面同步给上位机，过渡动画的中间帧也不会漏。
+ */
+void mn11236_on_frame_sent(void);
+
+/**
  * 画一个点,起点从0,0开始
  */
 void mn11236_draw_pixel(uint8_t x, uint8_t y, mn11236_color_t color);

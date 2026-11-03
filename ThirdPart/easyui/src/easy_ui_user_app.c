@@ -756,6 +756,14 @@ void UploadFrame()
   upload_frame_upload();
 }
 
+/* 覆写驱动里的 __weak 空实现：每送完一帧显存就同步给上位机。
+ * 画在哪、什么时候画都不影响 —— 碎裂/拼合、菜单模糊等过渡动画
+ * 的每一帧都会跟着上传，上位机看到的就是屏幕真实显示的内容。 */
+void mn11236_on_frame_sent(void)
+{
+  upload_frame_upload();
+}
+
 bool ScreenShouldOn(void)
 {
   uint8_t now = tm_local.tm_hour;
@@ -1020,6 +1028,8 @@ void AppGUI_Loop(uint8_t timer)
       pending_rebuild = 0;
       mn11236_hold_send(0);
       mn11236_clear_buffers();
+      /* 显存已清空，顺手把黑屏同步给上位机（睡眠期间不再有送屏动作） */
+      UploadFrame();
       /* scan_stop 内部先刷一帧全 0 再停扫，睡眠期间彻底不刷新 */
       mn11236_scan_stop();
       HAL_GPIO_WritePin(VFD_EN_GPIO_Port, VFD_EN_Pin, GPIO_PIN_RESET);
@@ -1205,6 +1215,12 @@ void AppGUI_Loop(uint8_t timer)
     osDelay(50);
     refrash_gram();
     break;
+  case DISP_MODE_TETRIS:
+    clear_gram(White);
+    refrashTetris();
+    osDelay(40);
+    refrash_gram();
+    break;
   case DISP_MODE_MOTION:
     clear_gram(White);
     Motion_Run(&pUserInfo->effectswitch);
@@ -1226,8 +1242,6 @@ void AppGUI_Loop(uint8_t timer)
     clock_shatter_rebuild();
   }
 
-  //	if((rolling++)%2)
-  UploadFrame();
   UserInfo_AutoSave();
 
   // 菜单超时退出
