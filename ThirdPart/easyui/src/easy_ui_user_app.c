@@ -1221,6 +1221,12 @@ void AppGUI_Loop(uint8_t timer)
     osDelay(40);
     refrash_gram();
     break;
+  case DISP_MODE_TANKS:
+    clear_gram(White);
+    refrashTanks();
+    osDelay(50);
+    refrash_gram();
+    break;
   case DISP_MODE_MOTION:
     clear_gram(White);
     Motion_Run(&pUserInfo->effectswitch);
@@ -1316,6 +1322,8 @@ void AppGUI_Loop(uint8_t timer)
           pUserInfo->snakewidth = 1;
         setSnakeWidth(pUserInfo->snakewidth);
       }
+      else if (disp_mode == DISP_MODE_TANKS)
+        tanksRegen(); /* 换一张随机地图 */
       opnExit = false;
     }
   }

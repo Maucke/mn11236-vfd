@@ -109,6 +109,8 @@ void beginSnake(void);
 void refrashSnake(void);
 void setSnakeWidth(uint8_t width);
 void refrashTetris(void); /* 俄罗斯方块界面：推进一帧并画到显存 */
+void refrashTanks(void);  /* 坦克大战界面：推进一帧并画到显存 */
+void tanksRegen(void);    /* 重新随机生成坦克大战地图 */
 void gradient_flow_frame_clock(void);
 void clock_draw_background(uint8_t bg);
 void clock_shatter_anim(void);   /* 当前画面碎裂落地（进菜单用） */
