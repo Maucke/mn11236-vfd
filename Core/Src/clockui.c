@@ -305,21 +305,11 @@ static uint16_t phase2 = 0;
 static uint16_t phase3 = 0;
 
 uint8_t frame_wave[MAX_X][MAX_Y]; // 6-4:red, 2-0:blue
-/* ---------------- 背景亮度衰减 ---------------- */
-
-/*
- * 背景随时间单向变淡：从最亮线性降到最低，之后一直保持最终亮度，不再跳回最亮。
- * 切换主题（背景类型变化）时重新从最亮开始。
- */
-#define BG_FADE_PERIOD_MS 8000   /* 从最亮降到最低的耗时 */
-#define BG_DIM_MIN (2.0f / 7.0f) /* 最低仍保证屏上至少 1 级灰度 */
 
 /* 擦除染色主题：帧缓冲里的通道值直接就是屏幕灰度，dim 给 2（ch*0.5*2 = ch） */
 #define BG_WIPE_DIM_BRIGHT 2.0f
 /* 拖尾最亮处（光条旁边）的灰度，7 太亮 */
 #define BG_WIPE_TRAIL_MAX 5.0f
-
-static float g_bgDim = 1.0f;
 
 /* ---------------- 可暂停的动画时间基准 ----------------
  * 碎裂 / 拼合过渡是阻塞的，期间后台动画（背景、频谱等）不应该偷偷跑：
@@ -338,18 +328,15 @@ void clock_anim_pause(uint32_t ms)
     g_anim_pause_off += ms;
 }
 
-/* 背景通道值（0~7）-> 屏幕灰度（半亮 + 衰减），点亮的最低保留 1 级
-   dim 为本像素的亮度系数：普通背景用 g_bgDim，光条高光传 1.0 保持亮度 */
+/* 背景通道值（0~7）-> 屏幕灰度（半亮）
+   dim 为本像素的亮度系数：普通背景 1.0，擦除染色主题 2.0（通道值即灰度） */
 static inline uint8_t bg_map_gray(uint8_t ch, int x, int y, float dim)
 {
     (void)x;
     (void)y;
 
+    /* 暗部不托底：不足 1 级的通道直接熄灭，背景才有真正的黑 */
     float v = (float)ch * 0.5f * dim;
-
-    /* 点亮的最低保留 1 级；dim=0 时允许真正熄灭（擦除染色主题的最后一级） */
-    if (ch > 0 && dim > 0.0f && v < 1.0f)
-        v = 1.0f;
 
     int gray = (int)v;
 
@@ -368,21 +355,23 @@ static void flush_frame(void)
             uint8_t p = frame_wave[x][y];
             float dim;
 
-            /* bit7 = 光柱高光：不参与衰减
-               bit3 = 擦除染色主题：通道值就是最终灰度
-               其它 = 普通背景：按当前衰减值 */
+            /* bit7 = 光柱高光；bit3 = 擦除染色主题：通道值就是最终灰度；
+               其它 = 普通背景：固定满亮度（不再随时间淡出） */
             if (p & 0x80)
                 dim = 1.0f;
             else if (p & 0x08)
                 dim = BG_WIPE_DIM_BRIGHT;
             else
-                dim = g_bgDim;
+                dim = 1.0f;
 
             mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, bg_map_gray((p >> 4) & 0x07, x, y, dim));
             mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, bg_map_gray(p & 0x07, x, y, dim));
         }
     }
 }
+
+/* 三波叠加的对比度增益：1.0 = |v-0.5|*2 原始曲线，调大更亮 */
+#define BG_WAVE_GAIN 1.0f
 
 void gradient_flow_frame_clock(void)
 {
@@ -416,9 +405,21 @@ void gradient_flow_frame_clock(void)
             if (v > 1)
                 v = 1;
 
-            /* 映射 */
-            uint8_t blue = (uint8_t)(v * 7.0f);         // 3bit
-            uint8_t red = (uint8_t)((1.0f - v) * 7.0f); // 3bit
+            /* 映射：以 0.5 为中性，越偏离越亮；v≈0.5 的“零线”直接熄灭。
+             * 偏离量 m ∈ [0,1]，大于 0.5 走蓝、小于 0.5 走红，
+             * 于是画面是红波带 / 黑 / 蓝波带交替，暗部有真正的黑。
+             * 觉得整体太暗就把 BG_WAVE_GAIN 调大（1.0 = 原始曲线）。 */
+            float m = v - 0.5f;
+
+            if (m < 0.0f)
+                m = -m;
+            m *= 2.0f * BG_WAVE_GAIN;
+
+            if (m > 1.0f)
+                m = 1.0f;
+
+            uint8_t blue = (v > 0.5f) ? (uint8_t)(m * 7.0f) : 0; // 3bit
+            uint8_t red = (v < 0.5f) ? (uint8_t)(m * 7.0f) : 0;  // 3bit
 
             frame_wave[x][y] = (red << 4) | (blue & 0x07);
         }
@@ -573,8 +574,6 @@ static void bg_frame_wipe(void)
         base = is_blue ? 0.0f : 1.0f; /* 本轮光条带来的是另一种颜色 */
     }
 
-    g_bgDim = 0.0f; /* 没被扫到的地方全黑 */
-
     for (int y = 0; y < MAX_Y; y++)
     {
         for (int x = 0; x < MAX_X; x++)
@@ -670,28 +669,7 @@ static void bg_frame_breathe(void)
 /* 按主题选择背景动画并刷到显存 */
 void clock_draw_background(uint8_t bg)
 {
-    static uint8_t last_bg = 0xFF;
-    static uint32_t dim_start = 0;
-
-    /* 只在切换主题时重新从最亮开始；之后一直保持最终亮度，不再跳回 */
-    if (bg != last_bg)
-    {
-        last_bg = bg;
-        dim_start = clock_anim_tick();
-    }
-
-    /* 擦除染色主题自己按周期控制亮度（亮->淡->扫过变亮），这里不参与 */
-    if (bg != CLOCK_BG_WIPE)
-    {
-        uint32_t elapsed = clock_anim_tick() - dim_start;
-        float p = (float)elapsed / (float)BG_FADE_PERIOD_MS;
-
-        if (p > 1.0f)
-            p = 1.0f;
-
-        g_bgDim = 1.0f - (1.0f - BG_DIM_MIN) * p;
-    }
-
+    /* 背景一律满亮度，没有任何随时间淡出的逻辑 */
     switch (bg)
     {
     case CLOCK_BG_WAVE:

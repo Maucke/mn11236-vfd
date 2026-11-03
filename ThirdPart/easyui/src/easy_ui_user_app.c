@@ -26,6 +26,7 @@
 #include "semphr.h"
 #include "nexlink_app.h"
 #include <math.h>
+#include "iwdg.h"
 
 /* OBD data from main.c */
 extern obd_data_t obd_data;
@@ -593,6 +594,7 @@ bool UserInfo_AutoSave()
   if (memcmp(&last, pUserInfo, sizeof(UserInfo_t)) != 0)
   {
     memcpy(&last, pUserInfo, sizeof(UserInfo_t));
+		HAL_IWDG_Refresh(&hiwdg);
     SaveInfo();
     return true;
   }
