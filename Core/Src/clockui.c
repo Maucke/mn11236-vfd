@@ -669,10 +669,11 @@ static void bg_frame_breathe(void)
 /* ============================================================
  * 俄罗斯方块界面（DISP_MODE_TETRIS）
  * 3x3 像素一格：37 列 x 6 行（右侧余 1 像素）
- *   - 方块统一从屏幕正中出现，再缓入缓出滑到 AI 选好的列
+ *   - 方块统一从屏幕正中出现（原始朝向），先滑到 AI 选好的列，再一格一格转过去
  *   - 每块随机红/蓝/白；拼块内部满亮度，轮廓与块间暗缝用灰度 3
  *   - 满行先变白（白条同样带暗边），再从中间向两边擦掉，上方整体下落
  *   - 堆到顶部后停止掉落，加速逐行消除，清空后重新开始
+ *   - 右上角小窗显示"下一块"（2 像素一格，黑底 + 一圈暗边框，棋盘在那儿让位）
  * ============================================================ */
 /* 定义在文件后面的逐点绘制函数，这里先声明（C99 不允许隐式声明） */
 void draw_point_gray(int x, int y, Color color, uint8_t gray);
@@ -681,8 +682,9 @@ void draw_point_gray(int x, int y, Color color, uint8_t gray);
 #define TET_COLS (MAX_X / TET_PX) /* 37 列 */
 #define TET_ROWS (MAX_Y / TET_PX) /* 6 行 */
 
-#define TET_DROP_MS 300        /* 每 300ms 下落一格 */
-#define TET_SLIDE_MS 280       /* 从中间滑到目标列的时长 */
+#define TET_DROP_MS 300        /* 下落时每 300ms 掉一格 */
+#define TET_ENTER_MS 130       /* 进场时每 130ms 从屏幕上边露出一行 */
+#define TET_SPIN_MS 90         /* 整块进屏幕之后，每转 90° 停多久 */
 #define TET_WIPE_MS 320        /* 满行擦除时长 */
 #define TET_TOPOUT_WIPE_MS 110 /* 顶满后逐行加速消除 */
 
@@ -698,7 +700,18 @@ void draw_point_gray(int x, int y, Color color, uint8_t gray);
 
 #define TET_ST_FALL 0
 #define TET_ST_CLEAR 1
-#define TET_ST_SLIDE 2
+#define TET_ST_ENTER 2 /* 从屏幕上边一格一格掉进来（这期间不许转） */
+#define TET_ST_SPIN 3  /* 整块都进屏幕了，原地转正 */
+
+/* 右上角"下一块"预览：2 像素一格，最多 4x2 格，外面套一圈暗边框。
+ * 整屏都是棋盘，所以它只是叠在上面的小窗，边框压暗、底下的方块照样看得见。 */
+#define TET_NEXT_PX 2                          /* 预览里一格几像素 */
+#define TET_NEXT_W (4 * TET_NEXT_PX)           /* 8 */
+#define TET_NEXT_H (2 * TET_NEXT_PX)           /* 4 */
+#define TET_NEXT_X (MAX_X - TET_NEXT_W - 1)    /* 103：边框贴着屏幕右边 */
+#define TET_NEXT_Y 1
+#define TET_NEXT_EDGE 1                        /* 边框灰度：比方块暗边的 3 还暗一点 */
+#define TET_NEXT_GRAY 3                         /* 填充灰度*/
 
 static uint8_t tet_board[TET_ROWS][TET_COLS]; /* 0 空 / 1 红 / 2 蓝 */
 static uint16_t tet_shape[7][4];              /* 7 种形状 x 4 个旋转，已左上角对齐 */
@@ -709,11 +722,13 @@ static uint8_t tet_active; /* 当前方块是否还在下落 */
 static uint8_t tet_topout; /* 顶满后的加速消行模式 */
 static uint8_t tet_shape_id;
 static uint8_t tet_rot_id;
+static uint8_t tet_rot_show; /* 画出来的朝向：出场时从 0 一格一格转到 tet_rot_id */
 static uint8_t tet_color;
 static uint8_t tet_pid = 1; /* 当前拼块编号（每生成一块 +1） */
 static int8_t tet_x, tet_y;
-static int8_t tet_x_from, tet_x_to; /* 出场滑动：起点列（屏幕正中）/ 目标列 */
-static uint32_t tet_slide_t0;       /* 滑动起点时刻 */
+static int8_t tet_x_from, tet_x_to; /* 进场滑动：起点列（屏幕正中）/ 目标列 */
+static uint32_t tet_enter_t0;       /* 进场起点时刻 */
+static uint32_t tet_spin_t0;        /* 原地旋转一步的起点时刻 */
 
 static uint16_t tet_clears; /* 正在消除的行（bit0 = 第 0 行） */
 static uint32_t tet_clear_ms;
@@ -726,6 +741,16 @@ static uint32_t tet_rand(void)
 {
     tet_rnd = tet_rnd * 1664525u + 1013904223u;
     return tet_rnd >> 8;
+}
+
+/* 先摇出"下一块"存着，等这一块落地再用，这样右上角才有得显示 */
+static uint8_t tet_next_shape;
+static uint8_t tet_next_color;
+
+static void tet_roll_next(void)
+{
+    tet_next_shape = (uint8_t)(tet_rand() % 7);
+    tet_next_color = (uint8_t)(TET_CELL_RED + tet_rand() % 3); /* 红 / 蓝 / 白随机 */
 }
 
 /* 顺时针旋转 90°（4x4 框内） */
@@ -970,49 +995,32 @@ static uint8_t tet_row_full(int r)
 
 static void tet_spawn(uint32_t now)
 {
-    int x, rot, w, h, x0, y0;
-    uint8_t shape = (uint8_t)(tet_rand() % 7);
+    int x, rot, w, h;
+    uint8_t shape = tet_next_shape; /* 用早先摇好的"下一块"，再摇新的下一块 */
     uint16_t m;
 
     tet_pick(shape, &x, &rot);
 
     tet_shape_id = shape;
     tet_rot_id = (uint8_t)rot;
-    tet_color = (uint8_t)(TET_CELL_RED + tet_rand() % 3); /* 红 / 蓝 / 白随机 */
-    tet_pid = (uint8_t)(tet_pid % TET_PID_MAX + 1);       /* 换一个拼块编号，和旧块之间留暗缝 */
+    tet_color = tet_next_color;
+    tet_roll_next();
 
-    m = tet_shape[shape][rot];
+    tet_pid = (uint8_t)(tet_pid % TET_PID_MAX + 1); /* 换一个拼块编号，和旧块之间留暗缝 */
+
+    /* 进场用“原始朝向”的尺寸：整块先待在屏幕上边外面，再一格一格掉进来 */
+    m = tet_shape[shape][0];
     w = tet_mask_w(m);
     h = tet_mask_h(m);
 
-    /* 一律从屏幕正中出场，再滑到 AI 选好的列。
-     * 竖直位置尽量往下放，让整块露在屏幕里；上面真挤了才退回屏幕外。 */
-    x0 = (TET_COLS - w) / 2;
-    y0 = 0;
-
-    if (tet_hits(x0, y0, m) || tet_hits(x, y0, m))
-    {
-        y0 = 1 - h; /* 露一行 */
-
-        if (tet_hits(x0, y0, m) || tet_hits(x, y0, m))
-            y0 = -h; /* 顶行也堆满了：整块退回屏幕外 */
-    }
-
-    tet_x_from = (int8_t)x0;
+    tet_x_from = (int8_t)((TET_COLS - w) / 2); /* 从屏幕正中往下走 */
     tet_x_to = (int8_t)x;
     tet_x = tet_x_from;
-    tet_y = (int8_t)y0;
+    tet_y = (int8_t)(-h);
+    tet_rot_show = 0;
     tet_active = 1;
-
-    if (x0 == x) /* 就在中间，不用滑 */
-    {
-        tet_state = TET_ST_FALL;
-        tet_last = now;
-        return;
-    }
-
-    tet_state = TET_ST_SLIDE;
-    tet_slide_t0 = now;
+    tet_state = TET_ST_ENTER;
+    tet_enter_t0 = now;
 }
 
 static void tet_lock(uint32_t now)
@@ -1133,26 +1141,69 @@ static void tet_step(uint32_t now)
     if (!tet_active)
         return;
 
-    if (tet_state == TET_ST_SLIDE)
+    if (tet_state == TET_ST_ENTER)
     {
-        uint32_t el = now - tet_slide_t0;
-        int32_t p, e, span, dx;
+        /* 进场：整块从屏幕上边外面一格一格掉下来，同时从屏幕正中缓到目标列。
+         * 整块都进屏幕（tet_y >= 0）之前不许旋转。 */
+        int rows = tet_mask_h(tet_shape[tet_shape_id][0]);
+        uint32_t dur = (uint32_t)rows * TET_ENTER_MS;
+        uint32_t el = now - tet_enter_t0;
+        uint32_t et = (el > dur) ? dur : el;
+        uint16_t mt = tet_shape[tet_shape_id][tet_rot_id]; /* 按最终朝向判断放不放得下 */
+        int ny, blocked = 0;
+        int32_t p, e, span;
 
-        if (el < TET_SLIDE_MS)
+        /* 横着：从头到尾从屏幕正中缓到目标列 */
+        p = (int32_t)(et * 256u / dur);
+        e = p * p * (768 - 2 * p) / 65536; /* smoothstep(0..1) 的 Q8 版本 */
+        span = (int32_t)tet_x_to - (int32_t)tet_x_from;
+        tet_x = (int8_t)(tet_x_from + span * e / 256);
+
+        /* 竖着：一格一格往下露；下面已经堆起来了就停在那一格 */
+        ny = (int)(et / TET_ENTER_MS) - rows;
+
+        while (tet_y < ny)
         {
-            /* smoothstep(0..1) 的 Q8 版本：两头慢、中间快 */
-            p = (int32_t)(el * 256u / TET_SLIDE_MS);
-            e = p * p * (768 - 2 * p) / 65536;
-            span = (int32_t)tet_x_to - (int32_t)tet_x_from;
-            dx = span * e;
-            dx = (dx >= 0) ? (dx + 128) / 256 : (dx - 128) / 256;
-            tet_x = (int8_t)(tet_x_from + (int8_t)dx);
+            if (tet_hits(tet_x, tet_y + 1, mt))
+            {
+                blocked = 1;
+                break;
+            }
+
+            tet_y++;
+        }
+
+        if (el < dur && !blocked)
+            return;
+
+        if (!blocked && tet_rot_show != tet_rot_id) /* 整块进屏幕了，这才开始转 */
+        {
+            tet_state = TET_ST_SPIN;
+            tet_spin_t0 = now;
             return;
         }
 
-        tet_x = tet_x_to;
+        tet_rot_show = tet_rot_id; /* 没地方转就按最终朝向放，紧接着就落地 */
         tet_state = TET_ST_FALL;
         tet_last = now;
+        return;
+    }
+
+    if (tet_state == TET_ST_SPIN)
+    {
+        if (now - tet_spin_t0 >= TET_SPIN_MS)
+        {
+            tet_spin_t0 += TET_SPIN_MS;
+            tet_rot_show++;
+
+            if (tet_rot_show >= tet_rot_id)
+            {
+                tet_rot_show = tet_rot_id;
+                tet_state = TET_ST_FALL;
+                tet_last = now;
+            }
+        }
+
         return;
     }
 
@@ -1174,10 +1225,12 @@ static void tet_step(uint32_t now)
 #define TET_EDGE_GRAY 3
 #define TET_FILL_GRAY 7
 
-/* 当前是否有一块在场（下落 or 出场滑动） */
+/* 当前是否有一块在场（进场 / 旋转 / 下落） */
 static uint8_t tet_piece_alive(void)
 {
-    return (uint8_t)(tet_active && (tet_state == TET_ST_FALL || tet_state == TET_ST_SLIDE));
+    return (uint8_t)(tet_active && (tet_state == TET_ST_FALL ||
+                                    tet_state == TET_ST_ENTER ||
+                                    tet_state == TET_ST_SPIN));
 }
 
 /* 取一格的占用值：高 6 位拼块编号、低 2 位颜色，0 = 空 */
@@ -1194,7 +1247,7 @@ static uint8_t tet_cell_at(int c, int r)
         int bx = c - tet_x, by = r - tet_y;
 
         if (bx >= 0 && bx < 4 && by >= 0 && by < 4 &&
-            (tet_shape[tet_shape_id][tet_rot_id] & (uint16_t)(1u << (by * 4 + bx))))
+            (tet_shape[tet_shape_id][tet_rot_show] & (uint16_t)(1u << (by * 4 + bx))))
             return (uint8_t)((tet_pid << TET_PID_SHIFT) | tet_color);
     }
 
@@ -1205,6 +1258,13 @@ static uint8_t tet_cell_at(int c, int r)
 static uint8_t tet_seam(int c, int r, int dc, int dr, uint8_t self)
 {
     return (uint8_t)(tet_cell_at(c + dc, r + dr) != self);
+}
+
+/* 右上角预览窗盖住的范围：棋盘画到这里就跳过，给它留一块纯黑底 */
+static uint8_t tet_hud_hit(int x, int y)
+{
+    return (uint8_t)(x >= TET_NEXT_X - 1 && x <= TET_NEXT_X + TET_NEXT_W &&
+                     y >= TET_NEXT_Y - 1 && y <= TET_NEXT_Y + TET_NEXT_H);
 }
 
 static void tet_put_cell(int c, int r, Color color)
@@ -1253,6 +1313,9 @@ static void tet_put_cell(int c, int r, Color color)
             if (dx == TET_PX - 1 && dy == TET_PX - 1 && dg_rd)
                 edge = 1;
 
+            if (tet_hud_hit(x0 + dx, y0 + dy)) /* 让出右上角预览窗 */
+                continue;
+
             draw_point_gray(x0 + dx, y0 + dy, color, edge ? TET_EDGE_GRAY : TET_FILL_GRAY);
         }
 }
@@ -1283,6 +1346,9 @@ static void tet_put_cell_solid(int c, int r, Color color)
                                      (dx == 0 && edge_l) ||
                                      (dx == TET_PX - 1 && edge_r));
 
+            if (tet_hud_hit(x0 + dx, y0 + dy)) /* 让出右上角预览窗 */
+                continue;
+
             draw_point_gray(x0 + dx, y0 + dy, color, edge ? TET_EDGE_GRAY : TET_FILL_GRAY);
         }
 }
@@ -1300,6 +1366,42 @@ static Color tet_cell_color(uint8_t v)
         return White;
 
     return None;
+}
+
+/* 右上角：下一块预览。2 像素一格，形状居中放在 4x2 格里，
+ * 外圈画一条暗边把它和棋盘隔开（只压暗边框那几像素，底下的方块还看得见）。 */
+static void tet_render_next(void)
+{
+    uint16_t m = tet_shape[tet_next_shape][0];
+    int w = tet_mask_w(m);
+    int h = tet_mask_h(m);
+    int ox = TET_NEXT_X + (TET_NEXT_W - w * TET_NEXT_PX) / 2;
+    int oy = TET_NEXT_Y + (TET_NEXT_H - h * TET_NEXT_PX) / 2;
+    Color color = tet_cell_color(tet_next_color);
+
+    for (int x = TET_NEXT_X - 1; x <= TET_NEXT_X + TET_NEXT_W; x++)
+    {
+        draw_point_gray(x, TET_NEXT_Y - 1, White, TET_NEXT_EDGE);
+        draw_point_gray(x, TET_NEXT_Y + TET_NEXT_H, White, TET_NEXT_EDGE);
+    }
+
+    for (int y = TET_NEXT_Y; y < TET_NEXT_Y + TET_NEXT_H; y++)
+    {
+        draw_point_gray(TET_NEXT_X - 1, y, White, TET_NEXT_EDGE);
+        draw_point_gray(TET_NEXT_X + TET_NEXT_W, y, White, TET_NEXT_EDGE);
+    }
+
+    for (int by = 0; by < 4; by++)
+        for (int bx = 0; bx < 4; bx++)
+        {
+            if (!(m & (uint16_t)(1u << (by * 4 + bx))))
+                continue;
+
+            for (int dy = 0; dy < TET_NEXT_PX; dy++)
+                for (int dx = 0; dx < TET_NEXT_PX; dx++)
+                    draw_point_gray(ox + bx * TET_NEXT_PX + dx,
+                                    oy + by * TET_NEXT_PX + dy, color, TET_NEXT_GRAY);
+        }
 }
 
 static void tet_render(uint32_t now)
@@ -1340,10 +1442,10 @@ static void tet_render(uint32_t now)
         }
     }
 
-    /* 正在出场滑动 / 下落的方块 */
+    /* 正在出场滑动 / 旋转 / 下落的方块 */
     if (tet_piece_alive())
     {
-        uint16_t m = tet_shape[tet_shape_id][tet_rot_id];
+        uint16_t m = tet_shape[tet_shape_id][tet_rot_show];
         Color color = tet_cell_color(tet_color);
 
         for (int by = 0; by < 4; by++)
@@ -1351,6 +1453,9 @@ static void tet_render(uint32_t now)
                 if (m & (uint16_t)(1u << (by * 4 + bx)))
                     tet_put_cell(tet_x + bx, tet_y + by, color);
     }
+
+    /* 下一块预览画在最后，压在其他东西上面 */
+    tet_render_next();
 }
 
 /* 俄罗斯方块界面：推进一帧并画到显存（调用方负责先清屏） */
@@ -1381,6 +1486,7 @@ void refrashTetris(void)
         tet_state = TET_ST_FALL;
         tet_last = now;
         tet_inited = 1;
+        tet_roll_next(); /* 先把"下一块"摇出来，再生成当前这块 */
         tet_spawn(now);
     }
 
@@ -1394,14 +1500,14 @@ void refrashTetris(void)
 
 /* ============================================================
  * 坦克大战界面（DISP_MODE_TANKS）
- * 1 像素一格：车身 5x3（朝上时）、2x2 一块墙、1 像素一颗子弹
+ * 1 像素一格：车身 4x4、2x2 一块墙、1 像素一颗子弹
  *   - 红蓝两队各 3 辆，满场乱跑、互相开火
  *   - 墙分单层（暗灰，打得掉）和多层（更亮，炸不毁）
  *   - 一方全灭就结束本局，碎屏动画换一张新地图接着打
  * ============================================================ */
-#define TNK_LONG 5  /* 车身长边 */
+#define TNK_LONG 4  /* 车身长边 */
 #define TNK_SHORT 4 /* 车身短边 */
-#define TNK_BOX 5   /* 碰撞方框边长：四个朝向都用同一个方框，原地转身不会卡住 */
+#define TNK_BOX 4   /* 碰撞方框边长：车身正好铺满，转身不会卡住 */
 
 #define TNK_WALL_MAX 40
 #define TNK_TANK_NUM 6 /* 红蓝各 3 辆 */
@@ -1419,6 +1525,8 @@ void refrashTetris(void)
 #define TNK_ROUND_END_MS 350 /* 全灭后停一下再走碎屏换关 */
 #define TNK_ROUND_MAX_MS 30000 /* 一局最长 30 秒：到点就换关，防止两边卡住打不完 */
 #define TNK_BOOM_R 2         /* 爆炸菱形半径 */
+#define TNK_LIVES 3          /* 每辆坦克 3 条命：中 3 炮才炸 */
+#define TNK_HURT_MS 700      /* 中一炮之后闪 0.7 秒，这期间打不穿 */
 
 #define TNK_DIR_UP 0
 #define TNK_DIR_RIGHT 1
@@ -1428,14 +1536,14 @@ void refrashTetris(void)
 static const int8_t tnk_dx[4] = {0, 1, 0, -1};
 static const int8_t tnk_dy[4] = {-1, 0, 1, 0};
 
-/* 车身位图只存“朝上”这一张（5x3，中间一行最宽，两条履带各 1 格）：
+/* 车身位图只存“朝上”这一张（4x4，中间的炮塔 2 格宽，两条履带各 1 格）：
  *   . # # .     炮塔
  *   # # # #     车体
  *   # # # #     车体
  *   # . . #     两条履带
  * 另外三个朝向都按 90 度一格现转，保证四个方向严格互转
  */
-static const uint8_t tnk_body_up[TNK_SHORT] = {0x0E-2, 0x1F-1, 0x1F-1, 0x11+1};
+static const uint8_t tnk_body_up[TNK_SHORT] = {0x06, 0x0F, 0x0F, 0x09};
 
 /* 朝 dir 时车身的宽高：朝左右就竖过来 */
 static void tnk_size(int dir, int *w, int *h)
@@ -1474,43 +1582,34 @@ static uint8_t tnk_body_at(int x, int y, int dir)
     return (uint8_t)((tnk_body_up[y] >> x) & 1u);
 }
 
-/* 炮塔中心格 / 炮口那一格（这两格点得更亮） */
-static void tnk_barrel(int dir, int *bx, int *by)
+/* 炮口那条边（车头最前面的一排）点得更亮，用来指示朝向 */
+static uint8_t tnk_bar_line(int dx, int dy, int w, int h, int dir)
 {
-    int w, h;
-
-    tnk_size(dir, &w, &h);
-    *bx = w / 2;
-    *by = h / 2;
-
     switch (dir)
     {
-    case TNK_DIR_UP: *by = 0; break;
-    case TNK_DIR_RIGHT: *bx = w - 1; break;
-    case TNK_DIR_DOWN: *by = h - 1; break;
-    default: *bx = 0; break;
+    case TNK_DIR_UP: return (uint8_t)(dy == 0);
+    case TNK_DIR_RIGHT: return (uint8_t)(dx == w - 1);
+    case TNK_DIR_DOWN: return (uint8_t)(dy == h - 1);
+    default: return (uint8_t)(dx == 0);
     }
 }
 
-/* 炮口可以出弹的几列（沿车体宽度方向，相对碰撞方框） */
+/* 炮口可以出弹的几列（沿车体宽度方向，相对碰撞方框）：正好是炮塔那 2 格 */
 static void tnk_lane_range(int dir, int *lo, int *hi)
 {
-    *lo = TNK_BOX / 2;
-    *hi = *lo;
-
-    if (!(dir & 1)) /* 朝上下：炮塔 3 格宽 */
-    {
-        *lo = TNK_BOX / 2 - 1;
-        *hi = TNK_BOX / 2 + 1;
-    }
+    (void)dir;
+    *lo = TNK_BOX / 2 - 1;
+    *hi = TNK_BOX / 2;
 }
 
 typedef struct
 {
     uint8_t x, y; /* 左上角 */
     uint8_t dir;
-    uint8_t team; /* 0 红 / 1 蓝 */
+    uint8_t team;    /* 0 红 / 1 蓝 */
     uint8_t alive;
+    uint8_t lives;      /* 还剩几条命 */
+    uint16_t hurt_ms;   /* >0：刚中一炮，闪一下，这期间无敌 */
     uint16_t move_ms;
     uint16_t fire_ms;
 } TnkTank;
@@ -1717,10 +1816,24 @@ static void tnk_boom_add(int x, int y)
     tnk_boom[slot].age = 0;
 }
 
-static void tnk_kill(int i, int x, int y)
+/* 中一炮：掉一条命，车身闪一下接着打；命掉光了才真的炸掉 */
+static void tnk_hit(int i, int x, int y)
 {
-    tnk_tank[i].alive = 0;
+    TnkTank *t = &tnk_tank[i];
+
+    if (t->hurt_ms) /* 刚挨过一炮，这 0.7 秒打不穿 */
+        return;
+
     tnk_boom_add(x, y);
+    t->lives--;
+
+    if (t->lives)
+    {
+        t->hurt_ms = TNK_HURT_MS;
+        return;
+    }
+
+    t->alive = 0;
 }
 
 /* 炮口位置：离碰撞框边缘一格，lane 是沿车体宽度方向的列号 */
@@ -1901,12 +2014,12 @@ static void tnk_fire(int i, int lane)
     {
         TnkTank *o = &tnk_tank[k];
 
-        if (!o->alive || o->team == t->team)
+        if (!o->alive || o->team == t->team || o->hurt_ms) /* 无敌状态：让它打过去 */
             continue;
 
         if (bx >= o->x && bx < o->x + TNK_BOX && by >= o->y && by < o->y + TNK_BOX)
         {
-            tnk_kill(k, bx, by);
+            tnk_hit(k, bx, by);
             return;
         }
     }
@@ -2009,12 +2122,12 @@ static void tnk_bullets_step(void)
         {
             TnkTank *t = &tnk_tank[k];
 
-            if (!t->alive || t->team == b->team)
+            if (!t->alive || t->team == b->team || t->hurt_ms) /* 无敌状态：子弹穿过去 */
                 continue;
 
             if (x >= t->x && x < t->x + TNK_BOX && y >= t->y && y < t->y + TNK_BOX)
             {
-                tnk_kill(k, x, y);
+                tnk_hit(k, x, y);
                 b->on = 0;
                 break;
             }
@@ -2081,7 +2194,17 @@ static uint8_t tnk_alive(int team)
     return n;
 }
 
-/* 开一局新的：换地图、清子弹、双方满血复活 */
+/* 这队是不是全打光了（命也拼完了） */
+static uint8_t tnk_team_out(int team)
+{
+    for (int i = 0; i < TNK_TANK_NUM; i++)
+        if (tnk_tank[i].team == team && tnk_tank[i].alive)
+            return 0;
+
+    return 1;
+}
+
+/* 开一局新的：换地图、清子弹、双方满命复活 */
 static void tnk_new_round(void)
 {
     tnk_level();
@@ -2091,6 +2214,8 @@ static void tnk_new_round(void)
     for (int i = 0; i < TNK_TANK_NUM; i++)
     {
         tnk_tank[i].alive = 0;
+        tnk_tank[i].lives = TNK_LIVES;
+        tnk_tank[i].hurt_ms = 0;
         tnk_place_tank(i);
     }
 
@@ -2103,6 +2228,8 @@ static void tnk_new_round(void)
         for (int i = 0; i < TNK_TANK_NUM; i++)
         {
             tnk_tank[i].alive = 0;
+            tnk_tank[i].lives = TNK_LIVES;
+            tnk_tank[i].hurt_ms = 0;
             tnk_place_tank(i);
         }
     }
@@ -2136,6 +2263,14 @@ static uint8_t tnk_sim(void)
 
         if (!t->alive)
             continue;
+
+        if (t->hurt_ms) /* 中弹后的无敌闪烁 */
+        {
+            if (t->hurt_ms > TNK_SIM_MS)
+                t->hurt_ms = (uint16_t)(t->hurt_ms - TNK_SIM_MS);
+            else
+                t->hurt_ms = 0;
+        }
 
         if (t->move_ms > TNK_SIM_MS)
             t->move_ms = (uint16_t)(t->move_ms - TNK_SIM_MS);
@@ -2190,10 +2325,10 @@ static uint8_t tnk_sim(void)
         tnk_bullets_step();
     }
 
-    /* 一方全灭，或者这一局拖太久：都算本局结束，碎屏换下一关 */
+    /* 一方全灭（连命都打光了），或者这一局拖太久：都算本局结束，碎屏换下一关 */
     tnk_round_len = (uint16_t)(tnk_round_len + TNK_SIM_MS);
 
-    if (tnk_alive(0) == 0 || tnk_alive(1) == 0 || tnk_round_len >= TNK_ROUND_MAX_MS)
+    if (tnk_team_out(0) || tnk_team_out(1) || tnk_round_len >= TNK_ROUND_MAX_MS)
         tnk_round_ms = TNK_ROUND_END_MS;
 
     return 0;
@@ -2213,19 +2348,21 @@ static void tnk_render(void)
                 draw_point_gray(wx + dx, wy + dy, White, gray);
     }
 
-    /* 坦克：5x3（朝左右时 3x5）的车身，贴在碰撞框的前沿画，炮塔和炮口点得更亮 */
+    /* 坦克：4x4 的车身，正好铺满碰撞框，炮口那条边点得更亮 */
     for (int i = 0; i < TNK_TANK_NUM; i++)
     {
         TnkTank *t = &tnk_tank[i];
-        int w, h, mx, my, ox, oy;
+        int w, h, ox, oy;
         Color c;
 
         if (!t->alive)
             continue;
 
+        if (t->hurt_ms && ((t->hurt_ms / 100) & 1))
+            continue; /* 中弹后闪一下，表明这条命已经掉了 */
+
         c = t->team ? Cyan : Red;
         tnk_size(t->dir, &w, &h);
-        tnk_barrel(t->dir, &mx, &my);
 
         /* 车身贴前沿：朝下贴下边、朝右贴右边，剩下的余量留在屁股后头 */
         ox = t->x;
@@ -2244,7 +2381,7 @@ static void tnk_render(void)
                 if (!tnk_body_at(dx, dy, t->dir))
                     continue;
 
-                gray = (uint8_t)(((dx == w / 2 && dy == h / 2) || (dx == mx && dy == my)) ? 7 : 7);
+                gray = (uint8_t)(tnk_bar_line(dx, dy, w, h, t->dir) ? 7 : 5);
                 draw_point_gray(ox + dx, oy + dy, c, gray);
             }
     }
