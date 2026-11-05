@@ -101,16 +101,30 @@ void draw_num_str(int x, int y, char *str, uint8_t height, Color color);
 void clear_gram(Color color);
 LongStr_t *draw_long_str(char *str, Color color, int repeats);
 void draw_point(int x, int y, Color color);
+void draw_point_gray(int x, int y, Color color, uint8_t gray);
+/* 时钟界面 · 桌面宠物：分钟跳变时调一次，出场演一遍（right_limit = 数字区右边界） */
+void clock_pet_trigger(uint32_t now, uint8_t allow_right);
+void clock_pet_draw(uint32_t now, int right_limit, uint8_t allow_right, Color color);
+
 void refrash_gram(void);
-void draw_fft(long *fft_result, int len, int delta, Color bar, Color dot);
+#define FFT_STYLE_COUNT 8
+#define FFT_COLOR_COUNT 6
+
+void draw_fft(long *fft_result, int len, int delta, uint8_t style, Color bar, Color dot);
+void fft_style_reset(void);
 int get_long_str_count(void);
 void roll_all_long_str(void);
-void beginSnake(void);
+#define GAME_COUNT 3        /* 游戏合集里的游戏数量：贪吃蛇 / 俄罗斯方块 / 坦克大战 */
+#define SNAKE_FIXED_WIDTH 3 /* 贪吃蛇格子宽度，固定不可调 */
 void refrashSnake(void);
-void setSnakeWidth(uint8_t width);
+void snakeRestart(void); /* 重开一局贪吃蛇（宽度固定 SNAKE_FIXED_WIDTH） */
 void refrashTetris(void); /* 俄罗斯方块界面：推进一帧并画到显存 */
 void refrashTanks(void);  /* 坦克大战界面：推进一帧并画到显存 */
 void tanksRegen(void);    /* 重新随机生成坦克大战地图 */
+void game_restart(uint8_t id); /* 重开指定游戏：0=贪吃蛇 1=俄罗斯方块 2=坦克大战 */
+/* 冲击波切游戏，分两段调用：中间是黑屏，可以在里面写 FLASH 存档 */
+void game_switch_anim_out(uint8_t id); /* 炸掉旧游戏 + 留下黑屏 */
+void game_switch_anim_in(void);        /* 黑屏里重开新游戏并涌出来 */
 void gradient_flow_frame_clock(void);
 void clock_draw_background(uint8_t bg);
 void clock_shatter_anim(void);   /* 当前画面碎裂落地（进菜单用） */

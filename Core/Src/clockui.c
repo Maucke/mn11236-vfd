@@ -667,7 +667,7 @@ static void bg_frame_breathe(void)
 }
 
 /* ============================================================
- * 俄罗斯方块界面（DISP_MODE_TETRIS）
+ * 俄罗斯方块界面（DISP_MODE_GAME 且 game==1）
  * 3x3 像素一格：37 列 x 6 行（右侧余 1 像素）
  *   - 方块统一从屏幕正中出现（原始朝向），先滑到 AI 选好的列，再一格一格转过去
  *   - 每块随机红/蓝/白；拼块内部满亮度，轮廓与块间暗缝用灰度 3
@@ -1499,7 +1499,7 @@ void refrashTetris(void)
 }
 
 /* ============================================================
- * 坦克大战界面（DISP_MODE_TANKS）
+ * 坦克大战界面（DISP_MODE_GAME 且 game==2）
  * 1 像素一格：车身 4x4、2x2 一块墙、1 像素一颗子弹
  *   - 红蓝两队各 3 辆，满场乱跑、互相开火
  *   - 墙分单层（暗灰，打得掉）和多层（更亮，炸不毁）
@@ -2419,6 +2419,7 @@ static void tnk_render(void)
 void tanksRegen(void)
 {
     tnk_regen = 1;
+    tnk_level_flip = 0; /* 别让上一局残留的换关冲击波插进游戏切换里 */
 }
 
 /* 换关动画：冲击波（实现在文件后面的过渡动画区） */
@@ -3796,6 +3797,423 @@ void draw_bitmap_wave(int x, int y, const uint8_t *bitmap, int width, int height
     }
 }
 
+/* ============================================================
+ * 时钟界面 · 桌面宠物
+ * 默认隐藏，只在分钟跳变时被 clock_pet_trigger() 叫出来演一次，
+ * 演完自动消失。动作有：摇尾巴 / 跳跃 / 趴下 / 左右探头 / 顶部探头
+ * 后跌落，活动范围仅限时间左右两侧的空白区（不压数字）。
+ * 右侧阴影和时间数字用同一套画法：每行最右像素往右补 2 像素，
+ * 亮度取 CLOCK_SHADOW_GRAY，所以阴影只会出现在轮廓外侧，不会灌进
+ * 眼睛、嘴巴这些挖空里。
+ * ============================================================ */
+
+#define PET_W 10          /* 精灵宽（像素） */
+#define PET_H 10          /* 精灵高（像素） */
+#define PET_TAIL 3        /* 尾巴像素数 */
+#define PET_GROUND 8      /* 站立时精灵顶部 y：8 + 10 = 18 */
+#define PET_LIE_Y 13      /* 趴下（5 行高）顶部 y：13 + 5 = 18 */
+
+/* 行掩码：bit0 = 最左一列，1 = 点亮 */
+static const uint16_t pet_sit[10] = {
+    0x0084, 0x01CE, 0x01FE, 0x03FF, 0x0333,
+    0x0333, 0x03FF, 0x03CF, 0x01FE, 0x014A,
+};
+static const uint16_t pet_sit_blink[10] = {
+    0x0084, 0x01CE, 0x01FE, 0x03FF, 0x03FF,
+    0x03FF, 0x03FF, 0x03CF, 0x01FE, 0x014A,
+};
+static const uint16_t pet_lie[5] = {
+    0x01FE, 0x0333, 0x03FF, 0x03FF, 0x014A,
+};
+
+/* 尾巴三帧：(dx, dy) 相对精灵左上角，dx 可到 12（身体右外 3 像素） */
+static const int8_t pet_tail[3][PET_TAIL][2] = {
+    {{10, 5}, {11, 4}, {12, 3}},
+    {{10, 6}, {11, 6}, {12, 6}},
+    {{10, 7}, {11, 7}, {12, 8}},
+};
+
+/* 趴下时的尾巴（贴着地面摆） */
+static const int8_t pet_tail_lie[3][PET_TAIL][2] = {
+    {{10, 2}, {11, 3}, {12, 4}},
+    {{10, 3}, {11, 3}, {12, 3}},
+    {{10, 4}, {11, 3}, {12, 2}},
+};
+
+enum {
+    PET_ACT_SIT = 0,
+    PET_ACT_WAG,
+    PET_ACT_JUMP,
+    PET_ACT_LIE,
+    PET_ACT_PEEK_L,
+    PET_ACT_PEEK_R,
+    PET_ACT_DROP,
+};
+
+typedef struct {
+    uint8_t act;
+    uint8_t home;      /* 0 = 左侧空地，1 = 右侧空地 */
+    uint32_t t0;
+    uint32_t dur;
+} PetState_t;
+
+static PetState_t g_pet = {PET_ACT_SIT, 0, 0, 3000};
+
+/* 0 = 藏起来（大部分时间），1 = 正在出场 */
+static uint8_t pet_active = 0;
+
+/* 简单 LCG，够用就行 */
+static uint32_t pet_rand(void)
+{
+    static uint32_t s = 0x9E3779B9u;
+
+    s = s * 1664525u + 1013904223u;
+    return s >> 16;
+}
+
+/* 精灵落点：左侧贴左边，右侧整体贴右边（身体 10 + 尾巴 3 + 阴影 2） */
+static int pet_base_x(uint8_t home, int right_limit)
+{
+    int x;
+
+    if (!home)
+        return 2;
+
+    x = MAX_X - (PET_W + PET_TAIL + 2);
+    if (x < right_limit)
+        x = right_limit;
+
+    return x;
+}
+
+/* 挑一个出场动作：加权随机，尽量不连着做同一个 */
+static void pet_pick(uint32_t now, uint8_t allow_right)
+{
+    /* 每次出场只做一件事，所以不放“纯坐着” */
+    static const uint8_t pool[] = {
+        PET_ACT_WAG, PET_ACT_WAG,
+        PET_ACT_JUMP, PET_ACT_JUMP,
+        PET_ACT_LIE, PET_ACT_LIE,
+        PET_ACT_PEEK_L, PET_ACT_PEEK_R,
+        PET_ACT_DROP,
+    };
+    uint8_t n;
+    uint8_t guard = 0;
+
+    do
+    {
+        n = pool[pet_rand() % (sizeof(pool) / sizeof(pool[0]))];
+        guard++;
+    } while (n == g_pet.act && guard < 6);
+
+    /* 右半边被日期占用时不出现在右侧 */
+    if (!allow_right && n == PET_ACT_PEEK_R)
+        n = PET_ACT_PEEK_L;
+
+    g_pet.act = n;
+    g_pet.t0 = now;
+
+    switch (n)
+    {
+    case PET_ACT_SIT:
+        g_pet.dur = 3000u;
+        break;
+    case PET_ACT_WAG:
+        g_pet.dur = 2200u;
+        break;
+    case PET_ACT_JUMP:
+        g_pet.dur = 1460u; /* 140 蓄力 + 3 x 340 跳 + 300 站定 */
+        break;
+    case PET_ACT_LIE:
+        g_pet.dur = 3000u;
+        break;
+    case PET_ACT_PEEK_L:
+        g_pet.home = 0;
+        g_pet.dur = 2400u;
+        break;
+    case PET_ACT_PEEK_R:
+        g_pet.home = 1;
+        g_pet.dur = 2400u;
+        break;
+    default:
+        g_pet.dur = 2500u;
+        break;
+    }
+}
+
+/* 画精灵本体 */
+static void pet_blit(int x, int y, const uint16_t *rows, uint8_t h,
+                     uint8_t flip, Color color)
+{
+    for (uint8_t r = 0; r < h; r++)
+    {
+        uint16_t bits = rows[r];
+
+        for (uint8_t c = 0; bits; c++, bits >>= 1)
+            if (bits & 1u)
+                draw_point(x + (flip ? (PET_W - 1 - c) : c), y + r, color);
+    }
+}
+
+/* 画尾巴，tail 为 NULL 表示这一帧不画 */
+static void pet_tail_blit(int x, int y, const int8_t (*tail)[2],
+                          uint8_t flip, Color color)
+{
+    for (int i = 0; i < PET_TAIL; i++)
+    {
+        int dx = tail[i][0];
+        int dy = tail[i][1];
+
+        draw_point(x + (flip ? (PET_W - 1 - dx) : dx), y + dy, color);
+    }
+}
+
+/* 右侧阴影：每行最右像素 +1 / +2，亮度与时间数字的阴影一致 */
+static void pet_shadow(int x, int y, const uint16_t *rows, uint8_t h,
+                       uint8_t flip, const int8_t (*tail)[2], Color color)
+{
+    uint8_t old = g_maxGray;
+
+    g_maxGray = CLOCK_SHADOW_GRAY;
+
+    for (uint8_t r = 0; r < h; r++)
+    {
+        uint16_t bits = rows[r];
+        int right = -1;
+
+        if (bits)
+        {
+            if (flip)
+            {
+                for (uint8_t c = 0; c < PET_W; c++)
+                    if (bits & (1u << c))
+                    {
+                        right = x + (PET_W - 1 - c);
+                        break;
+                    }
+            }
+            else
+            {
+                for (int c = PET_W - 1; c >= 0; c--)
+                    if (bits & (1u << c))
+                    {
+                        right = x + c;
+                        break;
+                    }
+            }
+        }
+
+        if (tail != NULL)
+        {
+            for (int i = 0; i < PET_TAIL; i++)
+            {
+                int sx;
+
+                if (tail[i][1] != (int8_t)r)
+                    continue;
+
+                sx = x + (flip ? (PET_W - 1 - tail[i][0]) : tail[i][0]);
+                if (sx > right)
+                    right = sx;
+            }
+        }
+
+        if (right >= 0)
+        {
+            draw_point(right + 1, y + r, color);
+            draw_point(right + 2, y + r, color);
+        }
+    }
+
+    g_maxGray = old;
+}
+
+/*
+ * 触发一次出场（分钟跳变时由时钟界面调用）：挑一个动作演一遍，演完自动隐藏。
+ *   allow_right : 0 = 右半边被日期占用，只在左侧活动
+ */
+void clock_pet_trigger(uint32_t now, uint8_t allow_right)
+{
+    pet_pick(now, allow_right);
+    pet_active = 1;
+}
+
+/*
+ * 每帧调用一次（时钟界面里，画完时间之后、送屏之前）。没在出场就什么都不画。
+ *   right_limit : 数字区右边界（像素），宠物右侧活动范围从这里往右
+ *   allow_right : 0 = 右半边被日期占用，只在左侧活动
+ */
+void clock_pet_draw(uint32_t now, int right_limit, uint8_t allow_right, Color color)
+{
+    const uint16_t *spr = pet_sit;
+    const int8_t (*tail)[2] = pet_tail[1];
+    uint8_t h = PET_H;
+    uint8_t flip;
+    int x, y;
+    uint32_t t;
+
+    if (!pet_active)
+        return;
+
+    if ((uint32_t)(now - g_pet.t0) >= g_pet.dur)
+    {
+        /* 演完就躲起来，等下一次分钟跳变 */
+        pet_active = 0;
+        return;
+    }
+
+    if (!allow_right && g_pet.home)
+        g_pet.home = 0;
+
+    t = now - g_pet.t0;
+    flip = g_pet.home ? 1 : 0;
+    x = pet_base_x(g_pet.home, right_limit);
+    y = PET_GROUND;
+
+    switch (g_pet.act)
+    {
+    case PET_ACT_SIT:
+    case PET_ACT_WAG:
+    {
+        uint32_t speed = (g_pet.act == PET_ACT_WAG) ? 150u : 420u;
+        uint32_t bt = t % 3000u;
+
+        tail = pet_tail[(t / speed) % 3u];
+
+        /* 偶尔眨眼（避开动作刚开始那一下） */
+        if (g_pet.act == PET_ACT_SIT && bt > 2600u && bt < 2740u)
+            spr = pet_sit_blink;
+
+        break;
+    }
+    case PET_ACT_JUMP:
+    {
+        const uint32_t ant = 140u, hop = 340u, hops = 3u;
+
+        if (t < ant)
+        {
+            /* 起跳前压一下 */
+            spr = pet_lie;
+            h = 5;
+            y = PET_LIE_Y;
+            tail = pet_tail_lie[0];
+        }
+        else if (t - ant < hops * hop)
+        {
+            uint32_t p = ((t - ant) % hop) * 1000u / hop;
+            uint32_t up = 5u * 4u * p * (1000u - p) / 1000000u;
+
+            y = PET_GROUND - (int)up;
+            tail = pet_tail[(p < 500u) ? 0 : 2];
+        }
+        else
+        {
+            /* 三下跳完，站定等一下再消失 */
+            tail = pet_tail[(t / 200u) % 3u];
+        }
+
+        break;
+    }
+    case PET_ACT_LIE:
+        /* 收尾先站起来，别躺着凭空消失 */
+        if (t + 500u >= g_pet.dur)
+        {
+            tail = pet_tail[(t / 200u) % 3u];
+            break;
+        }
+
+        spr = pet_lie;
+        h = 5;
+        y = PET_LIE_Y;
+        tail = pet_tail_lie[(t / 220u) % 3u];
+        break;
+    case PET_ACT_PEEK_L:
+    case PET_ACT_PEEK_R:
+    {
+        /* 从屏幕边缘滑进来，只露 5 像素宽的脑袋 */
+        uint32_t p = t * 1000u / g_pet.dur;
+        uint32_t vis;
+
+        if (p < 280u)
+            vis = p * 1000u / 280u;
+        else if (p < 720u)
+            vis = 1000u;
+        else
+            vis = (1000u - p) * 1000u / 280u;
+
+        y = PET_GROUND;
+        tail = NULL;
+
+        if (g_pet.act == PET_ACT_PEEK_L)
+        {
+            x = -10 + (int)(vis * 5u / 1000u);
+            flip = 0;
+        }
+        else
+        {
+            x = MAX_X - (int)(vis * 5u / 1000u);
+            flip = 1;
+        }
+
+        break;
+    }
+    case PET_ACT_DROP:
+    default:
+    {
+        const uint32_t peek_ms = 520u, fall_ms = 430u, bounce_ms = 170u;
+
+        if (t < peek_ms)
+        {
+            /* 先从顶部垂下来一小截 */
+            uint32_t a = (t < 330u) ? t : 330u;
+
+            y = -10 + (int)(4u * a / 330u);
+            tail = pet_tail[(t / 220u) % 3u];
+        }
+        else if (t < peek_ms + fall_ms)
+        {
+            /* 自由落体 */
+            uint32_t p = (t - peek_ms) * 1000u / fall_ms;
+
+            y = -6 + (int)((PET_GROUND + 6) * p * p / 1000000u);
+            tail = pet_tail[0];
+        }
+        else if (t < peek_ms + fall_ms + bounce_ms)
+        {
+            /* 落地弹一下 */
+            uint32_t p = (t - peek_ms - fall_ms) * 1000u / bounce_ms;
+
+            y = PET_GROUND - (int)(4u * 4u * p * (1000u - p) / 1000000u);
+            tail = pet_tail[2];
+        }
+        else
+        {
+            uint32_t e = t - peek_ms - fall_ms - bounce_ms;
+
+            if (e < 520u)
+            {
+                spr = pet_lie;
+                h = 5;
+                y = PET_LIE_Y;
+                tail = pet_tail_lie[0];
+            }
+            else
+            {
+                tail = pet_tail[(t / 200u) % 3u];
+            }
+        }
+
+        break;
+    }
+    }
+
+    pet_shadow(x, y, spr, h, flip, tail, color);
+    pet_blit(x, y, spr, h, flip, color);
+
+    if (tail != NULL)
+        pet_tail_blit(x, y, tail, flip, color);
+}
+
 void refrash_gram()
 {
     mn11236_send_buffer();
@@ -4086,34 +4504,96 @@ static void shock_run(const uint8_t *snap, uint16_t total_ms, uint8_t reveal)
     }
 }
 
-/* 坦克大战换关：旧关被冲击波炸开 → 黑场里换好下一关 → 从中心涌出来 */
-static void tnk_shockwave(void)
+/* 通用冲击波过渡，拆成三段，中间那段是纯黑屏：
+ *   shock_out()     旧画面被炸掉，屏幕全黑并停住（黑场开始）
+ *   shock_prepare() 黑场里把新画面画好、拍快照（屏幕还是黑的）
+ *   shock_in()      新画面从中心涌出来，收尾留下完整画面
+ * 之所以拆开，是为了让调用方能在黑场里插入阻塞操作（比如写 FLASH 存配置），
+ * 那几毫秒藏在黑屏里，用户看不到卡顿。 */
+static uint32_t shock_t0;
+
+static void shock_out(void)
 {
     uint8_t *buf = mn11236_get_buffer();
-    uint32_t t_begin = HAL_GetTick();
 
-    memcpy(g_shatterSnap, buf, sizeof(g_shatterSnap)); /* 旧关最后一帧 */
+    shock_t0 = HAL_GetTick();
+
+    memcpy(g_shatterSnap, buf, sizeof(g_shatterSnap)); /* 旧画面最后一帧 */
 
     shock_run((const uint8_t *)g_shatterSnap, SHOCK_OUT_MS, 0);
 
     mn11236_clear_buffers();
-    mn11236_send_buffer();
+    mn11236_send_buffer(); /* 全黑，停在这里 */
     osDelay(SHOCK_BLACK_MS);
+}
 
-    tnk_new_round(); /* 黑场里把新关准备好 */
+static void shock_prepare(void (*build)(void))
+{
+    uint8_t *buf = mn11236_get_buffer();
 
     mn11236_clear_buffers();
-    tnk_render();
-    memcpy(g_shatterSnap, buf, sizeof(g_shatterSnap)); /* 新关快照 */
+    build(); /* 黑屏里画新画面 */
+
+    memcpy(g_shatterSnap, buf, sizeof(g_shatterSnap)); /* 新画面快照 */
+}
+
+static void shock_in(void)
+{
+    uint8_t *buf = mn11236_get_buffer();
 
     shock_run((const uint8_t *)g_shatterSnap, SHOCK_IN_MS, 1);
 
-    /* 收尾：显存里留下完整的新关 */
+    /* 收尾：显存里留下完整的新画面 */
     memcpy(buf, g_shatterSnap, sizeof(g_shatterSnap));
     mn11236_send_buffer();
 
-    clock_anim_pause(HAL_GetTick() - t_begin);
+    clock_anim_pause(HAL_GetTick() - shock_t0);
 }
+
+/* 坦克大战换关 */
+static void tnk_build_round(void)
+{
+    tnk_new_round();
+    tnk_render();
+}
+
+static void tnk_shockwave(void)
+{
+    shock_out();
+    shock_prepare(tnk_build_round);
+    shock_in();
+}
+
+/* 游戏之间切换：和坦克换关同一个冲击波
+ * 黑场里重开新游戏并画好第一帧，涌出来的时候就已经是下一局了 */
+static uint8_t game_build_id;
+
+static void game_build_frame(void)
+{
+    game_restart(game_build_id);
+
+    if (game_build_id == 0)
+        refrashSnake();
+    else if (game_build_id == 1)
+        refrashTetris();
+    else
+        refrashTanks();
+}
+
+/* 第一段：冲击波把旧游戏炸掉，留下一块黑屏（黑场里可以存档） */
+void game_switch_anim_out(uint8_t id)
+{
+    game_build_id = id;
+    shock_out();
+}
+
+/* 第三段：黑场结束前把新游戏画好，再从中心涌出来 */
+void game_switch_anim_in(void)
+{
+    shock_prepare(game_build_frame);
+    shock_in();
+}
+
 
 /* ---- 扫描线刷屏（时钟换主题） ---- */
 #define WIPE_OUT_MS 130
@@ -4221,515 +4701,730 @@ void clock_wipe_scan_in(void)
     }
 }
 
-static uint8_t g_snakeWidth = 2; // 默认宽度
-#define COLS (MAX_X / g_snakeWidth)
-#define ROWS (MAX_Y / g_snakeWidth)
+/* ============================================================
+ *  贪吃蛇（格子宽度固定 SNAKE_FIXED_WIDTH = 3，棋盘 37 x 6）
+ *
+ *  相比老实现：
+ *   1. 走格改成时间驱动，不再每帧走一格（原来 20 格/秒，眼睛跟不上）；
+ *   2. AI 先用 BFS 算到食物的真实距离，再对每个候选方向做连通块
+ *      flood fill，空间不够自己身长就不走，基本不会把自己困死；
+ *   3. 食物生成避开蛇身并带重试上限，亮度做呼吸；
+ *   4. 死亡动画、渐隐、重生都保留，重生时整盘重新铺，不会留残影。
+ * ============================================================ */
 
-#define MAX_LENGTH 60
+#define SNAKE_W SNAKE_FIXED_WIDTH
+#define SNAKE_COLS (MAX_X / SNAKE_W)          /* 37 */
+#define SNAKE_ROWS (MAX_Y / SNAKE_W)          /* 6  */
+#define SNAKE_CELLS (SNAKE_COLS * SNAKE_ROWS) /* 222 */
+#define SNAKE_MAX_LEN 60
+#define SNAKE_STEP_MS 120 /* 每走一格的时间 */
+#define SNAKE_FOOD_UNREACH 250
+
 #define SNAKE_HEAD White
 #define SNAKE_BODY Cyan
-#define FOOD_DOT Red
-#define BLANK_DOT 0
-// 定义蛇的结构体
+#define SNAKE_FOOD Red
+
 typedef struct
 {
-    int16_t x;
-    int16_t y;
+    int16_t x, y;
 } SnakeSegment;
 
-// 定义蛇的结构体
 typedef struct
 {
-    SnakeSegment body[MAX_LENGTH];
+    SnakeSegment body[SNAKE_MAX_LEN];
     int length;
-    int direction; // 0: 上, 1: 右, 2: 下, 3: 左
+    int direction; /* 0=上 1=右 2=下 3=左 */
 } Snake_t;
 
-// 定义食物的结构体
 typedef struct
 {
-    uint16_t x;
-    uint16_t y;
+    int16_t x, y;
 } Food_t;
+
 typedef enum
 {
     SNAKE_ALIVE = 0,
-    SNAKE_DYING,    // 正在从头到尾变红
-    SNAKE_DEAD_WAIT // 已全红，等待重生
+    SNAKE_DYING,    /* 从头到尾变红 */
+    SNAKE_DEAD_WAIT /* 全红之后渐隐，再重生 */
 } SnakeState_t;
 
-SnakeState_t snakeState = SNAKE_ALIVE;
-int deathIndex = 0;
-int deadWaitCnt = 0;
+static SnakeState_t snakeState = SNAKE_ALIVE;
+static int deathIndex = 0;
+static int deadWaitCnt = 0;
+static uint32_t snake_last_step = 0;
+static uint32_t snake_now = 0;
+/* 平滑移动：一步走一格（SNAKE_W 像素），拆成 SNAKE_W 帧，每帧挪 1 像素。
+ * snake_frac = 本步已经走了几帧（0 .. SNAKE_W-1） */
+static int snake_frac = 0;
+/* 这一口食物已经吃进逻辑里了，但画面上蛇头还没压上去：
+ * 先留在原地不动，等下一步再换新位置，免得食物比蛇头早消失 */
+static uint8_t snake_food_eaten = 0;
 
-Snake_t snake;
-Food_t food;
+static Snake_t snake;
+static Food_t food;
 
-void initSnake(Snake_t *snake)
+static uint8_t snake_vis[SNAKE_CELLS];
+static uint8_t snake_dist[SNAKE_CELLS];
+static uint8_t snake_q[SNAKE_CELLS];
+static uint8_t snake_gen = 0;
+
+static const int8_t snake_dx[4] = {0, 1, 0, -1};
+static const int8_t snake_dy[4] = {-1, 0, 1, 0};
+
+/* ---------------- 基础工具 ---------------- */
+
+/* 画一个格子（SNAKE_W x SNAKE_W） */
+static void snake_block(int x, int y, Color c, uint8_t gray)
 {
-    int ok = 0;
+    int px = x * SNAKE_W;
+    int py = y * SNAKE_W;
 
-    while (!ok)
+    for (int dx = 0; dx < SNAKE_W; dx++)
+        for (int dy = 0; dy < SNAKE_W; dy++)
+            draw_point_gray(px + dx, py + dy, c, gray);
+}
+
+static int snake_inside(int x, int y)
+{
+    return x >= 0 && x < SNAKE_COLS && y >= 0 && y < SNAKE_ROWS;
+}
+
+/* 某格是否被蛇身占着；ignore_tail=1 时忽略最后一节（下一步它就挪走了） */
+static int snake_body_at(const Snake_t *s, int x, int y, int ignore_tail)
+{
+    int n = s->length - (ignore_tail ? 1 : 0);
+
+    for (int i = 0; i < n; i++)
+        if (s->body[i].x == x && s->body[i].y == y)
+            return 1;
+
+    return 0;
+}
+
+/* 从 (sx, sy) 出发能走到多少格（蛇身当墙，尾巴算空） */
+static int snake_space(const Snake_t *s, int sx, int sy)
+{
+    int qh = 0, qt = 0, n = 0;
+
+    if (++snake_gen == 0)
     {
-        ok = 1;
+        memset(snake_vis, 0, sizeof(snake_vis));
+        snake_gen = 1;
+    }
 
-        snake->length = 4;
-        snake->direction = rand() % 4;
+    snake_q[qt++] = (uint8_t)(sy * SNAKE_COLS + sx);
+    snake_vis[sy * SNAKE_COLS + sx] = snake_gen;
 
-        int hx = rand() % COLS;
-        int hy = rand() % ROWS;
+    while (qh < qt)
+    {
+        int idx = snake_q[qh++];
+        int x = idx % SNAKE_COLS;
+        int y = idx / SNAKE_COLS;
 
-        /* 根据方向计算身体增长方向（反方向） */
-        int dx = 0, dy = 0;
-        switch (snake->direction)
+        n++;
+
+        for (int d = 0; d < 4; d++)
         {
-        case 0:
-            dy = 1;
-            break; // 上 → 身体向下
-        case 1:
-            dx = -1;
-            break; // 右 → 身体向左
-        case 2:
-            dy = -1;
-            break; // 下 → 身体向上
-        case 3:
-            dx = 1;
-            break; // 左 → 身体向右
+            int nx = x + snake_dx[d];
+            int ny = y + snake_dy[d];
+            int ni;
+
+            if (!snake_inside(nx, ny))
+                continue;
+
+            ni = ny * SNAKE_COLS + nx;
+
+            if (snake_vis[ni] == snake_gen || snake_body_at(s, nx, ny, 1))
+                continue;
+
+            snake_vis[ni] = snake_gen;
+            snake_q[qt++] = (uint8_t)ni;
+        }
+    }
+
+    return n;
+}
+
+/* 从食物倒着 BFS，得到每格到食物的最短步数；走不到就是 SNAKE_FOOD_UNREACH */
+static void snake_dist_map(const Snake_t *s, const Food_t *f)
+{
+    int qh = 0, qt = 0;
+
+    memset(snake_dist, SNAKE_FOOD_UNREACH, sizeof(snake_dist));
+
+    if (!snake_inside(f->x, f->y))
+        return;
+
+    snake_dist[f->y * SNAKE_COLS + f->x] = 0;
+    snake_q[qt++] = (uint8_t)(f->y * SNAKE_COLS + f->x);
+
+    while (qh < qt)
+    {
+        int idx = snake_q[qh++];
+        int x = idx % SNAKE_COLS;
+        int y = idx / SNAKE_COLS;
+        uint8_t nd = (uint8_t)(snake_dist[idx] + 1);
+
+        if (nd >= SNAKE_FOOD_UNREACH)
+            continue;
+
+        for (int d = 0; d < 4; d++)
+        {
+            int nx = x + snake_dx[d];
+            int ny = y + snake_dy[d];
+            int ni;
+
+            if (!snake_inside(nx, ny))
+                continue;
+
+            ni = ny * SNAKE_COLS + nx;
+
+            if (snake_dist[ni] != SNAKE_FOOD_UNREACH || snake_body_at(s, nx, ny, 1))
+                continue;
+
+            snake_dist[ni] = nd;
+            snake_q[qt++] = (uint8_t)ni;
+        }
+    }
+}
+
+/* ---------------- 走一步 ---------------- */
+
+static void snake_ai(Snake_t *s, const Food_t *f)
+{
+    int hx = s->body[0].x;
+    int hy = s->body[0].y;
+    int need = s->length + 2;
+    int safe_dir = -1;
+    int safe_dist = SNAKE_FOOD_UNREACH;
+    int free_dir = -1;
+    int free_space = -1;
+
+    snake_dist_map(s, f);
+
+    /* 先直行，再右转、左转，掉头直接跳过 */
+    for (int k = 0; k < 4; k++)
+    {
+        int d = (s->direction + k) & 3;
+        int nx, ny, space, dist;
+
+        if (d == ((s->direction + 2) & 3))
+            continue;
+
+        nx = hx + snake_dx[d];
+        ny = hy + snake_dy[d];
+
+        if (!snake_inside(nx, ny) || snake_body_at(s, nx, ny, 1))
+            continue;
+
+        space = snake_space(s, nx, ny);
+
+        if (space < need)
+        {
+            /* 走进去会把自己困住，只当备胎 */
+            if (space > free_space)
+            {
+                free_space = space;
+                free_dir = d;
+            }
+            continue;
         }
 
-        /* 检查是否越界 */
-        for (int i = 0; i < snake->length; i++)
-        {
-            int x = hx + dx * i;
-            int y = hy + dy * i;
+        dist = snake_dist[ny * SNAKE_COLS + nx];
 
-            if (x < 0 || x >= COLS || y < 0 || y >= ROWS)
+        if (safe_dir < 0 || dist < safe_dist)
+        {
+            safe_dir = d;
+            safe_dist = dist;
+        }
+    }
+
+    if (safe_dir >= 0)
+        s->direction = safe_dir;
+    else if (free_dir >= 0)
+        s->direction = free_dir;
+}
+
+static void snake_move(Snake_t *s, int grow)
+{
+    /* 吃到食物时把旧尾巴留在原地，这样长度真的多一节
+     * （老写法是复制最后一节，会有两节叠在同一格里） */
+    if (grow && s->length < SNAKE_MAX_LEN)
+    {
+        s->body[s->length] = s->body[s->length - 1];
+        s->length++;
+    }
+
+    for (int i = s->length - 1; i > 0; i--)
+        s->body[i] = s->body[i - 1];
+
+    s->body[0].x = (int16_t)(s->body[0].x + snake_dx[s->direction]);
+    s->body[0].y = (int16_t)(s->body[0].y + snake_dy[s->direction]);
+}
+
+/* 撞墙或撞到自己（最后一节不算，它下一步就挪走了） */
+static int snake_collision(const Snake_t *s)
+{
+    int x = s->body[0].x;
+    int y = s->body[0].y;
+
+    if (!snake_inside(x, y))
+        return 1;
+
+    for (int i = 1; i < s->length - 1; i++)
+        if (s->body[i].x == x && s->body[i].y == y)
+            return 1;
+
+    return 0;
+}
+
+static void snake_place_food(const Snake_t *s, Food_t *f)
+{
+    int guard = 0;
+
+    do
+    {
+        f->x = (int16_t)(rand() % SNAKE_COLS);
+        f->y = (int16_t)(rand() % SNAKE_ROWS);
+    } while (snake_body_at(s, f->x, f->y, 0) && ++guard < 512);
+}
+
+static void snake_spawn(Snake_t *s)
+{
+    s->length = 4;
+    s->direction = 1;
+
+    /* 兜底：横着摆在左上角 */
+    for (int i = 0; i < s->length; i++)
+    {
+        s->body[i].x = (int16_t)(3 - i);
+        s->body[i].y = 0;
+    }
+
+    for (int tries = 0; tries < 64; tries++)
+    {
+        int d = rand() & 3;
+        int hx = rand() % SNAKE_COLS;
+        int hy = rand() % SNAKE_ROWS;
+        int ok = 1;
+
+        for (int i = 0; i < s->length; i++)
+        {
+            int x = hx - snake_dx[d] * i;
+            int y = hy - snake_dy[d] * i;
+
+            if (!snake_inside(x, y))
             {
                 ok = 0;
                 break;
             }
 
-            snake->body[i].x = x;
-            snake->body[i].y = y;
+            s->body[i].x = (int16_t)x;
+            s->body[i].y = (int16_t)y;
+        }
+
+        if (ok)
+        {
+            s->direction = d;
+            return;
         }
     }
 }
 
-void initFood(Food_t *food, Snake_t *snake)
-{
-    int valid;
-    do
-    {
-        valid = 1;
-        food->x = rand() % COLS;
-        food->y = rand() % ROWS;
+/* ---------------- 渲染 ---------------- */
 
-        for (int i = 0; i < snake->length; i++)
-        {
-            if (snake->body[i].x == food->x && snake->body[i].y == food->y)
-            {
-                nexlink_log("x:%dy:%d %d, x:%dy:%d\r\n", food->x, food->y, i, snake->body[i].x, snake->body[i].y);
-                valid = 0;
-                break;
-            }
-        }
-    } while (!valid);
-}
-// 打印游戏界面
-static inline void draw_snake_block_gray(int x, int y, uint8_t color, uint8_t gray)
-{
-    int px = x * g_snakeWidth;
-    int py = y * g_snakeWidth;
+/* 3x3 的格子太小，纯色方块看着就是一根"香肠"，这里补几处细节：
+ *   1. 一格横着切成三条：暗红（背）/ 白（亮脊）/ 蓝（腹）；
+ *      竖着走时同样是左列暗红、中列白、右列蓝；
+ *   2. 亮脊用红蓝双通道一起亮 → 白色高光，像圆管上的一条反光；
+ *   3. 蛇头切掉朝前的两个角 → 有个尖鼻子；
+ *   4. 尾巴沿身体方向缩成 2 格宽 → 收尖；
+ *   5. 食物画成十字宝石，和蛇身方块区分开。
+ *
+ * 注意：下面直接用「带号 0/1/2 = 格内坐标 0/1/2」来分条，
+ *       所以依赖 SNAKE_W == 3。 */
 
-    for (int dx = 0; dx < g_snakeWidth; dx++)
-        for (int dy = 0; dy < g_snakeWidth; dy++)
-            draw_point_gray(px + dx, py + dy, (Color)color, gray);
+/* 这一节是横着的还是竖着的（看相邻那节在哪边） */
+static int snake_seg_horizontal(int i)
+{
+    int j = (i + 1 < snake.length) ? i + 1 : i - 1;
+
+    return snake.body[i].x != snake.body[j].x;
 }
 
-void printBoard(Snake_t *snake, Food_t *food)
+/* 一格身体里的第 band 条：0=暗红（背） 1=白（亮脊） 2=蓝（腹）
+ * g 是这一格的亮度（靠头最亮，往尾巴渐暗） */
+static void snake_band_pixel(int x, int y, int band, uint8_t g)
 {
-    int len = snake->length;
-
-    for (int i = 0; i < len; i++)
+    if (band == 0)
     {
-        float t = (float)i / (len - 1); // 0 → 1
-
-        uint8_t orange = 0;
-        uint8_t cyan = 0;
-
-        if (i == 0)
-        {
-            // 头：纯白
-            orange = 7;
-            cyan = 7;
-        }
-        else
-        {
-            if (t < 0.4f)
-            {
-                // 白 → 青蓝
-                float k = t / 0.4f; // 0~1
-                orange = (uint8_t)(7 * (1.0f - k));
-                cyan = 7;
-            }
-            else
-            {
-                // 青蓝 → 渐灭
-                float k = (t - 0.4f) / 0.6f; // 0~1
-                orange = 0;
-                cyan = (uint8_t)(7 * (1.0f - k));
-            }
-        }
-
-        if (cyan < 1 && i != 0)
-            cyan = 1; // 保证不完全熄灭（可删）
-
-        draw_snake_block_gray(
-            snake->body[i].x,
-            snake->body[i].y,
-            Red,
-            orange);
-        draw_snake_block_gray(
-            snake->body[i].x,
-            snake->body[i].y,
-            Cyan,
-            cyan);
+        /* 背部：红压暗 2 级 */
+        draw_point_gray(x, y, Red, (g > 2) ? (uint8_t)(g - 2) : g);
     }
-
-    draw_snake_block_gray(food->x, food->y, FOOD_DOT, 7);
-}
-
-// 辅助函数：返回给定方向的相反方向
-int oppositeDirection(int dir)
-{
-    switch (dir)
+    else if (band == 1)
     {
-    case 0:
-        return 2;
-    case 1:
-        return 3;
-    case 2:
-        return 0;
-    case 3:
-        return 1;
-    default:
-        return -1;
-    }
-}
-
-// 让蛇自动追踪食物，避免撞到自己
-void autoTrackFood(Snake_t *snake, Food_t *food)
-{
-    int hx = snake->body[0].x;
-    int hy = snake->body[0].y;
-    int best = -1;
-
-    static int lastDir = -1;
-
-    int dx = food->x - hx;
-    int dy = food->y - hy;
-
-    int cand[4];
-    int idx = 0;
-
-    if (abs(dx) > abs(dy))
-    {
-        cand[idx++] = dx > 0 ? 1 : 3;
-        cand[idx++] = dy > 0 ? 2 : 0;
-        cand[idx++] = dy > 0 ? 0 : 2;
-        cand[idx++] = dx > 0 ? 3 : 1;
+        /* 亮脊：红蓝一起亮 → 白 */
+        draw_point_gray(x, y, Red, g);
+        draw_point_gray(x, y, Cyan, g);
     }
     else
     {
-        cand[idx++] = dy > 0 ? 2 : 0;
-        cand[idx++] = dx > 0 ? 1 : 3;
-        cand[idx++] = dx > 0 ? 3 : 1;
-        cand[idx++] = dy > 0 ? 0 : 2;
+        /* 腹部：蓝 */
+        draw_point_gray(x, y, Cyan, g);
     }
+}
 
-    for (int i = 0; i < 4; i++)
-    {
-        int dir = cand[i];
-
-        if (dir == oppositeDirection(snake->direction))
-            continue;
-
-        int nx = hx, ny = hy;
-        if (dir == 0)
-            ny--;
-        if (dir == 1)
-            nx++;
-        if (dir == 2)
-            ny++;
-        if (dir == 3)
-            nx--;
-
-        /* ★ 边界检查 */
-        if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS)
-            continue;
-
-        int safe = 1;
-        for (int j = 1; j < snake->length - 1; j++)
+/* 一节身体：横着按行分条，竖着按列分条 */
+static void snake_seg(int px, int py, int horizontal, uint8_t g)
+{
+    for (int dx = 0; dx < SNAKE_W; dx++)
+        for (int dy = 0; dy < SNAKE_W; dy++)
         {
-            if (nx == snake->body[j].x &&
-                ny == snake->body[j].y)
-            {
-                safe = 0;
-                break;
-            }
+            int band = horizontal ? dy : dx;
+
+            snake_band_pixel(px + dx, py + dy, band, g);
         }
+}
 
-        if (!safe)
-            continue;
+/* 蛇头：朝前的两个角切掉，留个尖鼻子
+ * px/py 是像素坐标（平滑移动时会带着不足一格的偏移） */
+static void snake_head_block(int px, int py, int dir, uint8_t g)
+{
+    for (int dx = 0; dx < SNAKE_W; dx++)
+        for (int dy = 0; dy < SNAKE_W; dy++)
+        {
+            int front;
+            int corner = ((dx == 0 || dx == SNAKE_W - 1) &&
+                          (dy == 0 || dy == SNAKE_W - 1));
 
-        if (dir == oppositeDirection(lastDir))
-            continue;
+            if (dir == 1)
+                front = (dx == SNAKE_W - 1);
+            else if (dir == 3)
+                front = (dx == 0);
+            else if (dir == 0)
+                front = (dy == 0);
+            else
+                front = (dy == SNAKE_W - 1);
 
-        best = dir;
-        break;
-    }
+            if (front && corner)
+                continue;
 
-    if (best != -1)
+            draw_point_gray(px + dx, py + dy, SNAKE_HEAD, g);
+        }
+}
+
+/* 尾巴：沿身体方向缩成 2 格宽 → 收尖；
+ * 贴向身体那一侧对齐，和前一节之间不会留 1 像素的缝；同样是暗红 / 白 / 蓝三条 */
+static void snake_tail_block(int px, int py, const SnakeSegment *tail,
+                            const SnakeSegment *prev, uint8_t g)
+{
+    if (prev->x != tail->x)
     {
-        snake->direction = best;
-        lastDir = best;
+        /* 横着：宽 2、高 3 */
+        int x0 = (prev->x > tail->x) ? 1 : 0;
+
+        for (int dx = 0; dx < SNAKE_W - 1; dx++)
+            for (int dy = 0; dy < SNAKE_W; dy++)
+                snake_band_pixel(px + x0 + dx, py + dy, dy, g);
+    }
+    else
+    {
+        /* 竖着：宽 3、高 2 */
+        int y0 = (prev->y > tail->y) ? 1 : 0;
+
+        for (int dy = 0; dy < SNAKE_W - 1; dy++)
+            for (int dx = 0; dx < SNAKE_W; dx++)
+                snake_band_pixel(px + dx, py + y0 + dy, dx, g);
     }
 }
 
-void moveSnake(Snake_t *snake)
+/* 食物：十字宝石 + 呼吸亮度 */
+static void snake_food_block(int cx, int cy, uint8_t g)
 {
-    for (int i = snake->length - 1; i > 0; i--)
-    {
-        snake->body[i] = snake->body[i - 1];
-    }
+    int px = cx * SNAKE_W;
+    int py = cy * SNAKE_W;
+    int mid = SNAKE_W / 2;
 
-    switch (snake->direction)
-    {
-    case 0:
-        snake->body[0].y--;
-        break;
-    case 1:
-        snake->body[0].x++;
-        break;
-    case 2:
-        snake->body[0].y++;
-        break;
-    case 3:
-        snake->body[0].x--;
-        break;
-    }
-    /* ❌ 不允许取模 */
+    for (int dx = 0; dx < SNAKE_W; dx++)
+        for (int dy = 0; dy < SNAKE_W; dy++)
+        {
+            if (dx != mid && dy != mid)
+                continue;
+
+            draw_point_gray(px + dx, py + dy, SNAKE_FOOD, g);
+        }
 }
 
-// 检查蛇是否吃到食物
-int checkEat(Snake_t *snake, Food_t *food)
+static void snake_render(void)
 {
-    if (snake->body[0].x == food->x && snake->body[0].y == food->y)
-    {
-        snake->length++;
-        if (snake->length > MAX_LENGTH - 1)
-            snake->length = MAX_LENGTH - 1;
-        snake->body[snake->length - 1].x = snake->body[snake->length - 2].x;
-        snake->body[snake->length - 1].y = snake->body[snake->length - 2].y;
-        return 1;
-    }
-    return 0;
-}
+    int len = snake.length;
+    /* 平滑移动：整条蛇往身后错 (SNAKE_W-1-frac) 像素。
+     * 这样每步的最后一帧正好落在格子上（蛇头刚好压住食物），
+     * 下一帧从上一格 +1 像素接着走，帧与帧之间还是 1 像素。 */
+    int back = (SNAKE_W - 1) - snake_frac;
 
-int checkCollision(Snake_t *snake)
-{
-    int x = snake->body[0].x;
-    int y = snake->body[0].y;
-
-    /* 撞墙 */
-    if (x < 0 || x >= COLS || y < 0 || y >= ROWS)
-        return 1;
-
-    /* 撞身体（不查最后一节） */
-    for (int i = 1; i < snake->length - 1; i++)
-    {
-        if (x == snake->body[i].x &&
-            y == snake->body[i].y)
-            return 1;
-    }
-    return 0;
-}
-void drawSnakeDying(Snake_t *snake)
-{
-    int len = snake->length;
-
-    if (len <= 0)
-        return;
+    /* 食物先画：滑过去的时候会被蛇头盖掉，不会红十字压在蛇头上 */
+    snake_food_block(food.x, food.y, ((snake_now / 260) & 1) ? 7 : 4);
 
     for (int i = 0; i < len; i++)
     {
-        uint8_t redLevel = 0;
-        uint8_t cyanLevel = 0;
+        int t = (len > 1) ? (i * 100 / (len - 1)) : 100;
+        int cx = snake.body[i].x;
+        int cy = snake.body[i].y;
+        int dx, dy;
+        int px, py;
+        uint8_t gb = (t < 40) ? 7 : (uint8_t)(7 - (t - 40) * 7 / 60);
 
-        if (i <= deathIndex)
+        if (gb < 1)
+            gb = 1;
+
+        /* 每节都从「后一节现在的位置」滑到自己的位置，转弯处也是贴着弯走过去；
+         * 尾巴后面没有节点了，按最后两节的方向往外推一格 */
+        if (i + 1 < len)
         {
-            /* ---------- 已扩散到的位置 ---------- */
-
-            /* 计算相对扩散位置 */
-            int d = deathIndex - i; // 距离“爆点”的距离
-
-            if (d < 0)
-                d = 0;
-            if (d > 7)
-                d = 7;
-
-            /* 红色从7递减 */
-            redLevel = 7 - d;
-
-            if (redLevel < 1)
-                redLevel = 1;
-
-            cyanLevel = 0; // 被红覆盖
+            dx = snake.body[i + 1].x - cx;
+            dy = snake.body[i + 1].y - cy;
         }
         else
         {
-            /* ---------- 还没扩散到 ---------- */
-            /* 保持原来的蓝色渐暗 */
-
-            int t = i * 100 / (len - 1);
-
-            if (t < 50)
-            {
-                cyanLevel = 7;
-            }
-            else
-            {
-                cyanLevel = 7 - ((t - 50) * 7 / 50);
-            }
-
-            if (cyanLevel < 1)
-                cyanLevel = 1;
-
-            redLevel = 0;
+            dx = cx - snake.body[len - 2].x;
+            dy = cy - snake.body[len - 2].y;
         }
 
-        /* 绘制 */
-        if (redLevel > 0)
-        {
-            draw_snake_block_gray(
-                snake->body[i].x,
-                snake->body[i].y,
-                Red,
-                redLevel);
-        }
+        px = cx * SNAKE_W + dx * back;
+        py = cy * SNAKE_W + dy * back;
 
-        if (cyanLevel > 0)
+        if (i == 0)
         {
-            draw_snake_block_gray(
-                snake->body[i].x,
-                snake->body[i].y,
-                Cyan,
-                cyanLevel);
+            /* 头：纯白 + 尖鼻子 */
+            snake_head_block(px, py, snake.direction, 7);
+        }
+        else if (i == len - 1)
+        {
+            /* 尾巴：缩成 2 格宽收尖 */
+            snake_tail_block(px, py, &snake.body[i], &snake.body[len - 2],
+                             (gb > 2) ? gb : 2);
+        }
+        else
+        {
+            /* 暗红 / 白 / 蓝三条，亮度从头到尾渐变 */
+            snake_seg(px, py, snake_seg_horizontal(i), gb);
         }
     }
 }
 
-void setSnakeWidth(uint8_t width)
+/* 死亡：红色从头往尾巴扩散，扩散到的段红得最亮，往后渐暗 */
+static void snake_draw_dying(void)
 {
-    if (width < 1)
-        width = 1;
-    if (width > 8) // 可按屏幕性能限制
-        width = 8;
+    int len = snake.length;
 
-    g_snakeWidth = width;
+    for (int i = 0; i < len; i++)
+    {
+        if (i <= deathIndex)
+        {
+            int d = deathIndex - i;
 
-    /* ⚠️ 切换宽度后，强烈建议重开一局 */
+            if (d > 7)
+                d = 7;
+
+            snake_block(snake.body[i].x, snake.body[i].y, Red, (uint8_t)(7 - d));
+        }
+        else
+        {
+            int t = (len > 1) ? (i * 100 / (len - 1)) : 100;
+            uint8_t g;
+
+            if (t < 50)
+                g = 7;
+            else
+                g = (uint8_t)(7 - (t - 50) * 7 / 50);
+
+            if (g < 1)
+                g = 1;
+
+            snake_block(snake.body[i].x, snake.body[i].y, SNAKE_BODY, g);
+        }
+    }
+}
+
+/* ---------------- 对外接口 ---------------- */
+
+void snakeRestart(void)
+{
     snakeState = SNAKE_ALIVE;
     deathIndex = 0;
     deadWaitCnt = 0;
+    snake_last_step = 0;
+    snake_frac = 0;
+    snake_food_eaten = 0;
 
-    initSnake(&snake);
-    initFood(&food, &snake);
+    snake_spawn(&snake);
+    snake_place_food(&snake, &food);
 }
 
-void beginSnake()
+void refrashSnake(void)
 {
-    initSnake(&snake);
-}
+    uint32_t now = clock_anim_tick();
 
-void refrashSnake()
-{
-    /* ====== 1. 正在死亡动画（逐节变红） ====== */
+    snake_now = now;
+
+    /* ---- 正在死亡：每帧往前推一段 ---- */
     if (snakeState == SNAKE_DYING)
     {
-        drawSnakeDying(&snake);
+        snake_draw_dying();
 
-        deathIndex++;
-
-        if (deathIndex >= snake.length - 1)
+        if (++deathIndex >= snake.length - 1)
         {
-            /* 已经全红，进入等待阶段 */
             snakeState = SNAKE_DEAD_WAIT;
             deadWaitCnt = 0;
         }
         return;
     }
 
-    /* ====== 2. 红色渐暗阶段 ====== */
+    /* ---- 全红之后渐隐，然后重生 ---- */
     if (snakeState == SNAKE_DEAD_WAIT)
     {
-        uint8_t redLevel;
+        uint8_t g = (deadWaitCnt <= 7) ? (uint8_t)deadWaitCnt : 0;
 
-        if (deadWaitCnt <= 7)
-            redLevel = deadWaitCnt;
-        else
-            redLevel = 0;
+        if (g > 0)
+            for (int i = 0; i < snake.length; i++)
+                snake_block(snake.body[i].x, snake.body[i].y, Red, g);
 
-        for (int i = 0; i < snake.length; i++)
-        {
-            if (redLevel > 0)
-            {
-                draw_snake_block_gray(
-                    snake.body[i].x,
-                    snake.body[i].y,
-                    Red,
-                    redLevel);
-            }
-        }
-
-        deadWaitCnt++;
-
-        if (deadWaitCnt > 7)
-        {
-            /* 完全熄灭后重生 */
-            deathIndex = 0;
-            deadWaitCnt = 0;
-            snakeState = SNAKE_ALIVE;
-
-            initSnake(&snake);
-            initFood(&food, &snake);
-        }
+        if (++deadWaitCnt > 7)
+            snakeRestart();
 
         return;
     }
 
-    /* ====== 3. 正常游戏阶段 ====== */
-    printBoard(&snake, &food);
+    /* ---- 正常游戏：按固定节奏走格，帧率再高也不会加速 ---- */
+    if (snake_last_step == 0 || now - snake_last_step > 1000)
+        snake_last_step = now; /* 切回界面时不要一次补几十步 */
 
-    autoTrackFood(&snake, &food);
-    moveSnake(&snake);
-
-    if (checkEat(&snake, &food))
+    if (now - snake_last_step >= SNAKE_STEP_MS)
     {
-        initFood(&food, &snake);
+        int grow;
+
+        snake_last_step += SNAKE_STEP_MS;
+
+        /* 上一口：蛇头在画面上已经压住食物了，现在才把新食物放出来 */
+        if (snake_food_eaten)
+        {
+            snake_food_eaten = 0;
+            snake_place_food(&snake, &food);
+        }
+
+        snake_ai(&snake, &food);
+
+        grow = (snake.body[0].x + snake_dx[snake.direction] == food.x &&
+                snake.body[0].y + snake_dy[snake.direction] == food.y);
+
+        snake_move(&snake, grow);
+
+        if (grow)
+            snake_food_eaten = 1;
+
+        if (snake_collision(&snake))
+        {
+            snakeState = SNAKE_DYING;
+            deathIndex = 0;
+            return;
+        }
     }
 
-    if (checkCollision(&snake))
+    /* 平滑：这一步已经走了多久 -> 走了几像素（0 / 1 / 2） */
     {
-        nexlink_log("Game Over!\n");
-        snakeState = SNAKE_DYING;
-        deathIndex = 0;
+        uint32_t el = now - snake_last_step;
+        int f = (int)(el * SNAKE_W / SNAKE_STEP_MS);
+
+        snake_frac = (f > SNAKE_W - 1) ? (SNAKE_W - 1) : (f < 0 ? 0 : f);
     }
+
+    snake_render();
+}
+
+/* 游戏合集：0=贪吃蛇 1=俄罗斯方块 2=坦克大战
+ * 切换时重开一局，按 EXIT 后立刻能看到新游戏从头开始 */
+void game_restart(uint8_t id)
+{
+    if (id == 0)
+        snakeRestart();
+    else if (id == 1)
+        tet_inited = 0; /* 下一帧 refrashTetris() 会重建棋盘并重新开局 */
+    else
+        tanksRegen(); /* 换一张随机地图 */
 }
 
 #define BAR_COUNT MAX_X
 #define BAR_MAX MAX_Y
+
 FFTDisplay_t bars[BAR_COUNT];
+
+/* 柱子 i -> 频点（16 倍定标：0x0010 = bin 1，0x07E0 = bin 126）
+ * f(i) = 40Hz * (5000/40)^(i/111)，除以 39.06Hz/bin 后左移 4 位。
+ * 换成对数刻度后低频不再挤在左边十几列。 */
+static const uint16_t fft_bin_x16[BAR_COUNT] = {
+    0x0010, 0x0011, 0x0012, 0x0013, 0x0013, 0x0014, 0x0015, 0x0016, 0x0017, 0x0018,
+    0x0019, 0x001A, 0x001C, 0x001D, 0x001E, 0x001F, 0x0021, 0x0022, 0x0024, 0x0025,
+    0x0027, 0x0029, 0x002B, 0x002D, 0x002F, 0x0031, 0x0033, 0x0035, 0x0037, 0x003A,
+    0x003C, 0x003F, 0x0042, 0x0045, 0x0048, 0x004B, 0x004E, 0x0052, 0x0056, 0x0059,
+    0x005D, 0x0061, 0x0066, 0x006A, 0x006F, 0x0074, 0x0079, 0x007F, 0x0084, 0x008A,
+    0x0090, 0x0097, 0x009D, 0x00A4, 0x00AC, 0x00B3, 0x00BB, 0x00C4, 0x00CC, 0x00D5,
+    0x00DF, 0x00E9, 0x00F3, 0x00FE, 0x0109, 0x0115, 0x0121, 0x012E, 0x013C, 0x014A,
+    0x0158, 0x0167, 0x0177, 0x0188, 0x019A, 0x01AC, 0x01BF, 0x01D3, 0x01E7, 0x01FD,
+    0x0214, 0x022B, 0x0244, 0x025E, 0x0279, 0x0295, 0x02B2, 0x02D1, 0x02F1, 0x0313,
+    0x0336, 0x035A, 0x0380, 0x03A8, 0x03D2, 0x03FD, 0x042B, 0x045A, 0x048B, 0x04BF,
+    0x04F5, 0x052E, 0x0569, 0x05A6, 0x05E6, 0x062A, 0x0670, 0x06B9, 0x0705, 0x0755,
+    0x07A9, 0x07E0,
+};
+
+/* ---------------- 风格私有缓冲 ----------------
+ * 瀑布和粒子互斥，共用同一块 RAM（约 253 字节） */
+#define FFT_WF_COLS (BAR_COUNT / 2)                  /* 56 列，每列画 2 像素宽 */
+#define FFT_WF_ROWS MAX_Y                            /* 18 行历史 */
+#define FFT_WF_ROW_BYTES ((FFT_WF_COLS * 2 + 7) / 8) /* 每行 14 字节，2bit/格 */
+#define FFT_SPARK_MAX 20
+
+static union
+{
+    struct
+    {
+        uint8_t buf[FFT_WF_ROW_BYTES * FFT_WF_ROWS];
+    } wf;
+    struct
+    {
+        int16_t x[FFT_SPARK_MAX], y[FFT_SPARK_MAX];  /* 1/4 像素 */
+        int8_t vx[FFT_SPARK_MAX], vy[FFT_SPARK_MAX]; /* 1/4 像素/帧 */
+        uint8_t life[FFT_SPARK_MAX];
+    } sp;
+} fft_ram;
+
+static uint8_t fft_spark_n = 0;
+static struct
+{
+    float needle;
+    float peak;
+    uint8_t hold;
+} fft_vu;
+
+/* VU 刻度弧：相对 (cx, cy) 的偏移，-62° ~ +62° 分 21 档 */
+static const int8_t fft_vu_arc[21][2] = {
+    {-13, -7}, {-13, -9}, {-12, -10}, {-10, -11}, {-9, -12},
+    {-8, -13}, {-6, -14}, {-5, -14}, {-3, -15}, {-2, -15},
+    {0, -15}, {2, -15}, {3, -15}, {5, -14}, {6, -14},
+    {8, -13}, {9, -12}, {10, -11}, {12, -10}, {13, -9},
+    {13, -7},
+};
+
+/* 切风格时清一次，免得残留上一种风格的粒子/瀑布 */
+void fft_style_reset(void)
+{
+    memset(bars, 0, sizeof(bars));
+    memset(&fft_ram, 0, sizeof(fft_ram));
+    fft_spark_n = 0;
+    fft_vu.needle = 0.0f;
+    fft_vu.peak = 0.0f;
+    fft_vu.hold = 0;
+}
 
 void update_display(FFTDisplay_t *fft, float target, float dt)
 {
@@ -4763,65 +5458,413 @@ void update_display(FFTDisplay_t *fft, float target, float dt)
     fft->last_realval = target;
 }
 
-void draw_bar(FFTDisplay_t *fft, Color bar, Color dot)
+/* 柱身亮度：越靠柱顶越亮（2~7） */
+static inline uint8_t fft_lv(int j, int h)
 {
-    int j = 0;
+    int v = 2 + (j + 1) * 5 / h;
+
+    return (uint8_t)(v > 7 ? 7 : v);
+}
+
+/* ① 经典柱状：柱身渐变 + 柱顶高光 + 峰值点 */
+static void fft_draw_bars(Color bar, Color dot)
+{
     for (int i = 0; i < BAR_COUNT; i++)
     {
-        int height = (int)bars[i].output;
-        for (j = 0; j < (bars[i].output); j++)
-        {
-            int brightness = (height - j) * 7 / height + 2;
-					
-						draw_point_gray(i, MAX_Y - 1 - j, bar, brightness);
-        }
+        int h = (int)bars[i].output;
+
+        for (int j = 0; j < h; j++)
+            draw_point_gray(i, MAX_Y - 1 - j, bar, fft_lv(j, h));
+
+        if (h > 0)
+            draw_point(i, MAX_Y - h, bar);
+
         draw_point(i, MAX_Y - 1 - bars[i].maximum, dot);
-        if (bar > White)
-            i++;
     }
 }
 
-void draw_fft(long *fft_result, int len, int delta, Color bar, Color dot)
+/* ② 左右镜像：只用 56 段，左右完全对称 */
+static void fft_draw_mirror(Color bar, Color dot)
 {
-    static uint32_t last_time = 0;
-    uint32_t current_time = clock_anim_tick();
-    float dt = (current_time - last_time) / 1000.0f; // 转换为秒
-    last_time = current_time;
+    const int half = BAR_COUNT / 2;
 
-    // 确保有足够的数据点（至少3个才能排除首尾）
-    if (len <= 2)
-        return;
+    for (int i = 0; i < half; i++)
+    {
+        int h = (int)bars[i].output;
 
-    // 防止除零错误
-    if (delta == 0)
-        delta = 1;
+        for (int j = 0; j < h; j++)
+        {
+            uint8_t lv = fft_lv(j, h);
+
+            draw_point_gray(i, MAX_Y - 1 - j, bar, lv);
+            draw_point_gray(BAR_COUNT - 1 - i, MAX_Y - 1 - j, bar, lv);
+        }
+
+        if (h > 0)
+        {
+            draw_point(i, MAX_Y - h, bar);
+            draw_point(BAR_COUNT - 1 - i, MAX_Y - h, bar);
+        }
+
+        draw_point(i, MAX_Y - 1 - bars[i].maximum, dot);
+        draw_point(BAR_COUNT - 1 - i, MAX_Y - 1 - bars[i].maximum, dot);
+    }
+}
+
+/* ③ 包络曲线：频谱连成线，线下渐变填充 */
+static void fft_draw_curve(Color bar, Color dot)
+{
+    int y[BAR_COUNT];
+
+    for (int i = 0; i < BAR_COUNT; i++)
+        y[i] = MAX_Y - 1 - (int)(bars[i].output + 0.5f);
+
+    /* 线下填充 */
+    for (int i = 0; i < BAR_COUNT; i++)
+        for (int yy = y[i] + 1; yy < MAX_Y; yy++)
+        {
+            int d = yy - y[i];
+
+            draw_point_gray(i, yy, bar, d <= 2 ? 3 : (d <= 5 ? 2 : 1));
+        }
+
+    /* 曲线本体（竖直方向补齐，避免断线） */
+    for (int i = 0; i < BAR_COUNT; i++)
+    {
+        draw_point(i, y[i], bar);
+
+        if (i + 1 < BAR_COUNT)
+        {
+            int a = y[i];
+            int b = y[i + 1];
+            int step = (b > a) ? 1 : -1;
+
+            for (int yy = a; yy != b + step; yy += step)
+                draw_point(i, yy, bar);
+        }
+    }
+
+    /* 局部峰值点 */
+    for (int i = 1; i < BAR_COUNT - 1; i++)
+        if (bars[i].output > 9.0f &&
+            bars[i].output >= bars[i - 1].output &&
+            bars[i].output > bars[i + 1].output)
+            draw_point(i, y[i] - 1, dot);
+}
+
+/* ④ 点阵柱：隔行点亮，LED 矩阵感 */
+static void fft_draw_dots(Color bar, Color dot)
+{
+    for (int i = 0; i < BAR_COUNT; i++)
+    {
+        int h = (int)bars[i].output;
+
+        for (int j = 0; j < h; j += 2)
+            draw_point_gray(i, MAX_Y - 1 - j, bar, fft_lv(j, h));
+
+        if (h > 0)
+            draw_point(i, MAX_Y - h, bar);
+
+        draw_point(i, MAX_Y - 1 - bars[i].maximum, dot);
+    }
+}
+
+/* ⑤ 瀑布声谱：每 55ms 压一行历史，2bit/格 */
+static void fft_wf_push(void)
+{
+    uint8_t *buf = fft_ram.wf.buf;
+    uint8_t *row;
+
+    memmove(buf, buf + FFT_WF_ROW_BYTES,
+            FFT_WF_ROW_BYTES * (FFT_WF_ROWS - 1));
+
+    row = buf + FFT_WF_ROW_BYTES * (FFT_WF_ROWS - 1);
+    memset(row, 0, FFT_WF_ROW_BYTES);
+
+    for (int c = 0; c < FFT_WF_COLS; c++)
+    {
+        float v = bars[c * 2].output;
+        uint8_t lv;
+
+        if (bars[c * 2 + 1].output > v)
+            v = bars[c * 2 + 1].output;
+
+        /* 3 档亮度；只有接近柱顶的强频点才用强调色，避免整屏泛红 */
+        lv = (v < 1.0f) ? 0 : (v < 6.0f) ? 1 : (v < 14.0f) ? 2 : 3;
+        row[c >> 2] |= (uint8_t)(lv << ((c & 3) * 2));
+    }
+}
+
+static void fft_draw_waterfall(Color bar, Color dot)
+{
+    static uint32_t last = 0;
+    uint32_t now = clock_anim_tick();
+
+    if (now - last >= 55)
+    {
+        last = now;
+        fft_wf_push();
+    }
+
+    for (int r = 0; r < FFT_WF_ROWS; r++)
+    {
+        const uint8_t *row = fft_ram.wf.buf + r * FFT_WF_ROW_BYTES;
+
+        for (int c = 0; c < FFT_WF_COLS; c++)
+        {
+            uint8_t lv = (row[c >> 2] >> ((c & 3) * 2)) & 3;
+
+            if (!lv)
+                continue;
+
+            if (lv == 3)
+            {
+                draw_point(c * 2, r, dot);
+                draw_point(c * 2 + 1, r, dot);
+            }
+            else
+            {
+                draw_point_gray(c * 2, r, bar, lv == 2 ? 5 : 2);
+                draw_point_gray(c * 2 + 1, r, bar, lv == 2 ? 5 : 2);
+            }
+        }
+    }
+}
+
+/* ⑥ 节拍火花：柱状 + 峰值迸出的粒子 */
+static void fft_draw_spark(Color bar, Color dot)
+{
+    /* 柱身压低一档，给粒子留亮度 */
+    for (int i = 0; i < BAR_COUNT; i++)
+    {
+        int h = (int)bars[i].output;
+
+        for (int j = 0; j < h; j++)
+        {
+            uint8_t lv = fft_lv(j, h);
+
+            draw_point_gray(i, MAX_Y - 1 - j, bar, lv > 5 ? 5 : lv);
+        }
+    }
+
+    /* 冲出新峰值 -> 迸一个粒子（remain==10 只在刚刷新峰值那一帧成立） */
+    for (int i = 0; i < BAR_COUNT; i++)
+    {
+        uint8_t k;
+
+        if (bars[i].remain != 10 || bars[i].output < 7.0f)
+            continue;
+        if (fft_spark_n >= FFT_SPARK_MAX)
+            break;
+
+        k = fft_spark_n++;
+        fft_ram.sp.x[k] = (int16_t)(i * 4 + 2);
+        fft_ram.sp.y[k] = (int16_t)((MAX_Y - 1 - (int)bars[i].output) * 4);
+        fft_ram.sp.vx[k] = (int8_t)(((i & 1) ? 1 : -1) * (2 + (i % 3)));
+        fft_ram.sp.vy[k] = (int8_t)(-8 - (i % 5) * 2);
+        fft_ram.sp.life[k] = 70;
+    }
+
+    /* 粒子：重力 + 落地回弹 */
+    for (int k = 0; k < fft_spark_n;)
+    {
+        int dead = 0;
+
+        fft_ram.sp.vy[k] += 3;
+        fft_ram.sp.x[k] += fft_ram.sp.vx[k];
+        fft_ram.sp.y[k] += fft_ram.sp.vy[k];
+
+        if (fft_ram.sp.y[k] >= (MAX_Y - 1) * 4)
+        {
+            fft_ram.sp.y[k] = (MAX_Y - 1) * 4;
+            fft_ram.sp.vy[k] = (int8_t)(-fft_ram.sp.vy[k] * 2 / 3);
+            if (fft_ram.sp.vy[k] > -4)
+                dead = 1;
+        }
+
+        if (fft_ram.sp.life[k] > 0 && --fft_ram.sp.life[k] == 0)
+            dead = 1;
+
+        if (dead)
+        {
+            fft_spark_n--;
+            fft_ram.sp.x[k] = fft_ram.sp.x[fft_spark_n];
+            fft_ram.sp.y[k] = fft_ram.sp.y[fft_spark_n];
+            fft_ram.sp.vx[k] = fft_ram.sp.vx[fft_spark_n];
+            fft_ram.sp.vy[k] = fft_ram.sp.vy[fft_spark_n];
+            fft_ram.sp.life[k] = fft_ram.sp.life[fft_spark_n];
+            continue;
+        }
+
+        draw_point(fft_ram.sp.x[k] >> 2, fft_ram.sp.y[k] >> 2, dot);
+        k++;
+    }
+}
+
+/* ⑦ VU 指针表：弧形刻度 + 阻尼指针 + 峰值记忆 */
+static void fft_draw_vu(Color bar, Color dot)
+{
+    const int cx = BAR_COUNT / 2, cy = MAX_Y + 1;
+    float sum = 0.0f, wsum = 0.0f;
+    float lv;
 
     for (int i = 0; i < BAR_COUNT; i++)
     {
-        // 映射到排除首尾的数据范围 [1, len-2]
-        float mapped_pos = 1.0f + (float)i / BAR_COUNT * (len - 3);
-        int index_low = (int)mapped_pos;
-        int index_high = (index_low + 1 < len - 1) ? index_low + 1 : index_low;
-        float fraction = mapped_pos - index_low;
+        float w = 1.4f - (float)i / BAR_COUNT * 0.8f;
 
-        // 线性插值获取映射后的值
-        long interpolated_value;
-        if (index_low == index_high)
-        {
-            interpolated_value = fft_result[index_low];
-        }
-        else
-        {
-            interpolated_value = (long)((1.0f - fraction) * fft_result[index_low] +
-                                        fraction * fft_result[index_high]);
-        }
-
-        // 应用delta除法
-        long adjusted_value = interpolated_value / delta;
-
-        // 更新并绘制
-        update_display(&bars[i], adjusted_value, dt);
+        sum += bars[i].output * w;
+        wsum += w;
     }
-    draw_bar(bars, bar, dot);
+
+    lv = sum / wsum / (BAR_MAX - 1);
+    if (lv > 1.0f)
+        lv = 1.0f;
+
+    fft_vu.needle += (lv - fft_vu.needle) * ((lv > fft_vu.needle) ? 0.16f : 0.035f);
+
+    if (lv >= fft_vu.peak)
+    {
+        fft_vu.peak = lv;
+        fft_vu.hold = 26;
+    }
+    else if (fft_vu.hold)
+        fft_vu.hold--;
+    else if (fft_vu.peak > lv)
+    {
+        fft_vu.peak -= 0.004f;
+        if (fft_vu.peak < lv)
+            fft_vu.peak = lv;
+    }
+
+    /* 刻度弧 */
+    for (int s = 0; s < 21; s++)
+        draw_point_gray(cx + fft_vu_arc[s][0], cy + fft_vu_arc[s][1], bar,
+                        (s % 5) == 0 ? 6 : 2);
+
+    /* 峰值记忆点 */
+    {
+        float a = (-62.0f + fft_vu.peak * 124.0f) * 3.14159265f / 180.0f;
+
+        draw_point((int)(cx + sinf(a) * 15.2f + 0.5f),
+                   (int)(cy - cosf(a) * 15.2f + 0.5f), dot);
+    }
+
+    /* 指针 */
+    {
+        float a = (-62.0f + fft_vu.needle * 124.0f) * 3.14159265f / 180.0f;
+        float sa = sinf(a), ca = cosf(a);
+
+        for (int s = 0; s <= 16; s++)
+        {
+            float rr = 15.2f - s * 0.9f;
+
+            draw_point_gray((int)(cx + sa * rr + 0.5f),
+                            (int)(cy - ca * rr + 0.5f), bar, s < 2 ? 7 : 5);
+        }
+    }
+
+    /* 底部电平条 */
+    {
+        int n = (int)(lv * BAR_COUNT + 0.5f);
+
+        for (int i = 0; i < n; i++)
+            draw_point_gray(i, MAX_Y - 1, dot, i > BAR_COUNT * 82 / 100 ? 7 : 4);
+    }
+}
+
+/* ⑧ 三色分段：低频青 / 中频红 / 高频白 */
+static void fft_draw_split(Color bar, Color dot)
+{
+    (void)bar;
+
+    for (int i = 0; i < BAR_COUNT; i++)
+    {
+        Color c = (i < BAR_COUNT * 28 / 100) ? Cyan
+                  : (i < BAR_COUNT * 66 / 100) ? Red
+                                               : White;
+        int h = (int)bars[i].output;
+        uint8_t lv;
+
+        for (int j = 0; j < h; j++)
+        {
+            lv = fft_lv(j, h);
+            draw_point_gray(i, MAX_Y - 1 - j, c, lv);
+        }
+
+        if (h > 0)
+            draw_point(i, MAX_Y - h, White);
+
+        draw_point(i, MAX_Y - 1 - bars[i].maximum, dot);
+    }
+}
+
+void draw_fft(long *fft_result, int len, int delta, uint8_t style, Color bar, Color dot)
+{
+    static uint32_t last_time = 0;
+    uint32_t current_time = clock_anim_tick();
+    float dt = (current_time - last_time) / 1000.0f;
+    int cols;
+
+    last_time = current_time;
+
+    /* 确保有足够的数据点（至少3个才能排除首尾） */
+    if (len <= 2)
+        return;
+
+    if (delta == 0)
+        delta = 1;
+
+    if (dt <= 0.0f || dt > 0.5f)
+        dt = 0.05f;
+
+    cols = (style == 1) ? (BAR_COUNT / 2) : BAR_COUNT;
+
+    for (int i = 0; i < cols; i++)
+    {
+        int pos16 = fft_bin_x16[(style == 1) ? (i * 2) : i];
+        int idx = pos16 >> 4;
+        int frac = pos16 & 15;
+        long v;
+
+        if (idx < 1)
+            idx = 1;
+        if (idx > len - 2)
+            idx = len - 2;
+
+        v = fft_result[idx];
+        if (frac && (idx + 1 < len - 1))
+            v = (v * (16 - frac) + fft_result[idx + 1] * frac) / 16;
+
+        update_display(&bars[i], (float)(v / delta), dt);
+    }
+
+    switch (style)
+    {
+    case 1:
+        fft_draw_mirror(bar, dot);
+        break;
+    case 2:
+        fft_draw_curve(bar, dot);
+        break;
+    case 3:
+        fft_draw_dots(bar, dot);
+        break;
+    case 4:
+        fft_draw_waterfall(bar, dot);
+        break;
+    case 5:
+        fft_draw_spark(bar, dot);
+        break;
+    case 6:
+        fft_draw_vu(bar, dot);
+        break;
+    case 7:
+        fft_draw_split(bar, dot);
+        break;
+    case 0:
+    default:
+        fft_draw_bars(bar, dot);
+        break;
+    }
 }
 

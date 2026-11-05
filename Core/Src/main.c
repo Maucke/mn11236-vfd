@@ -36,6 +36,7 @@
 #include "easy_key.h"
 #include "easy_ui_user_app.h"
 #include "clockui.h"
+#include "animation.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -128,28 +129,24 @@ int main(void)
     userInfo.defaultfunc = 0;
     userInfo.clocktheme = 0;
     userInfo.musictheme = 2;
-    userInfo.snakewidth = 2;
+    userInfo.snakewidth = SNAKE_FIXED_WIDTH; /* 已固定为 3，仅保留字段占位 */
     userInfo.valid = 5;
     userInfo.clockdimming = 4;
     userInfo.screen_on_hour = 7;
     userInfo.screen_off_hour = 23;
+    userInfo.musiccolor = 0;
 
-    userInfo.effectswitch.enFirework = true;
-    userInfo.effectswitch.enCircle = false;
-    userInfo.effectswitch.enGCircle = false;
-    userInfo.effectswitch.enMeteo = false;
-    userInfo.effectswitch.enMind = false;
-    userInfo.effectswitch.enPlanet = false;
-    userInfo.effectswitch.enSnowflake = false;
-    userInfo.effectswitch.enStarwar = true;
-    userInfo.effectswitch.enTriangle = false;
-    userInfo.effectswitch.reserved = false;
+    userInfo.motion = 0;
+    userInfo.game = 0;
     STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
   }
 
   userInfo.clockdimming %= 5;
   userInfo.clocktheme %= CLOCK_THEME_COUNT;
-  userInfo.musictheme %= 12;
+  userInfo.musictheme %= FFT_STYLE_COUNT;
+  userInfo.musiccolor %= FFT_COLOR_COUNT;
+  userInfo.motion %= ANIM_COUNT;
+  userInfo.game %= GAME_COUNT;
   HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 1, 0); // 让扫描中断不被打断
 
   HAL_NVIC_SetPriority(DMA2_Stream2_IRQn, 0, 0);

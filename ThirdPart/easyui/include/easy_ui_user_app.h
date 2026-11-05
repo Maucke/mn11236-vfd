@@ -22,9 +22,9 @@ typedef enum
 {
   DISP_MODE_CLOCK = 0,
   DISP_MODE_FFT,
-  DISP_MODE_SNAKE,
-  DISP_MODE_TETRIS,
-  DISP_MODE_TANKS,
+  /* 游戏合集：贪吃蛇 / 俄罗斯方块 / 坦克大战，长按上键（EXIT）循环切换。
+     编号沿用原来的 Snake(3)，所以 defaultfunc 存的老值不用迁移 */
+  DISP_MODE_GAME,
   DISP_MODE_MOTION,
   DISP_MODE_EXTERN,
   DISP_MODE_MENU,

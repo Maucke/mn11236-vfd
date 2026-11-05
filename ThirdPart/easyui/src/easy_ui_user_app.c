@@ -36,11 +36,12 @@ EasyUIItem_t itemUSBForm;
 EasyUIItem_t itemDebug;
 EasyUIItem_t itemSensor;
 EasyUIItem_t itemAnimation;
-EasyUIItem_t itemSetting, titleSetting, itemMusicTheme, itemClockTheme, itemSetTime, itemDefaultFunc, itemClockDimming;
+EasyUIItem_t itemSetting, titleSetting, itemMusicTheme, itemMusicColor, itemClockTheme, itemSetTime, itemDefaultFunc, itemClockDimming;
 EasyUIItem_t itemEspEn;
 EasyUIItem_t itemDiagnostic;
 EasyUIItem_t itemAbout;
-EasyUIItem_t itemMind, itemCircle, itemSnowflake, itemMeteo, itemPlanet, itemTriangle, itemStarwar, itemBlast, itemGCircle, itemFirework, titleAnimation;
+EasyUIItem_t itemMotion, titleAnimation;
+EasyUIItem_t itemGame;
 EasyUIItem_t itemScreenOnHour;
 EasyUIItem_t itemScreenOffHour;
 
@@ -98,7 +99,7 @@ void EasyUIKeyActionMonitor() // Interrupt trigger, No EasyUIDelay_ms(xx)
 #endif
 }
 
-char *EasyUIVersion = "Ver. 3.3.0";
+char *EasyUIVersion = "Ver. 3.4.0";
 void PageAbout(EasyUIPage_t *page)
 {
   static uint8_t pageIndex = 0;
@@ -636,9 +637,11 @@ void AppGUI_Init(UserInfo_t *userinfo)
   EasyUIAddItem(&pageSetting, &titleSetting, "[Setting]", ITEM_PAGE_DESCRIPTION);
 
   EasyUIAddItem(&pageSetting, &itemSetTime, "Set Time", ITEM_JUMP_PAGE, pageSetTime.id);
-  EasyUIAddItem(&pageSetting, &itemMusicTheme, "FFT Theme", ITEM_PROGRESS_BAR, &pUserInfo->musictheme, 11, EventChangeValue);
+  EasyUIAddItem(&pageSetting, &itemMusicTheme, "FFT Style", ITEM_PROGRESS_BAR, &pUserInfo->musictheme, FFT_STYLE_COUNT - 1, EventChangeValue);
+  EasyUIAddItem(&pageSetting, &itemMusicColor, "FFT Color", ITEM_PROGRESS_BAR, &pUserInfo->musiccolor, FFT_COLOR_COUNT - 1, EventChangeValue);
   EasyUIAddItem(&pageSetting, &itemClockTheme, "Clock Theme", ITEM_PROGRESS_BAR, &pUserInfo->clocktheme, CLOCK_THEME_COUNT - 1, EventChangeValue);
   EasyUIAddItem(&pageSetting, &itemDefaultFunc, "Default Func", ITEM_PROGRESS_BAR, &pUserInfo->defaultfunc, 3, EventChangeValue);
+  EasyUIAddItem(&pageSetting, &itemGame, "Game", ITEM_PROGRESS_BAR, &pUserInfo->game, GAME_COUNT - 1, EventChangeValue);
   EasyUIAddItem(&pageSetting, &itemClockDimming, "Clock Dimming", ITEM_PROGRESS_BAR, &pUserInfo->clockdimming, 4, EventChangeValue);
   EasyUIAddItem(&pageSetting, &itemScreenOnHour,
                 "Screen ON", ITEM_PROGRESS_BAR,
@@ -651,64 +654,30 @@ void AppGUI_Init(UserInfo_t *userinfo)
                 EventChangeValue);
 
   EasyUIAddItem(&pageAnimation, &titleAnimation, "[Animation]", ITEM_PAGE_DESCRIPTION);
-  EasyUIAddItem(&pageAnimation, &itemMind, "Mind", ITEM_CHECKBOX, &pUserInfo->effectswitch.enMind);
-  EasyUIAddItem(&pageAnimation, &itemCircle, "Circle", ITEM_CHECKBOX, &pUserInfo->effectswitch.enCircle);
-  EasyUIAddItem(&pageAnimation, &itemSnowflake, "Snowflake", ITEM_CHECKBOX, &pUserInfo->effectswitch.enSnowflake);
-  //  EasyUIAddItem(&pageAnimation, &itemMeteo, "Meteo", ITEM_CHECKBOX, &pUserInfo->effectswitch.enMeteo);
-  EasyUIAddItem(&pageAnimation, &itemPlanet, "Planet", ITEM_CHECKBOX, &pUserInfo->effectswitch.enPlanet);
-  EasyUIAddItem(&pageAnimation, &itemTriangle, "Triangle", ITEM_CHECKBOX, &pUserInfo->effectswitch.enTriangle);
-  EasyUIAddItem(&pageAnimation, &itemStarwar, "Starwar", ITEM_CHECKBOX, &pUserInfo->effectswitch.enStarwar);
-  //  EasyUIAddItem(&pageAnimation, &itemGCircle, "GCircle", ITEM_CHECKBOX, &pUserInfo->effectswitch.enGCircle);
-  EasyUIAddItem(&pageAnimation, &itemFirework, "Firework", ITEM_CHECKBOX, &pUserInfo->effectswitch.enFirework);
+  /* 单选：0..ANIM_COUNT-1，长按上键也能在 MOTION 界面里循环切换 */
+  EasyUIAddItem(&pageAnimation, &itemMotion, "Animation", ITEM_PROGRESS_BAR, &pUserInfo->motion, ANIM_COUNT - 1, EventChangeValue);
   // Key init
   EasyKeyInit(&keyUp, GPIOB, KEY_SW1_Pin);
   EasyKeyInit(&keyDown, GPIOB, KEY_SW2_Pin);
   EasyUIInit(1);
   clock_init();
-  setSnakeWidth(pUserInfo->snakewidth);
-  beginSnake();
+  snakeRestart(); /* 贪吃蛇宽度固定 3，顺便把第一局铺好 */
   Motion_Init();
   uint32_t now = HAL_GetTick();
   wake_until_tick = now + WAKE_TIME_MS;
 }
 
-const MusicTheme_t musicTheme[12] = {
+/* FFT 配色：bar 是柱身/主色，dot 是峰值点/强调色
+ * 8 种风格都按 1 像素列设计，所以这里不再有 2 像素宽的 *With* 组合 */
+const MusicTheme_t musicTheme[FFT_COLOR_COUNT] = {
     {Cyan, Red},
     {Cyan, White},
     {Red, Red},
     {Red, White},
     {White, Red},
     {White, Cyan},
-
-    {CyanWithCyan, RedWithRed},
-    {CyanWithCyan, WhiteWithWhite},
-    {RedWithRed, CyanWithCyan},
-    {RedWithRed, WhiteWithWhite},
-    {WhiteWithWhite, RedWithRed},
-    {WhiteWithWhite, CyanWithCyan},
 };
 
-void Motion_Run(EffectSwitch_t *effectswitch)
-{
-  if (effectswitch->enMind)
-    Motion_Mind();
-  if (effectswitch->enCircle)
-    Motion_Circle();
-  if (effectswitch->enSnowflake)
-    Motion_Snowflake();
-  //  if (effectswitch->enMeteo)
-  //    Motion_Movmeteor();
-  if (effectswitch->enPlanet)
-    Motion_Planet();
-  if (effectswitch->enTriangle)
-    Motion_TriangleF();
-  if (effectswitch->enStarwar)
-    Motion_StarWar();
-  //  if (effectswitch->enGCircle)
-  //    Motion_GCFireworks();
-  if (effectswitch->enFirework)
-    Motion_Firework();
-}
 extern char timeStr[10];
 extern char date[10];
 extern char week[10];
@@ -732,10 +701,10 @@ const ClockTheme_t clockTheme[] = {
 //    {Cyan, White, 0, CLOCK_BG_BREATHE, 0}, // 整屏明暗呼吸
 //    {Cyan, White, 0, CLOCK_BG_BREATHE, 1}, // 整屏明暗呼吸
     // 纯字主题（无背景动画）
-    {Red, WhiteWithCyan, 1, CLOCK_BG_NONE, 0},
-    {Red, WhiteWithCyan, 1, CLOCK_BG_NONE, 1},
-    {Cyan, WhiteWithRed, 1, CLOCK_BG_NONE, 0},
-    {Cyan, WhiteWithRed, 1, CLOCK_BG_NONE, 1},
+    {Cyan, WhiteWithCyan, 1, CLOCK_BG_NONE, 0},
+    {Cyan, WhiteWithCyan, 1, CLOCK_BG_NONE, 1},
+    {Red, WhiteWithRed, 1, CLOCK_BG_NONE, 0},
+    {Red, WhiteWithRed, 1, CLOCK_BG_NONE, 1},
 	};
 
 /* 主题数量必须与 CLOCK_THEME_COUNT 一致 */
@@ -912,6 +881,9 @@ void AppGUI_Loop(uint8_t timer)
     const ClockTheme_t *theme = &clockTheme[pUserInfo->clocktheme];
     Color fontColor = theme->font;
 
+    /* 右半边有没有被日期占用：type==0 且 style==0 时右下角画日期 */
+    uint8_t pet_right_ok = (uint8_t)(!(theme->type == 0 && theme->style == 0));
+
     if (theme->style == 1 || theme->type == 1)
       timeX += 1;
 
@@ -933,6 +905,8 @@ void AppGUI_Loop(uint8_t timer)
     {
       shardActive = 1;
       shardStart = now;
+      /* 分钟跳变：宠物出来演一次，演完自己消失 */
+      clock_pet_trigger(now, pet_right_ok);
     }
 
     if (shardActive && (now - shardStart) >= SHARD_TOTAL_MS)
@@ -1020,38 +994,50 @@ void AppGUI_Loop(uint8_t timer)
       }
 
       draw_colon_fade(timeX + 8, 0, fontColor, colonTop, colonBot, 0);
+      /* 桌面宠物：分钟跳变时出场一次，演完自动隐藏（不压数字） */
+      clock_pet_draw(now, timeX * 3 + 60, pet_right_ok, theme->border);
     }
+
     roll_all_long_str();
     clock_wipe_scan_in(); /* 换主题时：新画面跟着扫描线长出来 */
     refrash_gram();
     break;
   }
   case DISP_MODE_FFT:
+  {
+    const MusicTheme_t *mt = &musicTheme[pUserInfo->musiccolor % FFT_COLOR_COUNT];
+
     clear_gram(White);
-    draw_fft(lBufMagArray, NPT / 2, 20, musicTheme[pUserInfo->musictheme].bar, musicTheme[pUserInfo->musictheme].dot);
+    set_g_maxGray(pUserInfo->clockdimming + 3);
+    draw_fft(lBufMagArray, NPT / 2, 20,
+             (uint8_t)(pUserInfo->musictheme % FFT_STYLE_COUNT), mt->bar, mt->dot);
     refrash_gram();
-    break;
-  case DISP_MODE_SNAKE:
+  }
+  break;
+  case DISP_MODE_GAME:
+    /* 三个游戏共用这一个界面，长按上键（EXIT）循环切换 */
     clear_gram(White);
-    refrashSnake();
-    osDelay(50);
-    refrash_gram();
-    break;
-  case DISP_MODE_TETRIS:
-    clear_gram(White);
-    refrashTetris();
-    osDelay(40);
-    refrash_gram();
-    break;
-  case DISP_MODE_TANKS:
-    clear_gram(White);
-    refrashTanks();
-    osDelay(50);
+    if (pUserInfo->game == 0)
+    {
+      refrashSnake();
+      osDelay(40); /* 25fps：3 帧走一格，每帧挪 1 像素（SNAKE_STEP_MS=120） */
+    }
+    else if (pUserInfo->game == 1)
+    {
+      refrashTetris();
+      osDelay(40);
+    }
+    else
+    {
+      refrashTanks();
+      osDelay(50);
+    }
     refrash_gram();
     break;
   case DISP_MODE_MOTION:
     clear_gram(White);
-    Motion_Run(&pUserInfo->effectswitch);
+    Motion_Run(pUserInfo->motion);
+    osDelay(25); /* 动画按 30fps 走，太快会糊成一片 */
     refrash_gram();
     break;
   case DISP_MODE_EXTERN:
@@ -1122,7 +1108,16 @@ void AppGUI_Loop(uint8_t timer)
     if (opnExit)
     {
       if (disp_mode == DISP_MODE_FFT)
-        pUserInfo->musictheme = (pUserInfo->musictheme + 1) % 12;
+      {
+        pUserInfo->musictheme = (pUserInfo->musictheme + 1) % FFT_STYLE_COUNT;
+        fft_style_reset(); /* 清掉上一种风格残留的瀑布/粒子 */
+        UserInfo_AutoSave();
+      }
+      else if (disp_mode == DISP_MODE_MOTION)
+      {
+        pUserInfo->motion = (pUserInfo->motion + 1) % ANIM_COUNT;
+        UserInfo_AutoSave();
+      }
       else if (disp_mode == DISP_MODE_CLOCK)
       {
         /* 换主题：扫描线把旧画面刷掉 → 黑场里换主题并落盘 → 新主题再刷进来 */
@@ -1131,15 +1126,16 @@ void AppGUI_Loop(uint8_t timer)
         UserInfo_AutoSave(); /* 黑场时存档（FLASH 写入正好藏在黑屏里） */
         clock_wipe_scan_begin_in();
       }
-      else if (disp_mode == DISP_MODE_SNAKE)
+      else if (disp_mode == DISP_MODE_GAME)
       {
-        pUserInfo->snakewidth = (pUserInfo->snakewidth + 1) % 5;
-        if (pUserInfo->snakewidth == 0)
-          pUserInfo->snakewidth = 1;
-        setSnakeWidth(pUserInfo->snakewidth);
+        /* 贪吃蛇 -> 俄罗斯方块 -> 坦克大战 -> 贪吃蛇
+         * 用坦克换关那套冲击波过渡：旧画面被炸开，黑场里重开新游戏，再从中心涌出来
+         * 存档压在黑场里写，FLASH 那几毫秒用户看不到 */
+        pUserInfo->game = (pUserInfo->game + 1) % GAME_COUNT;
+        game_switch_anim_out(pUserInfo->game);
+        UserInfo_AutoSave(); /* 黑屏时存档 */
+        game_switch_anim_in();
       }
-      else if (disp_mode == DISP_MODE_TANKS)
-        tanksRegen(); /* 换一张随机地图 */
       opnExit = false;
     }
   }
