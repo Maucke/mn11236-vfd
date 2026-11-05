@@ -3,9 +3,16 @@
 #include <stdint.h>
 #include "cmsis_os.h"
 #include "spi.h"
+#include "tim.h"
 
 // 用户绘制的像素缓冲区
-static uint8_t display_buffer[VFD_WIDTH][VFD_HEIGHT][2]; // [x][y][color]
+static uint8_t display_buffer[VFD_WIDTH][VFD_HEIGHT]; // [x][y][color]
+
+/* 过渡动画期间暂停送屏（避免新画面先闪一帧完整的图） */
+static uint8_t send_hold = 0;
+
+/* 扫描开关：0 = DMA 不再接力，屏停在最后一段，完全不刷新 */
+static volatile uint8_t scan_run = 1;
 
 // DMA传输缓冲区（当前正在传输的行）
 #define GRAY_BITS 3
@@ -34,13 +41,13 @@ static void reset_bit(uint8_t *buf, uint16_t bit_pos)
     buf[(bit_pos / 8)] &= ~(1 << (7 - (bit_pos % 8)));
 }
 
-/**
- * 获取Bit位
- */
-static uint8_t get_bit(const uint8_t *buf, uint16_t bit_pos)
-{
-    return buf[(bit_pos / 8)] & (1 << (7 - (bit_pos % 8)));
-}
+///**
+// * 获取Bit位
+// */
+//static uint8_t get_bit(const uint8_t *buf, uint16_t bit_pos)
+//{
+//    return buf[(bit_pos / 8)] & (1 << (7 - (bit_pos % 8)));
+//}
 
 /**
  * 初始化扫描Grid的激活栅极模板
@@ -90,15 +97,23 @@ static uint8_t abcdef_conversion(uint8_t idx)
     return x_abcdef;
 }
 
+void mn11236_setbrightness(uint8_t bright)
+{
+	if(bright)
+		HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_RESET);
+	else
+		HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_SET);
+}
+
 void mn11236_init(void)
 {
 
     // 初始化LAT和BK引脚状态
-    HAL_GPIO_WritePin(VFD_LAT_GPIO_Port, VFD_LAT_Pin, GPIO_PIN_RESET);
+    mn11236_setbrightness(0);
 //    // 高电平关闭显示
 //    HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_SET);
 
-    HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_RESET);
+    mn11236_setbrightness(50);
 	
     // 初始化栅极模板
     init_grids_template();
@@ -124,6 +139,11 @@ void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
 
     HAL_GPIO_WritePin(VFD_LAT_GPIO_Port, VFD_LAT_Pin, GPIO_PIN_SET);
     HAL_GPIO_WritePin(VFD_LAT_GPIO_Port, VFD_LAT_Pin, GPIO_PIN_RESET);
+
+    /* 停扫：不再接力。注意这里不能做"送全 0 遮挡"——写 Flash 时这个
+     * 中断本身就会被 Flash 总线停住推迟到擦除结束，等于没遮。 */
+    if (!scan_run)
+        return;
 		   
 		plane_repeat++;
 
@@ -156,12 +176,95 @@ void mn11236_clear_buffers(void)
     memset(display_buffer, 0, sizeof(display_buffer));
 }
 
+/* 把 DMA 缓冲的像素位清 0，保留每帧的栅极激活位
+ * （栅极位一起清掉的话，恢复后 send_buffer 只写像素位，栅极就再也没人设置了） */
+static void blank_dma_pixels(void)
+{
+    for (uint8_t f = 0; f < VFD_FRAMES; f++)
+    {
+        for (uint8_t g = 0; g < GRAY_BITS; g++)
+        {
+            memset(dma_tx_buffer[f][g], 0, DMA_BUFFER_SIZE);
+            set_bit(dma_tx_buffer[f][g], GRIDS_OFFSET - f);
+            set_bit(dma_tx_buffer[f][g], GRIDS_OFFSET - (f + 1));
+        }
+    }
+}
+
+/**
+ * 停止整屏扫描。
+ *
+ * VFD 是动态扫描，停在哪一格哪一格就一直亮（占空比从 1/37 变成 100%，
+ * 看起来是一条特别亮的线），所以停之前必须让屏上锁存的最后一段是黑的。
+ *
+ * 做法：把整块 DMA 缓冲换成黑画面，靠正在跑的扫描把它扫上去并锁存，
+ * 再停链条。不能在 SPI 完成中断里送全 0 —— 写 Flash 时那个中断本身
+ * 会被 Flash 总线停住，推迟到擦除结束才执行，等于没遮。
+ */
+void mn11236_scan_stop(void)
+{
+    if (!scan_run)
+        return;
+
+    /* 1. 整块 DMA 缓冲换成黑画面（保留栅极位），之后每一段都是暗的 */
+    blank_dma_pixels();
+
+    /* 2. 等黑画面真正扫上去并锁存。
+     *    这里必须给足 1ms 以上：osDelay(1) 是"等到下一个 tick"，可能
+     *    几乎立刻返回，那时正在传的还是旧数据，一停就是一条亮线。 */
+    osDelay(2);
+
+    /* 3. 停链条：此刻最后锁存的一定是黑的那一段 */
+    scan_run = 0;
+}
+
+/**
+ * 恢复扫描。停扫时链条是自然结束的（SPI 已回到 READY），直接从上次的
+ * 格/子场接着扫；万一调用时刚好还有一段在传，它传完的回调会看到
+ * scan_run=1 自己接上。
+ */
+void mn11236_scan_start(void)
+{
+    if (scan_run)
+        return;
+
+    scan_run = 1;
+
+    if (hspi2.State == HAL_SPI_STATE_READY)
+        HAL_SPI_Transmit_DMA(
+            &hspi2,
+            (uint8_t *)dma_tx_buffer[current_grid][current_plane],
+            DMA_BUFFER_SIZE);
+}
+
+/**
+ * 暂停/恢复送屏
+ * hold = 1：mn11236_send_buffer() 直接被忽略，屏幕保持上一帧内容
+ * 过渡动画里用来避免“新界面先闪一帧完整的图”
+ */
+void mn11236_hold_send(uint8_t hold)
+{
+    send_hold = hold;
+}
+
+/**
+ * 每送完一帧回调一次（默认空实现，应用层可覆写）
+ * 用来把刚送上屏的画面同步给上位机：碎裂/拼合、菜单模糊等
+ * 过渡动画的中间帧也会跟着上传，不再只有主循环的最后一张。
+ */
+__weak void mn11236_on_frame_sent(void)
+{
+}
+
 /**
  * 发送缓冲区数据到屏幕
  */
 void mn11236_send_buffer(void)
 {
 	uint8_t blue = 0, red = 0;
+
+	if (send_hold)
+		return;
     /**
      * 一帧点3个像素段： T0 = abc, T1 = def, T2 = ghi ...
      * 每个像素段包含红蓝两种颜色数据
@@ -213,7 +316,7 @@ void mn11236_send_buffer(void)
                 }
 
                 // 蓝色像素：根据display_buffer状态设置或清除bit
-								blue = display_buffer[x][y][MN11236_COLOR_BLUE];
+								blue = display_buffer[x][y]&0xF;
 								if(blue&1)
                     set_bit(dma_tx_buffer[frame][0], line_offset + bit_idx);
                 else
@@ -230,7 +333,7 @@ void mn11236_send_buffer(void)
                     reset_bit(dma_tx_buffer[frame][2], line_offset + bit_idx);
 
                 // 红色像素：根据display_buffer状态设置或清除bit
-								red = display_buffer[x][y][MN11236_COLOR_RED];
+								red = display_buffer[x][y]>>4;
 								if(red&1)
                     set_bit(dma_tx_buffer[frame][0], line_offset + VFD_COLOR_OFFSET + bit_idx);
                 else
@@ -248,6 +351,9 @@ void mn11236_send_buffer(void)
             }
         }
     }
+
+    /* 整帧数据已经写好，通知应用层同步（默认空实现） */
+    mn11236_on_frame_sent();
 }
 
 /**
@@ -259,7 +365,14 @@ void mn11236_draw_pixel(uint8_t x, uint8_t y, mn11236_color_t color)
     {
         return; // 超出范围
     }
-		display_buffer[x][y][color] = 7;
+		if(color == MN11236_COLOR_RED)
+		{
+			display_buffer[x][y] |= 7<<4;
+		}
+		else
+		{
+			display_buffer[x][y] |= 7;
+		}
 }
 
 void mn11236_draw_pixel_gray(uint8_t x,
@@ -273,7 +386,16 @@ void mn11236_draw_pixel_gray(uint8_t x,
     if (gray > 7)
         gray = 7;
 
-    display_buffer[x][y][color] = gray;
+		if(color == MN11236_COLOR_RED)
+		{
+			display_buffer[x][y] &= 0xF;
+			display_buffer[x][y] |= gray<<4;
+		}
+		else
+		{
+			display_buffer[x][y] &= 0xF0;
+			display_buffer[x][y] |= gray;
+		}
 }
 
 /**
@@ -285,7 +407,10 @@ void mn11236_clear_pixel(uint8_t x, uint8_t y, mn11236_color_t color)
     {
         return; // 超出范围
     }
-		display_buffer[x][y][color] = 0;
+		if(color == MN11236_COLOR_RED)
+			display_buffer[x][y] &= 0xF;
+		else
+			display_buffer[x][y] &= 0xF0;
 }
 
 /**
@@ -297,7 +422,20 @@ uint8_t mn11236_read_pixel(uint8_t x, uint8_t y, mn11236_color_t color)
     {
         return 0; // 超出范围
     }
-    return display_buffer[x][y][color];
+		if(color == MN11236_COLOR_RED)
+			return display_buffer[x][y] >> 4;
+		else
+			return display_buffer[x][y] & 0xF;
+}
+
+/**
+ * 获取显示缓冲区首地址
+ * 布局 [x][y]，索引 x * VFD_HEIGHT + y
+ * 每字节低 4 位为蓝色灰度，高 4 位为红色灰度
+ */
+uint8_t *mn11236_get_buffer(void)
+{
+    return &display_buffer[0][0];
 }
 
 void mn11236_gray_test(void)
@@ -382,19 +520,7 @@ void mn11236_development_test(void)
     }
 
     osDelay(500);
-
-    // 动画4: 逐行清除（从上往下清除）
-    for (y = 0; y < VFD_HEIGHT; y++)
-    {
-        for (x = 0; x < VFD_WIDTH; x++)
-        {
-            // 清除display_buffer中的像素
-            reset_bit(display_buffer[y][MN11236_COLOR_BLUE], x);
-        }
-        mn11236_send_buffer();
-        osDelay(80);
-    }
-
+		
     // 动画5: 扩展矩形（从中心向外扩展）
     mn11236_clear_buffers();
     uint8_t cx = VFD_WIDTH / 2;

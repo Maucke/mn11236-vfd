@@ -10,7 +10,7 @@
       <TargetName>mn11236-vfd</TargetName>
       <ToolsetNumber>0x4</ToolsetNumber>
       <ToolsetName>ARM-ADS</ToolsetName>
-      <pCCUsed>5060960::V5.06 update 7 (build 960)::.\ARMCC</pCCUsed>
+      <pCCUsed>5060750::V5.06 update 6 (build 750)::ARMCC</pCCUsed>
       <uAC6>0</uAC6>
       <TargetOption>
         <TargetCommonOption>
@@ -137,7 +137,7 @@
             <DriverSelection>4101</DriverSelection>
           </Flash1>
           <bUseTDR>1</bUseTDR>
-          <Flash2>BIN\UL2V8M.DLL</Flash2>
+          <Flash2>BIN\UL2CM3.DLL</Flash2>
           <Flash3></Flash3>
           <Flash4></Flash4>
           <pFcarmOut></pFcarmOut>
@@ -337,7 +337,7 @@
               <MiscControls></MiscControls>
               <Define>USE_HAL_DRIVER,STM32F401xC,FUSB,ARM_MATH_CM4,ARM_MATH_CM4,__CC_ARM,__TARGET_FPU_VFP</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../USB_DEVICE/App;../USB_DEVICE/Target;../Drivers/STM32F4xx_HAL_Driver/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy;../Middlewares/Third_Party/FreeRTOS/Source/include;../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2;../Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F;../Middlewares/ST/STM32_USB_Device_Library/Core/Inc;../Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc;../Drivers/CMSIS/Device/ST/STM32F4xx/Include;../Drivers/CMSIS/Include;../Middlewares/ST/STM32_USB_Device_Library/Class/NEX_LINK/Inc;..\ThirdPart\mygui;..\ThirdPart\easyui\include;..\Middlewares\ST\ARM\DSP\Inc;..\ThirdPart\pixui</IncludePath>
+              <IncludePath>../Core/Inc;../USB_DEVICE/App;../USB_DEVICE/Target;../Drivers/STM32F4xx_HAL_Driver/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy;../Middlewares/Third_Party/FreeRTOS/Source/include;../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2;../Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F;../Middlewares/ST/STM32_USB_Device_Library/Core/Inc;../Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc;../Drivers/CMSIS/Device/ST/STM32F4xx/Include;../Drivers/CMSIS/Include;../Middlewares/ST/STM32_USB_Device_Library/Class/NEX_LINK/Inc;../ThirdPart/mygui;../ThirdPart/easyui/include;../Middlewares/ST/ARM/DSP/Inc;../ThirdPart/pixui</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -402,11 +402,6 @@
               <FilePath>..\Core\Src\mn11236.c</FilePath>
             </File>
             <File>
-              <FileName>myiic.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\myiic.c</FilePath>
-            </File>
-            <File>
               <FileName>stm32_rx8900.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Core\Src\stm32_rx8900.c</FilePath>
@@ -415,6 +410,21 @@
               <FileName>stmflash.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Core\Src\stmflash.c</FilePath>
+            </File>
+            <File>
+              <FileName>clockui.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\clockui.c</FilePath>
+            </File>
+            <File>
+              <FileName>lv_anim_light.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\lv_anim_light.c</FilePath>
+            </File>
+            <File>
+              <FileName>cr4_fft_256_stm32.s</FileName>
+              <FileType>2</FileType>
+              <FilePath>..\Core\Src\cr4_fft_256_stm32.s</FilePath>
             </File>
             <File>
               <FileName>main.c</FileName>
@@ -427,6 +437,11 @@
               <FilePath>../Core/Src/gpio.c</FilePath>
             </File>
             <File>
+              <FileName>freertos.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Core/Src/freertos.c</FilePath>
+            </File>
+            <File>
               <FileName>adc.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Core/Src/adc.c</FilePath>
@@ -437,9 +452,60 @@
               <FilePath>../Core/Src/dma.c</FilePath>
             </File>
             <File>
-              <FileName>freertos.c</FileName>
+              <FileName>iwdg.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../Core/Src/freertos.c</FilePath>
+              <FilePath>../Core/Src/iwdg.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument></CustomArgument>
+                  <IncludeLibraryModules></IncludeLibraryModules>
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>0</Optim>
+                    <oTime>2</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls></MiscControls>
+                      <Define></Define>
+                      <Undefine></Undefine>
+                      <IncludePath></IncludePath>
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
             </File>
             <File>
               <FileName>spi.c</FileName>
@@ -472,19 +538,9 @@
               <FilePath>../Core/Src/stm32f4xx_hal_timebase_tim.c</FilePath>
             </File>
             <File>
-              <FileName>clockui.c</FileName>
+              <FileName>myiic.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Core\Src\clockui.c</FilePath>
-            </File>
-            <File>
-              <FileName>lv_anim_light.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\lv_anim_light.c</FilePath>
-            </File>
-            <File>
-              <FileName>cr4_fft_256_stm32.s</FileName>
-              <FileType>2</FileType>
-              <FilePath>..\Core\Src\cr4_fft_256_stm32.s</FilePath>
+              <FilePath>..\Core\Src\myiic.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -522,14 +578,19 @@
               <FilePath>..\Middlewares\ST\STM32_USB_Device_Library\Class\NEX_LINK\Src\nexlink_usb_if.c</FilePath>
             </File>
             <File>
-              <FileName>usbd_desc.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../USB_DEVICE/App/usbd_desc.c</FilePath>
-            </File>
-            <File>
               <FileName>nexlink_rampool.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Middlewares\ST\STM32_USB_Device_Library\Class\NEX_LINK\Src\nexlink_rampool.c</FilePath>
+            </File>
+            <File>
+              <FileName>nexlink_external.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Middlewares\ST\STM32_USB_Device_Library\Class\NEX_LINK\Src\nexlink_external.c</FilePath>
+            </File>
+            <File>
+              <FileName>usbd_desc.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../USB_DEVICE/App/usbd_desc.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -650,6 +711,174 @@
               <FileName>stm32f4xx_ll_adc.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_ll_adc.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32f4xx_hal_i2c.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument></CustomArgument>
+                  <IncludeLibraryModules></IncludeLibraryModules>
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>0</Optim>
+                    <oTime>2</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls></MiscControls>
+                      <Define></Define>
+                      <Undefine></Undefine>
+                      <IncludePath></IncludePath>
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+            <File>
+              <FileName>stm32f4xx_hal_i2c_ex.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c_ex.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument></CustomArgument>
+                  <IncludeLibraryModules></IncludeLibraryModules>
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>0</Optim>
+                    <oTime>2</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls></MiscControls>
+                      <Define></Define>
+                      <Undefine></Undefine>
+                      <IncludePath></IncludePath>
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
+            </File>
+            <File>
+              <FileName>stm32f4xx_hal_iwdg.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_iwdg.c</FilePath>
+              <FileOption>
+                <CommonProperty>
+                  <UseCPPCompiler>2</UseCPPCompiler>
+                  <RVCTCodeConst>0</RVCTCodeConst>
+                  <RVCTZI>0</RVCTZI>
+                  <RVCTOtherData>0</RVCTOtherData>
+                  <ModuleSelection>0</ModuleSelection>
+                  <IncludeInBuild>1</IncludeInBuild>
+                  <AlwaysBuild>2</AlwaysBuild>
+                  <GenerateAssemblyFile>2</GenerateAssemblyFile>
+                  <AssembleAssemblyFile>2</AssembleAssemblyFile>
+                  <PublicsOnly>2</PublicsOnly>
+                  <StopOnExitCode>11</StopOnExitCode>
+                  <CustomArgument></CustomArgument>
+                  <IncludeLibraryModules></IncludeLibraryModules>
+                  <ComprImg>1</ComprImg>
+                </CommonProperty>
+                <FileArmAds>
+                  <Cads>
+                    <interw>2</interw>
+                    <Optim>0</Optim>
+                    <oTime>2</oTime>
+                    <SplitLS>2</SplitLS>
+                    <OneElfS>2</OneElfS>
+                    <Strict>2</Strict>
+                    <EnumInt>2</EnumInt>
+                    <PlainCh>2</PlainCh>
+                    <Ropi>2</Ropi>
+                    <Rwpi>2</Rwpi>
+                    <wLevel>0</wLevel>
+                    <uThumb>2</uThumb>
+                    <uSurpInc>2</uSurpInc>
+                    <uC99>2</uC99>
+                    <uGnu>2</uGnu>
+                    <useXO>2</useXO>
+                    <v6Lang>0</v6Lang>
+                    <v6LangP>0</v6LangP>
+                    <vShortEn>2</vShortEn>
+                    <vShortWch>2</vShortWch>
+                    <v6Lto>2</v6Lto>
+                    <v6WtE>2</v6WtE>
+                    <v6Rtti>2</v6Rtti>
+                    <VariousControls>
+                      <MiscControls></MiscControls>
+                      <Define></Define>
+                      <Undefine></Undefine>
+                      <IncludePath></IncludePath>
+                    </VariousControls>
+                  </Cads>
+                </FileArmAds>
+              </FileOption>
             </File>
             <File>
               <FileName>stm32f4xx_hal_spi.c</FileName>
@@ -939,7 +1168,7 @@
             <DriverSelection>4101</DriverSelection>
           </Flash1>
           <bUseTDR>1</bUseTDR>
-          <Flash2>BIN\UL2V8M.DLL</Flash2>
+          <Flash2>BIN\UL2CM3.DLL</Flash2>
           <Flash3></Flash3>
           <Flash4></Flash4>
           <pFcarmOut></pFcarmOut>
@@ -1204,11 +1433,6 @@
               <FilePath>..\Core\Src\mn11236.c</FilePath>
             </File>
             <File>
-              <FileName>myiic.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\myiic.c</FilePath>
-            </File>
-            <File>
               <FileName>stm32_rx8900.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Core\Src\stm32_rx8900.c</FilePath>
@@ -1217,6 +1441,21 @@
               <FileName>stmflash.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Core\Src\stmflash.c</FilePath>
+            </File>
+            <File>
+              <FileName>clockui.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\clockui.c</FilePath>
+            </File>
+            <File>
+              <FileName>lv_anim_light.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\lv_anim_light.c</FilePath>
+            </File>
+            <File>
+              <FileName>cr4_fft_256_stm32.s</FileName>
+              <FileType>2</FileType>
+              <FilePath>..\Core\Src\cr4_fft_256_stm32.s</FilePath>
             </File>
             <File>
               <FileName>main.c</FileName>
@@ -1229,6 +1468,11 @@
               <FilePath>../Core/Src/gpio.c</FilePath>
             </File>
             <File>
+              <FileName>freertos.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Core/Src/freertos.c</FilePath>
+            </File>
+            <File>
               <FileName>adc.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Core/Src/adc.c</FilePath>
@@ -1239,9 +1483,9 @@
               <FilePath>../Core/Src/dma.c</FilePath>
             </File>
             <File>
-              <FileName>freertos.c</FileName>
+              <FileName>iwdg.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../Core/Src/freertos.c</FilePath>
+              <FilePath>../Core/Src/iwdg.c</FilePath>
             </File>
             <File>
               <FileName>spi.c</FileName>
@@ -1274,19 +1518,9 @@
               <FilePath>../Core/Src/stm32f4xx_hal_timebase_tim.c</FilePath>
             </File>
             <File>
-              <FileName>clockui.c</FileName>
+              <FileName>myiic.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Core\Src\clockui.c</FilePath>
-            </File>
-            <File>
-              <FileName>lv_anim_light.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Core\Src\lv_anim_light.c</FilePath>
-            </File>
-            <File>
-              <FileName>cr4_fft_256_stm32.s</FileName>
-              <FileType>2</FileType>
-              <FilePath>..\Core\Src\cr4_fft_256_stm32.s</FilePath>
+              <FilePath>..\Core\Src\myiic.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -1324,14 +1558,19 @@
               <FilePath>..\Middlewares\ST\STM32_USB_Device_Library\Class\NEX_LINK\Src\nexlink_usb_if.c</FilePath>
             </File>
             <File>
-              <FileName>usbd_desc.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../USB_DEVICE/App/usbd_desc.c</FilePath>
-            </File>
-            <File>
               <FileName>nexlink_rampool.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Middlewares\ST\STM32_USB_Device_Library\Class\NEX_LINK\Src\nexlink_rampool.c</FilePath>
+            </File>
+            <File>
+              <FileName>nexlink_external.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Middlewares\ST\STM32_USB_Device_Library\Class\NEX_LINK\Src\nexlink_external.c</FilePath>
+            </File>
+            <File>
+              <FileName>usbd_desc.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../USB_DEVICE/App/usbd_desc.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -1452,6 +1691,21 @@
               <FileName>stm32f4xx_ll_adc.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_ll_adc.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32f4xx_hal_i2c.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32f4xx_hal_i2c_ex.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_i2c_ex.c</FilePath>
+            </File>
+            <File>
+              <FileName>stm32f4xx_hal_iwdg.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_iwdg.c</FilePath>
             </File>
             <File>
               <FileName>stm32f4xx_hal_spi.c</FileName>

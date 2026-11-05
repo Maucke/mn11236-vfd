@@ -8,35 +8,55 @@
 
 #define NL_VERSION_MAJOR  1
 #define NL_VERSION_MINOR  2
-#define NL_VERSION_PATCH  0
-#define NL_VERSION_BUILD  1
+#define NL_VERSION_PATCH  3
+#define NL_VERSION_BUILD  0
 
 /* CMD */
 //16-bit cmd = [ 高 8 位：功能域 ][ 低 8 位：子命令 ]
-/* 0x0000 - core */
-#define CMD_HW_RESET            0x0000
-#define CMD_PING            0x0001
-#define CMD_GET_VERSION     0x0002
-#define CMD_SYNC_TIME       0x0003
-#define CMD_LOOPBACK     0x0004
-#define CMD_KEY     0x0010
-#define CMD_GET_DISPLAY_INFO  0x0011
+typedef enum
+{
+    CMD_HW_RESET            = 0x0000,
+    CMD_PING                = 0x0001,
+    CMD_GET_VERSION         = 0x0002,
+    CMD_SYNC_TIME           = 0x0003,
+    CMD_LOOPBACK            = 0x0004,
+    CMD_KEY                 = 0x0010,
+    CMD_GET_DISPLAY_INFO    = 0x0011,
 
-/* 0x0100 - log */
-#define EVT_LOG             0x0100
-#define EVT_WARN            0x0101
-#define EVT_ERROR           0x0102
+    EVT_LOG                 = 0x0100,
+    EVT_WARN                = 0x0101,
+    EVT_ERROR               = 0x0102,
 
-/* 0x0400 - frame */
-#define CMD_FRAME_BEGIN     0x0400
-#define CMD_FRAME_DATA      0x0401
-#define CMD_FRAME_END       0x0402
+    EVT_STATUS              = 0x0200,
+    EVT_HEARTBEAT           = 0x0201,
 
-#define CMD_FRAME_GET       0x0403
+    CMD_GPIO_WRITE          = 0x0300,
+    CMD_GPIO_READ           = 0x0301,
+    CMD_GPIO_CONFIG         = 0x0302,
 
-#define EVT_FRAME_UPLOAD_BEGIN    0x0404
-#define EVT_FRAME_UPLOAD_DATA    0x0405
-#define EVT_FRAME_UPLOAD_END    0x0406
+    CMD_I2C_TRANSFER        = 0x0310,
+    CMD_I2C_CONFIG          = 0x0311,
+		CMD_I2C_SCAN            = 0x0312,
+
+    CMD_SPI_TRANSFER        = 0x0320,
+    CMD_SPI_CONFIG          = 0x0321,
+
+    CMD_UART_CONFIG         = 0x0330,
+    CMD_UART_WRITE          = 0x0331,
+    EVT_UART_DATA           = 0x0332,
+
+    CMD_FRAME_BEGIN         = 0x0400,
+    CMD_FRAME_DATA          = 0x0401,
+    CMD_FRAME_END           = 0x0402,
+    CMD_FRAME_GET           = 0x0403,
+
+    EVT_FRAME_UPLOAD_BEGIN  = 0x0404,
+    EVT_FRAME_UPLOAD_DATA   = 0x0405,
+    EVT_FRAME_UPLOAD_END    = 0x0406,
+
+    CMD_USER_BASE           = 0x7F00
+
+} NexLinkCmd_t;
 
 typedef enum {
     NL_PKT_CMD   = 0x01,
@@ -46,13 +66,42 @@ typedef enum {
 
 typedef enum
 {
-    NL_ERR_OK            = 0x00,
-    NL_ERR_UNSUPPORTED   = 0x01,
-    NL_ERR_INVALID_PARAM = 0x02,
-    NL_ERR_BUSY          = 0x03,
-    NL_ERR_NOT_READY     = 0x04,
-    NL_ERR_NO_MEM        = 0x05,
-    NL_ERR_INTERNAL      = 0x7F,
+    /* =========================
+     * 0x00 - 0x0F 通用错误
+     * ========================= */
+    NL_ERR_OK              = 0x00,
+    NL_ERR_UNSUPPORTED     = 0x01,
+    NL_ERR_INVALID_PARAM   = 0x02,
+    NL_ERR_BUSY            = 0x03,
+    NL_ERR_NOT_READY       = 0x04,
+    NL_ERR_NO_MEM          = 0x05,
+    NL_ERR_TIMEOUT         = 0x06,
+    NL_ERR_INTERNAL        = 0x0F,
+
+    /* =========================
+     * 0x10 - 0x1F UART 错误
+     * ========================= */
+    NL_ERR_UART_OVERRUN    = 0x10,
+    NL_ERR_UART_FRAMING    = 0x11,
+    NL_ERR_UART_PARITY     = 0x12,
+    NL_ERR_UART_DMA        = 0x13,
+
+    /* =========================
+     * 0x20 - 0x2F I2C 错误
+     * ========================= */
+    NL_ERR_I2C_NACK        = 0x20,
+    NL_ERR_I2C_BUS         = 0x21,
+    NL_ERR_I2C_ARBITRATION = 0x22,
+    NL_ERR_I2C_OVERRUN     = 0x23,
+    NL_ERR_I2C_DMA         = 0x24,
+    NL_ERR_I2C_TIMEOUT         = 0x25,
+
+    /* =========================
+     * 0x30 - 0x3F SPI 错误
+     * ========================= */
+    NL_ERR_SPI_OVERRUN     = 0x30,
+    NL_ERR_SPI_MODE_FAULT  = 0x31,
+
 } nl_err_t;
 
 typedef struct __attribute__((packed)) {
@@ -78,7 +127,7 @@ typedef struct __attribute__((packed))
     uint32_t build;
 } nl_version_t;
 
-enum 
+typedef enum 
 {
     Backspace = 8,
     Tab = 9,
@@ -226,7 +275,7 @@ enum
     OemClear = 254
 }ConsoleKey;
 
-enum 
+typedef enum 
 {
 	Rgb888,
 	Rgb565,
@@ -250,5 +299,3 @@ typedef struct __attribute__((packed))
     uint8_t display_count;
     nl_display_t displays[MAX_DISPLAYS];
 } nl_display_info_t;
-
-

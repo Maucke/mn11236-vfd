@@ -26,6 +26,7 @@
 #include "semphr.h"
 #include "nexlink_app.h"
 #include <math.h>
+#include "iwdg.h"
 
 // Pages
 EasyUIPage_t pageMain, pageUSBForm, pageDialog, pageSensor, pageAnimation, pageSetting, pageDiagnostic, pageAbout, pageSetTime;
@@ -36,6 +37,7 @@ EasyUIItem_t itemDebug;
 EasyUIItem_t itemSensor;
 EasyUIItem_t itemAnimation;
 EasyUIItem_t itemSetting, titleSetting, itemMusicTheme, itemClockTheme, itemSetTime, itemDefaultFunc, itemClockDimming;
+EasyUIItem_t itemEspEn;
 EasyUIItem_t itemDiagnostic;
 EasyUIItem_t itemAbout;
 EasyUIItem_t itemMind, itemCircle, itemSnowflake, itemMeteo, itemPlanet, itemTriangle, itemStarwar, itemBlast, itemGCircle, itemFirework, titleAnimation;
@@ -96,52 +98,51 @@ void EasyUIKeyActionMonitor() // Interrupt trigger, No EasyUIDelay_ms(xx)
 #endif
 }
 
-
-char *EasyUIVersion = "Ver. 1.3.4";
+char *EasyUIVersion = "Ver. 3.3.0";
 void PageAbout(EasyUIPage_t *page)
 {
-    static uint8_t pageIndex = 0;
-    const uint8_t totalLines = 3;
-    const uint8_t linesPerPage = 2;
+  static uint8_t pageIndex = 0;
+  const uint8_t totalLines = 3;
+  const uint8_t linesPerPage = 2;
 
-    char tempstr[128];
-    const char *lines[3];
+  char tempstr[128];
+  const char *lines[3];
 
-    // 构建字符串
-    snprintf(tempstr, sizeof(tempstr), "Rel. %s", __DATE__);
+  // 构建字符串
+  snprintf(tempstr, sizeof(tempstr), "Rel. %s", __DATE__);
 
-    lines[0] = "Author: DPJ";
-    lines[1] = EasyUIVersion;
-    lines[2] = tempstr;
+  lines[0] = "Author: DPJ";
+  lines[1] = EasyUIVersion;
+  lines[2] = tempstr;
 
-    // 按键翻页
-    if (opnDown)
-    {
-        if ((pageIndex + 1) * linesPerPage < totalLines)
-            pageIndex++;
-        opnDown = false;
-    }
+  // 按键翻页
+  if (opnDown)
+  {
+    if ((pageIndex + 1) * linesPerPage < totalLines)
+      pageIndex++;
+    opnDown = false;
+  }
 
-    if (opnUp)
-    {
-        if (pageIndex > 0)
-            pageIndex--;
-        opnUp = false;
-    }
+  if (opnUp)
+  {
+    if (pageIndex > 0)
+      pageIndex--;
+    opnUp = false;
+  }
 
-    // 显示当前页
-    int screen_delta = 0;
+  // 显示当前页
+  int screen_delta = 0;
 
-    for (int i = 0; i < linesPerPage; i++)
-    {
-        int lineIndex = pageIndex * linesPerPage + i;
+  for (int i = 0; i < linesPerPage; i++)
+  {
+    int lineIndex = pageIndex * linesPerPage + i;
 
-        if (lineIndex >= totalLines)
-            break;
+    if (lineIndex >= totalLines)
+      break;
 
-        EasyUIDisplayStr(10, screen_delta, lines[lineIndex]);
-        screen_delta += page->rowheight;
-    }
+    EasyUIDisplayStr(10, screen_delta, lines[lineIndex]);
+    screen_delta += page->rowheight;
+  }
 }
 typedef enum
 {
@@ -338,262 +339,171 @@ extern uint8_t frame_wave[MAX_X][MAX_Y]; // 6-4:red, 2-0:blue
 
 static void flush_frame(void)
 {
-    for (int y = 0; y < MAX_Y; y++)
+  for (int y = 0; y < MAX_Y; y++)
+  {
+    for (int x = 0; x < MAX_X; x++)
     {
-        for (int x = 0; x < MAX_X; x++)
-        {
-            uint8_t p = frame_wave[x][y];
+      uint8_t p = frame_wave[x][y];
 
-            uint8_t red  = (p >> 4) & 0x07;
-            uint8_t blue =  p       & 0x07;
+      uint8_t red = (p >> 4) & 0x07;
+      uint8_t blue = p & 0x07;
 
-            mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED,  red);
-            mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, blue);
-        }
+      mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, red);
+      mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, blue);
     }
+  }
 }
 static void gradient_flow_frame(void)
 {
-    for (int y = 0; y < MAX_Y; y++)
-    {
-        for (int x = 0; x < MAX_X; x++)
-        {
-            // ===== 多波叠加 =====
-            float v =
-                sinf(x * W1 + t1) +
-                sinf(y * W2 + t2) +
-                sinf((x + y) * W3 + t3);
-            // 归一化到 0~1
-            v = (v + 3.0f) / 6.0f;
-
-            if (v < 0) v = 0;
-            if (v > 1) v = 1;
-
-            /* 映射 */
-            uint8_t blue = (uint8_t)(v * 7.0f);   // 3bit
-            uint8_t red  = (uint8_t)((1.0f - v) * 7.0f); // 3bit
-
-            frame_wave[x][y] = (red << 4) | (blue & 0x07);
-        }
-    }
-
-    t1 += SPEED1;
-    t2 += SPEED2;
-    t3 += SPEED3;
-		
-    flush_frame();
-}
-
-static uint8_t fire[MAX_Y][MAX_X]= {0};
-void fire_update(void)
-{
-    // ===== 1. 强化底部火源 =====
+  for (int y = 0; y < MAX_Y; y++)
+  {
     for (int x = 0; x < MAX_X; x++)
     {
-        fire[MAX_Y - 1][x] = 5 + (rand() & 0x03);   // 5~7
+      // ===== 多波叠加 =====
+      float v =
+          sinf(x * W1 + t1) +
+          sinf(y * W2 + t2) +
+          sinf((x + y) * W3 + t3);
+      // 归一化到 0~1
+      v = (v + 3.0f) / 6.0f;
+
+      if (v < 0)
+        v = 0;
+      if (v > 1)
+        v = 1;
+
+      /* 映射 */
+      uint8_t blue = (uint8_t)(v * 7.0f);         // 3bit
+      uint8_t red = (uint8_t)((1.0f - v) * 7.0f); // 3bit
+
+      frame_wave[x][y] = (red << 4) | (blue & 0x07);
     }
-		if (rand() % 20 == 0)
-		{
-				int rx = rand() % MAX_X;
-				int ry = rand() % (MAX_Y / 2);
-				fire[ry][rx] = 7;
-		}
-    // ===== 2. 向上传播 =====
-    for (int y = 0; y < MAX_Y - 1; y++)
-    {
-        for (int x = 1; x < MAX_X - 1; x++)
-        {
-            int sum =
-                fire[y + 1][x] +
-                fire[y + 1][x - 1] +
-                fire[y + 1][x + 1] +
-                fire[y + 2 < MAX_Y ? y + 2 : y + 1][x];
+  }
 
-            uint8_t val = sum >> 2;   // 平均
+  t1 += SPEED1;
+  t2 += SPEED2;
+  t3 += SPEED3;
 
-            // ===== 减少衰减 =====
-            if (val > 0 && (rand() & 4))
-                val--;
-
-            // ===== 左右漂移 =====
-            int shift = (rand() % 3) - 1;   // -1 0 +1
-            int nx = x + shift;
-
-            if (nx >= 0 && nx < MAX_X)
-                fire[y][nx] = val;
-        }
-    }
-}
-void fire_draw(void)
-{
-    for (int y = 0; y < MAX_Y; y++)
-    {
-        for (int x = 0; x < MAX_X; x++)
-        {
-            uint8_t v = fire[y][x];  // 原始温度
-
-            if (v == 0)
-                continue;
-
-            // ===== 计算高度冷却 =====
-            // 顶部冷却最大，底部冷却为0
-						uint8_t cool = ((MAX_Y - 1 - y) * 2) / MAX_Y;
-
-            uint8_t effective = (v > cool) ? (v - cool) : 0;
-
-            if (effective == 0)
-                continue;
-
-            uint8_t redGray = 0;
-            uint8_t cyanGray = 0;
-
-            // ===== 灰度渐变映射 =====
-            uint8_t t = effective * 2;  // 0~14
-
-            if (t <= 7)
-            {
-                // 蓝 → 红
-                cyanGray = 7 - t;
-                redGray  = t;
-            }
-            else
-            {
-                // 红 → 白
-                cyanGray = t - 7;
-                redGray  = 7;
-            }
-
-            if (cyanGray > 7) cyanGray = 7;
-            if (redGray > 7) redGray = 7;
-
-            if (cyanGray)
-                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, cyanGray);
-
-            if (redGray)
-                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, redGray);
-        }
-    }
+  flush_frame();
 }
 
 void PageDiagnostic(EasyUIItem_t *page)
 {
-    static uint8_t mode = 0;
-    static uint8_t gray = 0;
-    static int8_t  dir  = 1;
-    static uint32_t last_tick = 0;
+  static uint8_t mode = 0;
+  static uint8_t gray = 0;
+  static int8_t dir = 1;
+  static uint32_t last_tick = 0;
 
-    // ==========================
-    // 上下键都切换 mode
-    // ==========================
-    if (opnUp)
-    {
-        mode++;
-        if (mode > 5)
-            mode = 0;
-        opnUp = false;
-    }
+  // ==========================
+  // 上下键都切换 mode
+  // ==========================
+  if (opnUp)
+  {
+    mode++;
+    if (mode > 5)
+      mode = 0;
+    opnUp = false;
+  }
 
-    if (opnDown)
-    {
-        if (mode == 0)
-            mode = 5;
-        else
-            mode--;
-        opnDown = false;
-    }
-
-    uint32_t now = HAL_GetTick();
-
-    // 每40ms更新动画
-    if (now - last_tick >= 40)
-    {
-        last_tick = now;
-
-        gray += dir;
-
-        if (gray == 7 || gray == 0)
-            dir = -dir;
-    }
-
-    mn11236_clear_buffers();
-
-    // ====================================================
-    // mode 0：蓝色呼吸
-    // ====================================================
+  if (opnDown)
+  {
     if (mode == 0)
+      mode = 5;
+    else
+      mode--;
+    opnDown = false;
+  }
+
+  uint32_t now = HAL_GetTick();
+
+  // 每40ms更新动画
+  if (now - last_tick >= 40)
+  {
+    last_tick = now;
+
+    gray += dir;
+
+    if (gray == 7 || gray == 0)
+      dir = -dir;
+  }
+
+  mn11236_clear_buffers();
+
+  // ====================================================
+  // mode 0：蓝色呼吸
+  // ====================================================
+  if (mode == 0)
+  {
+    for (uint8_t x = 0; x < SCREEN_WIDTH; x++)
     {
-        for (uint8_t x = 0; x < SCREEN_WIDTH; x++)
-        {
-            for (uint8_t y = 0; y < SCREEN_HEIGHT; y++)
-            {
-                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, gray);
-            }
-        }
+      for (uint8_t y = 0; y < SCREEN_HEIGHT; y++)
+      {
+        mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, gray);
+      }
     }
+  }
 
-    // ====================================================
-    // mode 1：红色呼吸
-    // ====================================================
-    else if (mode == 1)
+  // ====================================================
+  // mode 1：红色呼吸
+  // ====================================================
+  else if (mode == 1)
+  {
+    for (uint8_t x = 0; x < SCREEN_WIDTH; x++)
     {
-        for (uint8_t x = 0; x < SCREEN_WIDTH; x++)
-        {
-            for (uint8_t y = 0; y < SCREEN_HEIGHT; y++)
-            {
-                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, gray);
-            }
-        }
+      for (uint8_t y = 0; y < SCREEN_HEIGHT; y++)
+      {
+        mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, gray);
+      }
     }
+  }
 
-    // ====================================================
-    // mode 2：横向蓝0~7 红0~7 渐变
-    // ====================================================
-    else if (mode == 2)
+  // ====================================================
+  // mode 2：横向蓝0~7 红0~7 渐变
+  // ====================================================
+  else if (mode == 2)
+  {
+    uint8_t section_width = SCREEN_WIDTH / 16;
+
+    for (uint8_t i = 0; i < 16; i++)
     {
-        uint8_t section_width = SCREEN_WIDTH / 16;
+      uint8_t color = (i < 8) ? MN11236_COLOR_BLUE : MN11236_COLOR_RED;
+      uint8_t g = (i < 8) ? i : (i - 8);
 
-        for (uint8_t i = 0; i < 16; i++)
+      for (uint8_t x = i * section_width; x < (i + 1) * section_width; x++)
+      {
+        for (uint8_t y = 0; y < SCREEN_HEIGHT; y++)
         {
-            uint8_t color = (i < 8) ? MN11236_COLOR_BLUE : MN11236_COLOR_RED;
-            uint8_t g     = (i < 8) ? i : (i - 8);
-
-            for (uint8_t x = i * section_width; x < (i + 1) * section_width; x++)
-            {
-                for (uint8_t y = 0; y < SCREEN_HEIGHT; y++)
-                {
-                    mn11236_draw_pixel_gray(x, y, (mn11236_color_t)color, g);
-                }
-            }
+          mn11236_draw_pixel_gray(x, y, (mn11236_color_t)color, g);
         }
+      }
     }
+  }
 
-    // ====================================================
-    // mode 3：动态棋盘灰度
-    // ====================================================
-    else if (mode == 3)
+  // ====================================================
+  // mode 3：动态棋盘灰度
+  // ====================================================
+  else if (mode == 3)
+  {
+    for (uint8_t x = 0; x < SCREEN_WIDTH; x++)
     {
-        for (uint8_t x = 0; x < SCREEN_WIDTH; x++)
-        {
-            for (uint8_t y = 0; y < SCREEN_HEIGHT; y++)
-            {
-                uint8_t g = ((x / 4 + y / 4 + gray) % 8);
-                uint8_t c = (x / 8) % 2;
+      for (uint8_t y = 0; y < SCREEN_HEIGHT; y++)
+      {
+        uint8_t g = ((x / 4 + y / 4 + gray) % 8);
+        uint8_t c = (x / 8) % 2;
 
-                mn11236_draw_pixel_gray(x, y, (mn11236_color_t)c, g);
-            }
-        }
+        mn11236_draw_pixel_gray(x, y, (mn11236_color_t)c, g);
+      }
     }
-    else if (mode == 4)
-		{    
-			fire_update();
-			fire_draw();
-		}
-    else if (mode == 5)
-		{    
-			gradient_flow_frame();
-		}
+  }
+  else if (mode == 4)
+  {
+  }
+  else if (mode == 5)
+  {
+    gradient_flow_frame();
+  }
 
-    mn11236_send_buffer();
+  mn11236_send_buffer();
 }
 
 UserInfo_t *pUserInfo;
@@ -605,18 +515,23 @@ static bool firstsave = true;
 
 void SaveInfo()
 {
-  HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_SET);
+  /* 存数据期间不刷屏：scan_stop 内部会先刷一帧全 0 再停，
+   * 所以屏上定格的是一片黑，不会留亮线。写完恢复扫描并立刻把画面送回。 */
+  mn11236_scan_stop();
+
   xSemaphoreTake(flashMutex, portMAX_DELAY);
-  taskENTER_CRITICAL();
   STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)pUserInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
-  taskEXIT_CRITICAL();
-  xSemaphoreGive(flashMutex);
-  HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_RESET);
   if (firstsave)
   {
     firstsave = false;
-    SaveInfo();
+    /* 第一次写有失败的情况，补写一次；仍在同一次停扫窗口里 */
+    STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)pUserInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
   }
+  xSemaphoreGive(flashMutex);
+
+  /* 恢复扫描，并把原来那一帧重新写回 DMA 缓冲 */
+  mn11236_scan_start();
+  mn11236_send_buffer();
 }
 
 void InitInfo()
@@ -676,6 +591,7 @@ bool UserInfo_AutoSave()
   if (memcmp(&last, pUserInfo, sizeof(UserInfo_t)) != 0)
   {
     memcpy(&last, pUserInfo, sizeof(UserInfo_t));
+		HAL_IWDG_Refresh(&hiwdg);
     SaveInfo();
     return true;
   }
@@ -683,24 +599,14 @@ bool UserInfo_AutoSave()
   return false;
 }
 
-typedef enum
-{
-  DISP_MODE_CLOCK = 0,
-  DISP_MODE_FFT,
-  DISP_MODE_SNAKE,
-  DISP_MODE_MOTION,
-  DISP_MODE_EXTERN,
-  DISP_MODE_MENU,
-} SysDisplayMode_e;
-
 static uint32_t last_key_tick = 0;
 #define MENU_TIMEOUT 10000
 
-static uint32_t wake_until_tick = 0;   // 临时亮屏截止时间
-#define WAKE_TIME_MS 10000             
+static uint32_t wake_until_tick = 0; // 临时亮屏截止时间
+#define WAKE_TIME_MS 10000
 
 static SysDisplayMode_e last_disp_mode = DISP_MODE_MOTION;
-static SysDisplayMode_e disp_mode = DISP_MODE_MOTION;
+SysDisplayMode_e disp_mode = DISP_MODE_MOTION;
 void AppGUI_Init(UserInfo_t *userinfo)
 {
   InitInfo();
@@ -731,19 +637,19 @@ void AppGUI_Init(UserInfo_t *userinfo)
 
   EasyUIAddItem(&pageSetting, &itemSetTime, "Set Time", ITEM_JUMP_PAGE, pageSetTime.id);
   EasyUIAddItem(&pageSetting, &itemMusicTheme, "FFT Theme", ITEM_PROGRESS_BAR, &pUserInfo->musictheme, 11, EventChangeValue);
-  EasyUIAddItem(&pageSetting, &itemClockTheme, "Clock Theme", ITEM_PROGRESS_BAR, &pUserInfo->clocktheme, 4, EventChangeValue);
+  EasyUIAddItem(&pageSetting, &itemClockTheme, "Clock Theme", ITEM_PROGRESS_BAR, &pUserInfo->clocktheme, CLOCK_THEME_COUNT - 1, EventChangeValue);
   EasyUIAddItem(&pageSetting, &itemDefaultFunc, "Default Func", ITEM_PROGRESS_BAR, &pUserInfo->defaultfunc, 3, EventChangeValue);
   EasyUIAddItem(&pageSetting, &itemClockDimming, "Clock Dimming", ITEM_PROGRESS_BAR, &pUserInfo->clockdimming, 4, EventChangeValue);
-	EasyUIAddItem(&pageSetting, &itemScreenOnHour,
-								"Screen ON", ITEM_PROGRESS_BAR,
-								&pUserInfo->screen_on_hour, 23,
-								EventChangeValue);
+  EasyUIAddItem(&pageSetting, &itemScreenOnHour,
+                "Screen ON", ITEM_PROGRESS_BAR,
+                &pUserInfo->screen_on_hour, 23,
+                EventChangeValue);
 
-	EasyUIAddItem(&pageSetting, &itemScreenOffHour,
-								"Screen OFF", ITEM_PROGRESS_BAR,
-								&pUserInfo->screen_off_hour, 23,
-								EventChangeValue);
-								
+  EasyUIAddItem(&pageSetting, &itemScreenOffHour,
+                "Screen OFF", ITEM_PROGRESS_BAR,
+                &pUserInfo->screen_off_hour, 23,
+                EventChangeValue);
+
   EasyUIAddItem(&pageAnimation, &titleAnimation, "[Animation]", ITEM_PAGE_DESCRIPTION);
   EasyUIAddItem(&pageAnimation, &itemMind, "Mind", ITEM_CHECKBOX, &pUserInfo->effectswitch.enMind);
   EasyUIAddItem(&pageAnimation, &itemCircle, "Circle", ITEM_CHECKBOX, &pUserInfo->effectswitch.enCircle);
@@ -762,18 +668,18 @@ void AppGUI_Init(UserInfo_t *userinfo)
   setSnakeWidth(pUserInfo->snakewidth);
   beginSnake();
   Motion_Init();
-	uint32_t now = HAL_GetTick();
-	wake_until_tick = now + WAKE_TIME_MS;
+  uint32_t now = HAL_GetTick();
+  wake_until_tick = now + WAKE_TIME_MS;
 }
 
 const MusicTheme_t musicTheme[12] = {
     {Cyan, Red},
     {Cyan, White},
-		{Red, Red},
+    {Red, Red},
     {Red, White},
     {White, Red},
     {White, Cyan},
-		
+
     {CyanWithCyan, RedWithRed},
     {CyanWithCyan, WhiteWithWhite},
     {RedWithRed, CyanWithCyan},
@@ -808,12 +714,33 @@ extern char date[10];
 extern char week[10];
 
 const ClockTheme_t clockTheme[] = {
-    {Red, Red, 0},
-    {Red, Cyan, 0},
-    {Cyan, White, 0},
-//    {Cyan, White, 2},
-    {Red, WhiteWithCyan, 1},
-    {Cyan, WhiteWithRed, 1}};
+    // 动画背景 + 波形文字（style: 0=标准字模 1=原生 9x15 字模）
+    {Red, Red, 0, CLOCK_BG_WAVE, 0},       // 三波叠加渐变
+    {Red, Red, 0, CLOCK_BG_WAVE, 1},       // 三波叠加渐变
+    {Cyan, White, 0, CLOCK_BG_WAVE, 0},    // 三波叠加渐变（白字）
+    {Cyan, White, 0, CLOCK_BG_WAVE, 1},    // 三波叠加渐变（白字）
+//    {Cyan, White, 0, CLOCK_BG_BANDS, 0},   // 流动光带
+//    {Cyan, White, 0, CLOCK_BG_BANDS, 1},   // 流动光带
+//    {Cyan, White, 0, CLOCK_BG_GLOW, 0},    // 中心光晕
+//    {Cyan, White, 0, CLOCK_BG_GLOW, 1},    // 中心光晕
+    {Cyan, White, 0, CLOCK_BG_WIPE, 0},    // 光条擦除染色（蓝/红交替）
+    {Cyan, White, 0, CLOCK_BG_WIPE, 1},    // 光条擦除染色（蓝/红交替）
+    {Cyan, White, 0, CLOCK_BG_FLOW, 0},    // 流动渐变
+    {Cyan, White, 0, CLOCK_BG_FLOW, 1},    // 流动渐变
+    {Cyan, White, 0, CLOCK_BG_PLASMA, 0},  // 等离子斑块
+    {Cyan, White, 0, CLOCK_BG_PLASMA, 1},  // 等离子斑块
+//    {Cyan, White, 0, CLOCK_BG_BREATHE, 0}, // 整屏明暗呼吸
+//    {Cyan, White, 0, CLOCK_BG_BREATHE, 1}, // 整屏明暗呼吸
+    // 纯字主题（无背景动画）
+    {Red, WhiteWithCyan, 1, CLOCK_BG_NONE, 0},
+    {Red, WhiteWithCyan, 1, CLOCK_BG_NONE, 1},
+    {Cyan, WhiteWithRed, 1, CLOCK_BG_NONE, 0},
+    {Cyan, WhiteWithRed, 1, CLOCK_BG_NONE, 1},
+	};
+
+/* 主题数量必须与 CLOCK_THEME_COUNT 一致 */
+typedef char clock_theme_count_check[
+    (sizeof(clockTheme) / sizeof(clockTheme[0]) == CLOCK_THEME_COUNT) ? 1 : -1];
 
 void ExternUI_Init()
 {
@@ -825,109 +752,280 @@ void UploadFrame()
   upload_frame_upload();
 }
 
+/* 覆写驱动里的 __weak 空实现：每送完一帧显存就同步给上位机。
+ * 画在哪、什么时候画都不影响 —— 碎裂/拼合、菜单模糊等过渡动画
+ * 的每一帧都会跟着上传，上位机看到的就是屏幕真实显示的内容。 */
+void mn11236_on_frame_sent(void)
+{
+  upload_frame_upload();
+}
+
 bool ScreenShouldOn(void)
 {
-    uint8_t now = tm_local.tm_hour;
+  uint8_t now = tm_local.tm_hour;
 
-    uint8_t on  = pUserInfo->screen_on_hour;
-    uint8_t off = pUserInfo->screen_off_hour;
+  uint8_t on = pUserInfo->screen_on_hour;
+  uint8_t off = pUserInfo->screen_off_hour;
 
-    if (on < off)
-    {
-        if (now >= on && now < off)
-            return true;
-        else
-            return false;
-    }
+  if (on < off)
+  {
+    if (now >= on && now < off)
+      return true;
     else
-    {
-        // 跨午夜
-        if (now >= on || now < off)
-            return true;
-        else
-            return false;
-    }
+      return false;
+  }
+  else
+  {
+    // 跨午夜
+    if (now >= on || now < off)
+      return true;
+    else
+      return false;
+  }
+}
+
+/* 冒号错时呼吸：1Hz 周期，上点先亮/先灭，下点滞后 100ms */
+#define COLON_FADE_PERIOD_MS 1000
+#define COLON_FADE_TIME_MS 100
+/* 时间切换：旧数字碎掉落下，新数字从上方落下拼合（和菜单切换同一套动画） */
+#define SHARD_FALL_MS 210
+#define SHARD_BUILD_MS 210
+#define SHARD_TOTAL_MS (SHARD_FALL_MS + SHARD_BUILD_MS)
+
+/* 计算冒号上下两点当前亮度（0..7）：上点先亮 100ms，再亮下点；熄灭时上点先灭 */
+static void ColonLevels(uint32_t now, uint8_t *top, uint8_t *bot)
+{
+  uint32_t t = now % COLON_FADE_PERIOD_MS;
+
+  if (t < COLON_FADE_TIME_MS) /* 上点渐亮 */
+  {
+    *top = (uint8_t)(7 * t / (COLON_FADE_TIME_MS - 1));
+    *bot = 0;
+  }
+  else if (t < 2 * COLON_FADE_TIME_MS) /* 下点渐亮 */
+  {
+    *top = 7;
+    *bot = (uint8_t)(7 * (t - COLON_FADE_TIME_MS) / (COLON_FADE_TIME_MS - 1));
+  }
+  else if (t < 550) /* 都亮 */
+  {
+    *top = 7;
+    *bot = 7;
+  }
+  else if (t < 650) /* 上点渐灭 */
+  {
+    *top = (uint8_t)(7 * (650 - t) / (COLON_FADE_TIME_MS - 1));
+    *bot = 7;
+  }
+  else if (t < 750) /* 下点渐灭 */
+  {
+    *top = 0;
+    *bot = (uint8_t)(7 * (750 - t) / (COLON_FADE_TIME_MS - 1));
+  }
+  else /* 都灭 */
+  {
+    *top = 0;
+    *bot = 0;
+  }
+}
+
+/* 碎屏过渡：旧画面碎裂落地，下一帧再把新画面从上方落下拼合出来 */
+static uint8_t pending_rebuild = 0;
+
+static void TransitionShatter(void)
+{
+  clock_shatter_anim();
+  pending_rebuild = 1;
+  /* 新界面这一帧先不送屏，交给拼合动画自己送，避免“空屏后闪一帧完整的图” */
+  mn11236_hold_send(1);
 }
 
 void AppGUI_Loop(uint8_t timer)
 {
-	static int rolling = 0;
-  static char timeupdateflag;
-//	mn11236_gray_test();
-//	osDelay(5000);
-//	return;
+  static char tempstr[16];
+  static int rolling = 0;
+  static int rpm = 0;
+  /* 翻页（碎裂/拼合）动画状态 */
+  static char shardPrev[6] = {0};
+  static uint32_t shardStart = 0;
+  static uint8_t shardActive = 0;
 
-	uint32_t now = HAL_GetTick();
+  //	mn11236_gray_test();
+  //	osDelay(5000);
+  //	return;
 
-	bool night = !ScreenShouldOn();
+  uint32_t now = HAL_GetTick();
 
-	// 有按键 → 唤醒60秒
-	if(opnUp || opnDown || opnEnter || opnExit)
-	{
-			last_key_tick = now;
+  bool night = !ScreenShouldOn();
 
-			if(night)
-			{
-					wake_until_tick = now + WAKE_TIME_MS;
-			}
-	}
+  // 有按键 → 唤醒60秒
+  if (opnUp || opnDown || opnEnter || opnExit)
+  {
+    last_key_tick = now;
 
-	// 夜间且未唤醒
-	if(night && now > wake_until_tick && disp_mode != DISP_MODE_MENU)
-	{
-		if(HAL_GPIO_ReadPin(VFD_EN_GPIO_Port, VFD_EN_Pin))
-		{
-      EasyUITransitionAnim();
-		}
-		mn11236_clear_buffers();
-		mn11236_send_buffer();
-		HAL_GPIO_WritePin(VFD_EN_GPIO_Port, VFD_EN_Pin, GPIO_PIN_RESET);
-		osDelay(200);
-		return;
-	}
-	if(!HAL_GPIO_ReadPin(VFD_EN_GPIO_Port, VFD_EN_Pin))
-	{
-		opnUp = opnDown = opnEnter = opnExit = 0;
-	}
-  HAL_GPIO_WritePin(VFD_EN_GPIO_Port, VFD_EN_Pin, GPIO_PIN_SET);
-	
-  switch (disp_mode)
-  { 
-  case DISP_MODE_CLOCK:
-    if (timeupdateflag != timeStr[4])
+    if (night)
+    {
+      wake_until_tick = now + WAKE_TIME_MS;
+    }
+  }
+
+  // 夜间且未唤醒
+  if (night && now > wake_until_tick && disp_mode != DISP_MODE_MENU)
+  {
+    if (HAL_GPIO_ReadPin(VFD_EN_GPIO_Port, VFD_EN_Pin))
     {
       EasyUITransitionAnim();
-      timeupdateflag = timeStr[4];
+      /* 熄屏前确保送屏没有被过渡动画挂起 */
+      pending_rebuild = 0;
+      mn11236_hold_send(0);
+      mn11236_clear_buffers();
+      /* 显存已清空，顺手把黑屏同步给上位机（睡眠期间不再有送屏动作） */
+      UploadFrame();
+      /* scan_stop 内部先刷一帧全 0 再停扫，睡眠期间彻底不刷新 */
+      mn11236_scan_stop();
+      HAL_GPIO_WritePin(VFD_EN_GPIO_Port, VFD_EN_Pin, GPIO_PIN_RESET);
+//      HAL_GPIO_WritePin(ESP_EN_GPIO_Port, ESP_EN_Pin, GPIO_PIN_RESET);
     }
+    osDelay(200);
+    return;
+  }
+  if (!HAL_GPIO_ReadPin(VFD_EN_GPIO_Port, VFD_EN_Pin))
+  {
+    opnUp = opnDown = opnEnter = opnExit = 0;
+  }
+  HAL_GPIO_WritePin(VFD_EN_GPIO_Port, VFD_EN_Pin, GPIO_PIN_SET);
+  mn11236_scan_start(); /* 睡眠/停扫后恢复刷新（已在扫则直接返回） */
+
+  switch (disp_mode)
+  {
+  case DISP_MODE_CLOCK:
+  {
     clear_gram(White);
-		
-		set_g_maxGray(pUserInfo->clockdimming + 3);
-		if(clockTheme[pUserInfo->clocktheme].type == 0)
-		{
-			gradient_flow_frame_clock();
-			set_g_clockWidth(3);
-			draw_str_3x5_wave((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 3, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
-			set_g_clockWidth(1);
-			draw_str_3x5_wave(SCREEN_WIDTH - 24, 12, date, clockTheme[pUserInfo->clocktheme].font);
-		}
-		else if(clockTheme[pUserInfo->clocktheme].type == 1)
-		{
-			set_g_clockWidth(3);
-			draw_str_3x5((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 3, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
-//			set_g_clockWidth(1);
-//			draw_str_3x5(SCREEN_WIDTH - 24, 12, date, clockTheme[pUserInfo->clocktheme].font);
-		}
-		else if(clockTheme[pUserInfo->clocktheme].type == 2)
-		{
-			set_g_clockWidth(3);
-			draw_str_3x5_wave((SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 3, 0, timeStr, clockTheme[pUserInfo->clocktheme].font);
-//			set_g_clockWidth(1);
-//			draw_str_3x5(SCREEN_WIDTH - 24, 12, date, clockTheme[pUserInfo->clocktheme].font);
-		}
-//		EasyUIDisplayStr(0,0,timeStr);
+
+    set_g_maxGray(pUserInfo->clockdimming + 3);
+
+    /* 冒号两点错时呼吸：上点先亮、先灭，下点滞后 100ms */
+    uint8_t colonTop, colonBot;
+    ColonLevels(now, &colonTop, &colonBot);
+
+    int timeX = (SCREEN_WIDTH / 3 - (3 * 5)) / 2 - 3;
+    const ClockTheme_t *theme = &clockTheme[pUserInfo->clocktheme];
+    Color fontColor = theme->font;
+
+    if (theme->style == 1 || theme->type == 1)
+      timeX += 1;
+
+    /* 主题字体：0=标准 3x5 放大，1=原生 9x15 */
+    clock_set_font_style(theme->style);
+
+    char timeBuf[8];
+    timeBuf[0] = timeStr[0];
+    timeBuf[1] = timeStr[1];
+    timeBuf[2] = ' ';
+    timeBuf[3] = timeStr[3];
+    timeBuf[4] = timeStr[4];
+    timeBuf[5] = '\0';
+
+    /* 时间变化 → 碎裂动画（旧数字碎掉，新数字从上方拼合） */
+    if (shardPrev[0] == '\0')
+      memcpy(shardPrev, timeBuf, 5); /* 首次上电不播动画 */
+    else if (!shardActive && memcmp(shardPrev, timeBuf, 5) != 0)
+    {
+      shardActive = 1;
+      shardStart = now;
+    }
+
+    if (shardActive && (now - shardStart) >= SHARD_TOTAL_MS)
+    {
+      shardActive = 0;
+      memcpy(shardPrev, timeBuf, 5);
+    }
+
+    uint8_t shardPhase = 0; /* 0=正常 1=旧字碎掉 2=新字拼合 */
+    uint16_t shardEl = 0;
+
+    if (shardActive)
+    {
+      uint32_t el = now - shardStart;
+
+      if (el < SHARD_FALL_MS)
+      {
+        shardPhase = 1;
+        shardEl = (uint16_t)el;
+      }
+      else
+      {
+        shardPhase = 2;
+        shardEl = (uint16_t)(el - SHARD_FALL_MS);
+        if (shardEl > SHARD_BUILD_MS)
+          shardEl = SHARD_BUILD_MS;
+      }
+    }
+
+    // 背景动画
+    if (theme->bg != CLOCK_BG_NONE)
+      clock_draw_background(theme->bg);
+
+    if (theme->type == 0)
+    {
+      set_g_clockWidth(3);
+
+      if (shardPhase == 0)
+      {
+        draw_str_3x5_wave(timeX, 0, timeBuf, fontColor);
+      }
+      else
+      {
+        for (int i = 0; i < 5; i++)
+        {
+          char shown = (shardPhase == 1) ? shardPrev[i] : timeBuf[i];
+
+          if (shardPrev[i] != timeBuf[i])
+            draw_char_shatter(timeX + i * 4, 0, shown, fontColor, 1,
+                              (shardPhase == 1) ? 0 : 1, shardEl);
+          else
+            draw_char_3x5_wave(timeX + i * 4, 0, shown, fontColor);
+        }
+      }
+
+      draw_colon_fade(timeX + 8, 0, fontColor, colonTop, colonBot, 1);
+
+      /* 原生字体主题不显示日期，只留时间 */
+      if (theme->style == 0)
+      {
+        set_g_clockWidth(1);
+        draw_str_3x5_wave(SCREEN_WIDTH - 24, 12, date, fontColor);
+      }
+    }
+    else
+    {
+      set_g_clockWidth(3);
+
+      if (shardPhase == 0)
+      {
+        draw_str_3x5(timeX, 0, timeBuf, fontColor);
+      }
+      else
+      {
+        for (int i = 0; i < 5; i++)
+        {
+          char shown = (shardPhase == 1) ? shardPrev[i] : timeBuf[i];
+
+          if (shardPrev[i] != timeBuf[i])
+            draw_char_shatter(timeX + i * 4, 0, shown, fontColor, 0,
+                              (shardPhase == 1) ? 0 : 1, shardEl);
+          else
+            draw_char_3x5(timeX + i * 4, 0, shown, fontColor);
+        }
+      }
+
+      draw_colon_fade(timeX + 8, 0, fontColor, colonTop, colonBot, 0);
+    }
     roll_all_long_str();
+    clock_wipe_scan_in(); /* 换主题时：新画面跟着扫描线长出来 */
     refrash_gram();
     break;
+  }
   case DISP_MODE_FFT:
     clear_gram(White);
     draw_fft(lBufMagArray, NPT / 2, 20, musicTheme[pUserInfo->musictheme].bar, musicTheme[pUserInfo->musictheme].dot);
@@ -936,6 +1034,18 @@ void AppGUI_Loop(uint8_t timer)
   case DISP_MODE_SNAKE:
     clear_gram(White);
     refrashSnake();
+    osDelay(50);
+    refrash_gram();
+    break;
+  case DISP_MODE_TETRIS:
+    clear_gram(White);
+    refrashTetris();
+    osDelay(40);
+    refrash_gram();
+    break;
+  case DISP_MODE_TANKS:
+    clear_gram(White);
+    refrashTanks();
     osDelay(50);
     refrash_gram();
     break;
@@ -951,45 +1061,62 @@ void AppGUI_Loop(uint8_t timer)
     EasyUIEvent(5);
     break;
   }
-//	if((rolling++)%2)
-		UploadFrame();
-	UserInfo_AutoSave();
 
-	// 菜单超时退出
-	if (disp_mode == DISP_MODE_MENU)
-	{
-			if (now - last_key_tick > MENU_TIMEOUT)
-			{
-					disp_mode = last_disp_mode;
-					EasyUITransitionAnim();
-					last_key_tick = now;
-			}
-	}
+  /* 碎屏之后：把新画面从上方落下拼合回来 */
+  if (pending_rebuild)
+  {
+    pending_rebuild = 0;
+    mn11236_hold_send(0); /* 恢复送屏，交给拼合动画 */
+    clock_shatter_rebuild();
+  }
+
+  UserInfo_AutoSave();
+
+  // 菜单超时退出
+  if (disp_mode == DISP_MODE_MENU)
+  {
+    if (now - last_key_tick > MENU_TIMEOUT)
+    {
+      /* 超时退出菜单也走碎裂落地过渡 */
+      TransitionShatter();
+      disp_mode = last_disp_mode;
+      last_key_tick = HAL_GetTick();
+    }
+  }
 
   if (disp_mode != DISP_MODE_MENU)
   {
     if (opnUp)
     {
+      /* 先让当前画面碎裂落地，再切到下一个界面 */
+      TransitionShatter();
+
       disp_mode++;
       if (disp_mode > DISP_MODE_MOTION)
         disp_mode = DISP_MODE_CLOCK;
-      EasyUITransitionAnim();
+
       opnUp = false;
     }
     if (opnDown)
     {
+      /* 先让当前画面碎裂落地，再切到上一个界面 */
+      TransitionShatter();
+
       if (disp_mode == DISP_MODE_CLOCK)
         disp_mode = DISP_MODE_MOTION;
       else
         disp_mode--;
-      EasyUITransitionAnim();
+
       opnDown = false;
     }
+
     if (opnEnter)
     {
       last_disp_mode = disp_mode;
-      EasyUITransitionAnim();
+      /* 当前画面碎裂落地，再从空屏切进菜单 */
+      TransitionShatter();
       disp_mode = DISP_MODE_MENU;
+      last_key_tick = HAL_GetTick(); // 重置菜单超时计时器
       opnEnter = false;
     }
     if (opnExit)
@@ -997,7 +1124,13 @@ void AppGUI_Loop(uint8_t timer)
       if (disp_mode == DISP_MODE_FFT)
         pUserInfo->musictheme = (pUserInfo->musictheme + 1) % 12;
       else if (disp_mode == DISP_MODE_CLOCK)
-        pUserInfo->clocktheme = (pUserInfo->clocktheme + 1) % 5;
+      {
+        /* 换主题：扫描线把旧画面刷掉 → 黑场里换主题并落盘 → 新主题再刷进来 */
+        clock_wipe_scan_out();
+        pUserInfo->clocktheme = (pUserInfo->clocktheme + 1) % CLOCK_THEME_COUNT;
+        UserInfo_AutoSave(); /* 黑场时存档（FLASH 写入正好藏在黑屏里） */
+        clock_wipe_scan_begin_in();
+      }
       else if (disp_mode == DISP_MODE_SNAKE)
       {
         pUserInfo->snakewidth = (pUserInfo->snakewidth + 1) % 5;
@@ -1005,13 +1138,17 @@ void AppGUI_Loop(uint8_t timer)
           pUserInfo->snakewidth = 1;
         setSnakeWidth(pUserInfo->snakewidth);
       }
+      else if (disp_mode == DISP_MODE_TANKS)
+        tanksRegen(); /* 换一张随机地图 */
       opnExit = false;
     }
   }
   else if (layer == 0 && opnExit)
   {
+    /* 从菜单退回原界面：同样用画面碎裂落地过渡 */
+    TransitionShatter();
     disp_mode = last_disp_mode;
     opnExit = false;
-    EasyUITransitionAnim();
+    last_key_tick = HAL_GetTick();
   }
 }

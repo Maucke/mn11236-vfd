@@ -18,6 +18,18 @@ extern "C"
 #include "easy_ui.h"
 #include "easy_key.h"
 
+typedef enum
+{
+  DISP_MODE_CLOCK = 0,
+  DISP_MODE_FFT,
+  DISP_MODE_SNAKE,
+  DISP_MODE_TETRIS,
+  DISP_MODE_TANKS,
+  DISP_MODE_MOTION,
+  DISP_MODE_EXTERN,
+  DISP_MODE_MENU,
+} SysDisplayMode_e;
+
 extern EasyKey_t keyUp, keyDown;           // Used to control value up and down
 
 void AppGUI_Init(UserInfo_t *userinfo);

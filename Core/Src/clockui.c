@@ -5,6 +5,7 @@
 #include "llist.h"
 #include "nexlink_app.h"
 #include <math.h>
+#include "cmsis_os.h"
 
 //  Hexadecimal code corresponding to each character
 //  0123456789:
@@ -53,6 +54,29 @@ const uint8_t hex_codes_4x8[][4] = {
     {0xFF, 0x91, 0x91, 0xFF}, /*"8", 55(ASCII)*/
     {0x9F, 0x91, 0x91, 0xFF}, /*"9", 56(ASCII)*/
 };
+
+const uint8_t icon_rpm[] = 
+{
+	0x0F,0x05,0x0D,0x07,0x00,0x0F,0x05,0x05,0x07,0x00,0x0F,0x01,0x07,0x01,0x0F
+};
+const uint8_t icon_kmh[] = 
+{
+	0x0F,0x02,0x07,0x09,0x00,0x0F,0x01,0x07,0x01,0x0F,0x00,0x08,0x06,0x01,0x00,0x0F,
+	0x02,0x02,0x0F
+};
+const uint8_t icon_temp[] = 
+{
+	0x01,0x00,0x07,0x05,0x01
+};
+const uint8_t icon_load[] = 
+{
+	0x03,0x0B,0x04,0x02,0x0D,0x0C
+};
+const uint8_t icon_volt[] = 
+{
+	0x03,0x04,0x08,0x04,0x03
+};
+
 //  Hexadecimal code corresponding to each character
 //  !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_`abcdefghijklmnopqrstuvwxyz
 const uint8_t hex_codes_3x5[CHAR_COUNT][3] = {
@@ -268,10 +292,59 @@ LList long_str_list;
 #define SPEED2 0.03f
 #define SPEED3 0.05f
 
-static float t1 = 0;
-static float t2 = 0;
-static float t3 = 0;
+/*
+ * 相位使用 16 位定点累加（1 单位 = 2π/65536），溢出即完成 2π 回绕。
+ * 之前用 float 一直累加：t 增大到 2^20 左右后 ulp(0.125) 大于步进(0.05)，
+ * t += SPEED 不再改变数值，波形就永久停在某一帧（约 29 小时，5ms 一次）。
+ */
+#define PHASE_UNIT (6.28318530718f / 65536.0f)
+#define PHASE_STEP(rad) ((uint16_t)((rad) / PHASE_UNIT + 0.5f))
+
+static uint16_t phase1 = 0;
+static uint16_t phase2 = 0;
+static uint16_t phase3 = 0;
+
 uint8_t frame_wave[MAX_X][MAX_Y]; // 6-4:red, 2-0:blue
+
+/* 擦除染色主题：帧缓冲里的通道值直接就是屏幕灰度，dim 给 2（ch*0.5*2 = ch） */
+#define BG_WIPE_DIM_BRIGHT 2.0f
+/* 拖尾最亮处（光条旁边）的灰度，7 太亮 */
+#define BG_WIPE_TRAIL_MAX 5.0f
+
+/* ---------------- 可暂停的动画时间基准 ----------------
+ * 碎裂 / 拼合过渡是阻塞的，期间后台动画（背景、频谱等）不应该偷偷跑：
+ * 动画统一用 clock_anim_tick() 取时间，过渡结束后把耗时累加到偏移里，
+ * 相当于把动画时间按住了，恢复后从原来的相位继续。
+ */
+static uint32_t g_anim_pause_off = 0;
+
+uint32_t clock_anim_tick(void)
+{
+    return HAL_GetTick() - g_anim_pause_off;
+}
+
+void clock_anim_pause(uint32_t ms)
+{
+    g_anim_pause_off += ms;
+}
+
+/* 背景通道值（0~7）-> 屏幕灰度（半亮）
+   dim 为本像素的亮度系数：普通背景 1.0，擦除染色主题 2.0（通道值即灰度） */
+static inline uint8_t bg_map_gray(uint8_t ch, int x, int y, float dim)
+{
+    (void)x;
+    (void)y;
+
+    /* 暗部不托底：不足 1 级的通道直接熄灭，背景才有真正的黑 */
+    float v = (float)ch * 0.5f * dim;
+
+    int gray = (int)v;
+
+    if (gray > 7)
+        gray = 7;
+
+    return (uint8_t)gray;
+}
 
 static void flush_frame(void)
 {
@@ -280,26 +353,50 @@ static void flush_frame(void)
         for (int x = 0; x < MAX_X; x++)
         {
             uint8_t p = frame_wave[x][y];
+            float dim;
 
-            uint8_t red = (p >> 4) & 0x07;
-            uint8_t blue = p & 0x07;
+            /* bit7 = 光柱高光；bit3 = 擦除染色主题：通道值就是最终灰度；
+               其它 = 普通背景：固定满亮度（不再随时间淡出） */
+            if (p & 0x80)
+                dim = 1.0f;
+            else if (p & 0x08)
+                dim = BG_WIPE_DIM_BRIGHT;
+            else
+                dim = 1.0f;
 
-            mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, red / 2);
-            mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, blue / 2);
+            mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, bg_map_gray((p >> 4) & 0x07, x, y, dim));
+            mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, bg_map_gray(p & 0x07, x, y, dim));
         }
     }
 }
+
+/* 三波叠加的对比度增益：1.0 = |v-0.5|*2 原始曲线，调大更亮 */
+#define BG_WAVE_GAIN 1.0f
+
 void gradient_flow_frame_clock(void)
 {
+    static float sin_x[MAX_X];
+    static float sin_y[MAX_Y];
+    static float sin_diag[MAX_X + MAX_Y];
+
+    float a1 = phase1 * PHASE_UNIT;
+    float a2 = phase2 * PHASE_UNIT;
+    float a3 = phase3 * PHASE_UNIT;
+
+    /* 三个 sin 项按行/列/对角线分别计算，避免每个像素都调用一次 sinf */
+    for (int x = 0; x < MAX_X; x++)
+        sin_x[x] = sinf(x * W1 + a1);
+    for (int y = 0; y < MAX_Y; y++)
+        sin_y[y] = sinf(y * W2 + a2);
+    for (int d = 0; d < MAX_X + MAX_Y; d++)
+        sin_diag[d] = sinf(d * W3 + a3);
+
     for (int y = 0; y < MAX_Y; y++)
     {
         for (int x = 0; x < MAX_X; x++)
         {
             // ===== 多波叠加 =====
-            float v =
-                sinf(x * W1 + t1) +
-                sinf(y * W2 + t2) +
-                sinf((x + y) * W3 + t3);
+            float v = sin_x[x] + sin_y[y] + sin_diag[x + y];
             // 归一化到 0~1
             v = (v + 3.0f) / 6.0f;
 
@@ -308,19 +405,2124 @@ void gradient_flow_frame_clock(void)
             if (v > 1)
                 v = 1;
 
-            /* 映射 */
-            uint8_t blue = (uint8_t)(v * 7.0f);         // 3bit
-            uint8_t red = (uint8_t)((1.0f - v) * 7.0f); // 3bit
+            /* 映射：以 0.5 为中性，越偏离越亮；v≈0.5 的“零线”直接熄灭。
+             * 偏离量 m ∈ [0,1]，大于 0.5 走蓝、小于 0.5 走红，
+             * 于是画面是红波带 / 黑 / 蓝波带交替，暗部有真正的黑。
+             * 觉得整体太暗就把 BG_WAVE_GAIN 调大（1.0 = 原始曲线）。 */
+            float m = v - 0.5f;
+
+            if (m < 0.0f)
+                m = -m;
+            m *= 2.0f * BG_WAVE_GAIN;
+
+            if (m > 1.0f)
+                m = 1.0f;
+
+            uint8_t blue = (v > 0.5f) ? (uint8_t)(m * 7.0f) : 0; // 3bit
+            uint8_t red = (v < 0.5f) ? (uint8_t)(m * 7.0f) : 0;  // 3bit
 
             frame_wave[x][y] = (red << 4) | (blue & 0x07);
         }
     }
 
     flush_frame();
-    t1 += SPEED1;
-    t2 += SPEED2;
-    t3 += SPEED3;
+    phase1 += PHASE_STEP(SPEED1);
+    phase2 += PHASE_STEP(SPEED2);
+    phase3 += PHASE_STEP(SPEED3);
 }
+
+/* ---------------- 背景动画组 ---------------- */
+
+/* 把 0~1 的亮度写进波形缓冲：v 越大越蓝，越小越红 */
+static inline void bg_put(int x, int y, float v)
+{
+    if (v < 0.0f)
+        v = 0.0f;
+    if (v > 1.0f)
+        v = 1.0f;
+
+    uint8_t blue = (uint8_t)(v * 7.0f);
+    uint8_t red = (uint8_t)((1.0f - v) * 7.0f);
+
+    frame_wave[x][y] = (red << 4) | (blue & 0x07);
+}
+
+/* 横向光带：上下流动的条纹，带一点倾斜 */
+static void bg_frame_bands(void)
+{
+    static uint16_t ph = 0;
+    static float row[MAX_Y];
+    static float col[MAX_X];
+
+    float t = ph * PHASE_UNIT;
+
+    for (int y = 0; y < MAX_Y; y++)
+        row[y] = sinf(y * 0.42f + t);
+    for (int x = 0; x < MAX_X; x++)
+        col[x] = sinf(x * 0.09f - 2.0f * t);
+
+    for (int y = 0; y < MAX_Y; y++)
+        for (int x = 0; x < MAX_X; x++)
+            bg_put(x, y, 0.5f + 0.4f * row[y] + 0.12f * col[x]);
+
+    ph += PHASE_STEP(0.06f);
+}
+
+/* 中心光晕：柔和的径向光斑缓慢漂移、轻微呼吸（不再是高速扩散的同心圆，避免眩晕） */
+#define GLOW_TABLE_SIZE 128
+static void bg_frame_glow(void)
+{
+    static uint16_t ph = 0;
+    static float glow[GLOW_TABLE_SIZE];
+    static uint8_t inited = 0;
+
+    if (!inited)
+    {
+        for (int i = 0; i < GLOW_TABLE_SIZE; i++)
+        {
+            float r2 = (float)(i * 32);
+            glow[i] = 1.0f / (1.0f + r2 * 0.0035f);
+        }
+        inited = 1;
+    }
+
+    float t = ph * PHASE_UNIT;
+    float cx = (MAX_X - 1) * 0.5f + 18.0f * sinf(t);
+    float cy = (MAX_Y - 1) * 0.5f;
+    float breath = 0.85f + 0.15f * sinf(t);
+
+    for (int y = 0; y < MAX_Y; y++)
+    {
+        float dy = (y - cy) * 2.2f; /* 纵向拉伸，补偿像素长宽比 */
+        for (int x = 0; x < MAX_X; x++)
+        {
+            float dx = x - cx;
+            int idx = (int)((dx * dx + dy * dy) * (1.0f / 32.0f));
+
+            if (idx >= GLOW_TABLE_SIZE)
+                idx = GLOW_TABLE_SIZE - 1;
+
+            bg_put(x, y, 0.30f + 0.65f * glow[idx] * breath);
+        }
+    }
+
+    ph += PHASE_STEP(0.02f);
+}
+
+/* 直接写 red/blue 两个通道（范围 0~7） */
+static inline void bg_put_rgb(int x, int y, float red, float blue)
+{
+    if (red < 0.0f)
+        red = 0.0f;
+    if (red > 7.0f)
+        red = 7.0f;
+    if (blue < 0.0f)
+        blue = 0.0f;
+    if (blue > 7.0f)
+        blue = 7.0f;
+
+    frame_wave[x][y] = ((uint8_t)red << 4) | ((uint8_t)blue & 0x07);
+}
+
+/* 斜向光条参数（擦除染色主题共用）：
+ * 光条与水平方向成 30°，从右向左单向扫描；扫一次 1s，然后空闲 1s */
+#define BEAM_SLOPE 0.5773503f /* tan(30°) */
+#define BEAM_SWEEP_MS 1000    /* 扫描耗时 1s */
+#define BEAM_PERIOD_MS 2000   /* 周期 2s（扫描 1s + 空闲 1s） */
+
+/* 擦除染色：一轮蓝、一轮红交替
+ * 每个周期 2s：
+ *   后 1s —— 白色光条从右向左扫过，身后留下该颜色的拖尾：
+ *            离光条越远越暗，一直暗到全黑；光条前方全黑；
+ *   前 1s —— 上一轮留下的拖尾整体继续变暗消失。
+ */
+static void bg_frame_wipe(void)
+{
+    const float s_max = (MAX_X - 1) + BEAM_SLOPE * (MAX_Y - 1);
+    const float d_scale = 1.0f / sqrtf(1.0f + BEAM_SLOPE * BEAM_SLOPE);
+    const float trail_len = s_max; /* 拖尾长度 ≈ 屏幕斜向跨度 */
+
+    uint32_t tick = clock_anim_tick();
+    uint32_t now_ms = tick % BEAM_PERIOD_MS;
+    /* 偶数轮蓝色、奇数轮红色 */
+    uint8_t is_blue = ((tick / BEAM_PERIOD_MS) & 1u) == 0u;
+
+    float pos;  /* 光条位置（斜向坐标） */
+    float fade; /* 整条拖尾的整体亮度 */
+    float bar;  /* 光条亮度：1 = 在屏上，0 = 已扫出屏幕 */
+    float base; /* 拖尾颜色：1 = 蓝，0 = 红 */
+
+    if (now_ms < BEAM_SWEEP_MS)
+    {
+        /* ---------- 前 1s：上一轮扫完后留下的拖尾继续变暗消失 ---------- */
+        float p = (float)now_ms / (float)BEAM_SWEEP_MS;
+
+        pos = -20.0f; /* 上一轮结束时光条停在左侧屏外 */
+        fade = 1.0f - p;
+        bar = 0.0f;
+        base = is_blue ? 1.0f : 0.0f; /* 上一轮扫进来的是本轮的颜色 */
+    }
+    else
+    {
+        /* ---------- 后 1s：白色光条从右向左扫过，身后留下渐暗的拖尾 ---------- */
+        float u = (float)(now_ms - BEAM_SWEEP_MS) / (float)BEAM_SWEEP_MS;
+        float e = 1.0f - (1.0f - u) * (1.0f - u); /* 与光柱相同的缓出曲线 */
+
+        pos = (s_max + 20.0f) - e * (s_max + 40.0f);
+        fade = 1.0f;
+        bar = 1.0f;
+        base = is_blue ? 0.0f : 1.0f; /* 本轮光条带来的是另一种颜色 */
+    }
+
+    for (int y = 0; y < MAX_Y; y++)
+    {
+        for (int x = 0; x < MAX_X; x++)
+        {
+            float s = x + BEAM_SLOPE * y;
+
+            /* 拖尾：光条后方越远越暗，前方全黑 */
+            float trail = (s < pos) ? 0.0f : 1.0f - (s - pos) / trail_len;
+
+            if (trail < 0.0f)
+                trail = 0.0f;
+
+            float val = BG_WIPE_TRAIL_MAX * trail * fade;
+
+            float red = (1.0f - base) * val;
+            float blue = base * val;
+
+            /* 光条：向白色抬升，形成明亮的扫过边沿 */
+            float d = (s - pos) * d_scale;
+            float g = bar / (1.0f + d * d * 0.022f);
+
+            red += (BG_WIPE_TRAIL_MAX - red) * g;
+            blue += (BG_WIPE_TRAIL_MAX - blue) * g;
+
+            /* 通道值即最终灰度（bit3 让 flush 不做衰减），+0.5 取整 */
+            bg_put_rgb(x, y, red + 0.5f, blue + 0.5f);
+            frame_wave[x][y] |= 0x08;
+        }
+    }
+}
+
+/* 流动渐变：明暗过渡从一侧缓慢流向另一侧（不对称） */
+static void bg_frame_flow(void)
+{
+    static uint16_t ph = 0;
+    static float col[MAX_X];
+    static float row[MAX_Y];
+
+    float t = ph * PHASE_UNIT;
+
+    for (int x = 0; x < MAX_X; x++)
+        col[x] = sinf(x * 0.055f + t); /* 波长约两屏宽，横向缓慢流动 */
+    for (int y = 0; y < MAX_Y; y++)
+        row[y] = 0.15f * sinf(y * 0.26f - t);
+
+    for (int y = 0; y < MAX_Y; y++)
+        for (int x = 0; x < MAX_X; x++)
+            bg_put(x, y, 0.5f + 0.42f * col[x] + row[y]);
+
+    ph += PHASE_STEP(0.02f);
+}
+
+/* 等离子：两组正弦相乘形成的流动斑块 */
+static void bg_frame_plasma(void)
+{
+    static uint16_t ph = 0;
+    static float col[MAX_X];
+    static float row[MAX_Y];
+
+    float t = ph * PHASE_UNIT;
+
+    for (int x = 0; x < MAX_X; x++)
+        col[x] = sinf(x * 0.09f + t);
+    for (int y = 0; y < MAX_Y; y++)
+        row[y] = sinf(y * 0.34f - t);
+
+    for (int y = 0; y < MAX_Y; y++)
+        for (int x = 0; x < MAX_X; x++)
+            bg_put(x, y, 0.5f + 0.5f * col[x] * row[y]);
+
+    ph += PHASE_STEP(0.07f);
+}
+
+/* 呼吸：整屏明暗缓慢起伏 */
+static void bg_frame_breathe(void)
+{
+    static uint16_t ph = 0;
+    static float row[MAX_Y];
+
+    float t = ph * PHASE_UNIT;
+    float base = 0.5f + 0.35f * sinf(t);
+
+    for (int y = 0; y < MAX_Y; y++)
+        row[y] = base + 0.12f * sinf(y * 0.22f + t);
+
+    for (int y = 0; y < MAX_Y; y++)
+        for (int x = 0; x < MAX_X; x++)
+            bg_put(x, y, row[y]);
+
+    ph += PHASE_STEP(0.03f);
+}
+
+/* ============================================================
+ * 俄罗斯方块界面（DISP_MODE_TETRIS）
+ * 3x3 像素一格：37 列 x 6 行（右侧余 1 像素）
+ *   - 方块统一从屏幕正中出现（原始朝向），先滑到 AI 选好的列，再一格一格转过去
+ *   - 每块随机红/蓝/白；拼块内部满亮度，轮廓与块间暗缝用灰度 3
+ *   - 满行先变白（白条同样带暗边），再从中间向两边擦掉，上方整体下落
+ *   - 堆到顶部后停止掉落，加速逐行消除，清空后重新开始
+ *   - 右上角小窗显示"下一块"（2 像素一格，黑底 + 一圈暗边框，棋盘在那儿让位）
+ * ============================================================ */
+/* 定义在文件后面的逐点绘制函数，这里先声明（C99 不允许隐式声明） */
+void draw_point_gray(int x, int y, Color color, uint8_t gray);
+
+#define TET_PX 3
+#define TET_COLS (MAX_X / TET_PX) /* 37 列 */
+#define TET_ROWS (MAX_Y / TET_PX) /* 6 行 */
+
+#define TET_DROP_MS 300        /* 下落时每 300ms 掉一格 */
+#define TET_ENTER_MS 130       /* 进场时每 130ms 从屏幕上边露出一行 */
+#define TET_SPIN_MS 90         /* 整块进屏幕之后，每转 90° 停多久 */
+#define TET_WIPE_MS 320        /* 满行擦除时长 */
+#define TET_TOPOUT_WIPE_MS 110 /* 顶满后逐行加速消除 */
+
+#define TET_CELL_RED 1
+#define TET_CELL_BLUE 2
+#define TET_CELL_WHITE 3
+
+/* 棋盘格编码：高 6 位拼块编号、低 2 位颜色，0 表示空。
+ * 拼块编号用来在相邻的不同拼块之间留一条暗缝。 */
+#define TET_PID_SHIFT 2
+#define TET_COLOR_MASK 0x03
+#define TET_PID_MAX 63
+
+#define TET_ST_FALL 0
+#define TET_ST_CLEAR 1
+#define TET_ST_ENTER 2 /* 从屏幕上边一格一格掉进来（这期间不许转） */
+#define TET_ST_SPIN 3  /* 整块都进屏幕了，原地转正 */
+
+/* 右上角"下一块"预览：2 像素一格，最多 4x2 格，外面套一圈暗边框。
+ * 整屏都是棋盘，所以它只是叠在上面的小窗，边框压暗、底下的方块照样看得见。 */
+#define TET_NEXT_PX 2                          /* 预览里一格几像素 */
+#define TET_NEXT_W (4 * TET_NEXT_PX)           /* 8 */
+#define TET_NEXT_H (2 * TET_NEXT_PX)           /* 4 */
+#define TET_NEXT_X (MAX_X - TET_NEXT_W - 1)    /* 103：边框贴着屏幕右边 */
+#define TET_NEXT_Y 1
+#define TET_NEXT_EDGE 1                        /* 边框灰度：比方块暗边的 3 还暗一点 */
+#define TET_NEXT_GRAY 3                         /* 填充灰度*/
+
+static uint8_t tet_board[TET_ROWS][TET_COLS]; /* 0 空 / 1 红 / 2 蓝 */
+static uint16_t tet_shape[7][4];              /* 7 种形状 x 4 个旋转，已左上角对齐 */
+static uint8_t tet_inited;
+
+static uint8_t tet_state;
+static uint8_t tet_active; /* 当前方块是否还在下落 */
+static uint8_t tet_topout; /* 顶满后的加速消行模式 */
+static uint8_t tet_shape_id;
+static uint8_t tet_rot_id;
+static uint8_t tet_rot_show; /* 画出来的朝向：出场时从 0 一格一格转到 tet_rot_id */
+static uint8_t tet_color;
+static uint8_t tet_pid = 1; /* 当前拼块编号（每生成一块 +1） */
+static int8_t tet_x, tet_y;
+static int8_t tet_x_from, tet_x_to; /* 进场滑动：起点列（屏幕正中）/ 目标列 */
+static uint32_t tet_enter_t0;       /* 进场起点时刻 */
+static uint32_t tet_spin_t0;        /* 原地旋转一步的起点时刻 */
+
+static uint16_t tet_clears; /* 正在消除的行（bit0 = 第 0 行） */
+static uint32_t tet_clear_ms;
+static uint32_t tet_t0;   /* 消除动画起点 */
+static uint32_t tet_last; /* 上次下落的时刻 */
+
+static uint32_t tet_rnd = 0x9E3779B9u;
+
+static uint32_t tet_rand(void)
+{
+    tet_rnd = tet_rnd * 1664525u + 1013904223u;
+    return tet_rnd >> 8;
+}
+
+/* 先摇出"下一块"存着，等这一块落地再用，这样右上角才有得显示 */
+static uint8_t tet_next_shape;
+static uint8_t tet_next_color;
+
+static void tet_roll_next(void)
+{
+    tet_next_shape = (uint8_t)(tet_rand() % 7);
+    tet_next_color = (uint8_t)(TET_CELL_RED + tet_rand() % 3); /* 红 / 蓝 / 白随机 */
+}
+
+/* 顺时针旋转 90°（4x4 框内） */
+static uint16_t tet_rot90(uint16_t m)
+{
+    uint16_t r = 0;
+
+    for (int y = 0; y < 4; y++)
+        for (int x = 0; x < 4; x++)
+            if (m & (uint16_t)(1u << (y * 4 + x)))
+                r |= (uint16_t)(1u << (x * 4 + (3 - y)));
+
+    return r;
+}
+
+/* 把形状挪到 4x4 框左上角，方便按格数算宽高 */
+static uint16_t tet_align(uint16_t m)
+{
+    int minx = 4, miny = 4;
+    uint16_t r = 0;
+
+    for (int y = 0; y < 4; y++)
+        for (int x = 0; x < 4; x++)
+            if (m & (uint16_t)(1u << (y * 4 + x)))
+            {
+                if (x < minx)
+                    minx = x;
+                if (y < miny)
+                    miny = y;
+            }
+
+    if (minx == 4)
+        return 0;
+
+    for (int y = 0; y < 4; y++)
+        for (int x = 0; x < 4; x++)
+            if (m & (uint16_t)(1u << (y * 4 + x)))
+                r |= (uint16_t)(1u << ((y - miny) * 4 + (x - minx)));
+
+    return r;
+}
+
+static int tet_mask_w(uint16_t m)
+{
+    int w = 0;
+
+    for (int x = 0; x < 4; x++)
+        for (int y = 0; y < 4; y++)
+            if (m & (uint16_t)(1u << (y * 4 + x)))
+            {
+                if (x + 1 > w)
+                    w = x + 1;
+                break;
+            }
+
+    return w;
+}
+
+static int tet_mask_h(uint16_t m)
+{
+    int h = 0;
+
+    for (int y = 0; y < 4; y++)
+        for (int x = 0; x < 4; x++)
+            if (m & (uint16_t)(1u << (y * 4 + x)))
+            {
+                h = y + 1;
+                break;
+            }
+
+    return h;
+}
+
+/* 方块框左上角放在 (x,y) 时是否越界/重叠（y<0 表示还在屏幕上方，允许） */
+static uint8_t tet_hits(int x, int y, uint16_t m)
+{
+    for (int by = 0; by < 4; by++)
+        for (int bx = 0; bx < 4; bx++)
+        {
+            int cx, cy;
+
+            if (!(m & (uint16_t)(1u << (by * 4 + bx))))
+                continue;
+
+            cx = x + bx;
+            cy = y + by;
+
+            if (cx < 0 || cx >= TET_COLS)
+                return 1;
+            if (cy >= TET_ROWS)
+                return 1;
+            if (cy >= 0 && tet_board[cy][cx])
+                return 1;
+        }
+
+    return 0;
+}
+
+static void tet_heights(uint8_t *h)
+{
+    for (int c = 0; c < TET_COLS; c++)
+    {
+        int r = 0;
+
+        while (r < TET_ROWS && tet_board[r][c] == 0)
+            r++;
+
+        h[c] = (uint8_t)(TET_ROWS - r);
+    }
+}
+
+/* 落点评分：低、平、能消行最好；留洞、堆到屏幕外重罚 */
+static int32_t tet_score(uint16_t m, int x, const uint8_t *h)
+{
+    uint8_t nh[TET_COLS];
+    int rest[4] = {-1, -1, -1, -1};
+    int land = 1 << 14;
+    int agg = 0, bump = 0, minh = 255, over = 0, cleared;
+    int holes = 0;
+    int32_t sumsq = 0;
+
+    for (int bx = 0; bx < 4; bx++)
+    {
+        int bot = -1;
+
+        for (int by = 3; by >= 0; by--)
+            if (m & (uint16_t)(1u << (by * 4 + bx)))
+            {
+                bot = by;
+                break;
+            }
+
+        if (bot < 0)
+            continue;
+
+        rest[bx] = (TET_ROWS - 1 - (int)h[x + bx]) - bot;
+        if (rest[bx] < land)
+            land = rest[bx];
+    }
+
+    if (land == (1 << 14))
+        return -100000;
+
+    /* 悬空盖住的空格：这一列贴地比最低列还高多少，就留几个洞 */
+    for (int bx = 0; bx < 4; bx++)
+        if (rest[bx] >= 0)
+            holes += rest[bx] - land;
+
+    for (int c = 0; c < TET_COLS; c++)
+        nh[c] = h[c];
+
+    for (int bx = 0; bx < 4; bx++)
+    {
+        int top = -1, c, hh;
+
+        for (int by = 0; by < 4; by++)
+            if (m & (uint16_t)(1u << (by * 4 + bx)))
+            {
+                top = by;
+                break;
+            }
+
+        if (top < 0)
+            continue;
+
+        c = x + bx;
+        hh = TET_ROWS - (land + top);
+        if (hh > (int)nh[c])
+            nh[c] = (uint8_t)(hh > 255 ? 255 : hh);
+    }
+
+    for (int c = 0; c < TET_COLS; c++)
+    {
+        agg += nh[c];
+        sumsq += (int32_t)nh[c] * nh[c];
+        if (nh[c] < minh)
+            minh = nh[c];
+        if (nh[c] > TET_ROWS)
+            over += nh[c] - TET_ROWS;
+        if (c)
+            bump += (nh[c] > nh[c - 1]) ? (nh[c] - nh[c - 1]) : (nh[c - 1] - nh[c]);
+    }
+
+    /* 底部连续填满的行数（近似消行数） */
+    cleared = (minh > TET_ROWS) ? TET_ROWS : minh;
+    agg -= cleared * TET_COLS;
+    if (agg < 0)
+        agg = 0;
+
+    /* 高度平方和这一项很关键：只看相邻列高差的话，格子多而扁时会堆成一边高一边低的斜坡 */
+    return (int32_t)cleared * 40 - (int32_t)agg - (int32_t)bump * 2 -
+           (int32_t)holes * 200 - sumsq * 3 - (int32_t)over * 200;
+}
+
+static void tet_pick(uint8_t shape, int *out_x, int *out_rot)
+{
+    uint8_t h[TET_COLS];
+    int32_t best = -0x7FFFFFFF;
+    int bx = 0, br = 0;
+
+    tet_heights(h);
+
+    for (int r = 0; r < 4; r++)
+    {
+        int w = tet_mask_w(tet_shape[shape][r]);
+
+        for (int x = 0; x + w <= TET_COLS; x++)
+        {
+            int32_t s = tet_score(tet_shape[shape][r], x, h);
+
+            if (s > best)
+            {
+                best = s;
+                bx = x;
+                br = r;
+            }
+        }
+    }
+
+    *out_x = bx;
+    *out_rot = br;
+}
+
+static int tet_lowest_row(void)
+{
+    for (int r = TET_ROWS - 1; r >= 0; r--)
+        for (int c = 0; c < TET_COLS; c++)
+            if (tet_board[r][c])
+                return r;
+
+    return -1;
+}
+
+static uint8_t tet_row_full(int r)
+{
+    for (int c = 0; c < TET_COLS; c++)
+        if (tet_board[r][c] == 0)
+            return 0;
+
+    return 1;
+}
+
+static void tet_spawn(uint32_t now)
+{
+    int x, rot, w, h;
+    uint8_t shape = tet_next_shape; /* 用早先摇好的"下一块"，再摇新的下一块 */
+    uint16_t m;
+
+    tet_pick(shape, &x, &rot);
+
+    tet_shape_id = shape;
+    tet_rot_id = (uint8_t)rot;
+    tet_color = tet_next_color;
+    tet_roll_next();
+
+    tet_pid = (uint8_t)(tet_pid % TET_PID_MAX + 1); /* 换一个拼块编号，和旧块之间留暗缝 */
+
+    /* 进场用“原始朝向”的尺寸：整块先待在屏幕上边外面，再一格一格掉进来 */
+    m = tet_shape[shape][0];
+    w = tet_mask_w(m);
+    h = tet_mask_h(m);
+
+    tet_x_from = (int8_t)((TET_COLS - w) / 2); /* 从屏幕正中往下走 */
+    tet_x_to = (int8_t)x;
+    tet_x = tet_x_from;
+    tet_y = (int8_t)(-h);
+    tet_rot_show = 0;
+    tet_active = 1;
+    tet_state = TET_ST_ENTER;
+    tet_enter_t0 = now;
+}
+
+static void tet_lock(uint32_t now)
+{
+    uint16_t m = tet_shape[tet_shape_id][tet_rot_id];
+    uint16_t full = 0;
+    uint8_t above = 0;
+    int low;
+
+    for (int by = 0; by < 4; by++)
+        for (int bx = 0; bx < 4; bx++)
+        {
+            int cx, cy;
+
+            if (!(m & (uint16_t)(1u << (by * 4 + bx))))
+                continue;
+
+            cx = tet_x + bx;
+            cy = tet_y + by;
+
+            if (cx < 0 || cx >= TET_COLS)
+                continue;
+            if (cy < 0)
+            {
+                above = 1;
+                continue;
+            }
+            if (cy >= TET_ROWS)
+                continue;
+
+            tet_board[cy][cx] = (uint8_t)((tet_pid << TET_PID_SHIFT) | tet_color);
+        }
+
+    tet_active = 0;
+
+    if (above) /* 已经堆出屏幕：进入加速消行 */
+    {
+        low = tet_lowest_row();
+
+        tet_topout = 1;
+        tet_state = TET_ST_CLEAR;
+        tet_clear_ms = TET_TOPOUT_WIPE_MS;
+        tet_t0 = now;
+        tet_clears = (low >= 0) ? (uint16_t)(1u << low) : 0;
+        return;
+    }
+
+    for (int r = 0; r < TET_ROWS; r++)
+        if (tet_row_full(r))
+            full |= (uint16_t)(1u << r);
+
+    if (full)
+    {
+        tet_clears = full;
+        tet_clear_ms = TET_WIPE_MS;
+        tet_t0 = now;
+        tet_state = TET_ST_CLEAR;
+    }
+    else
+    {
+        tet_spawn(now);
+    }
+}
+
+static void tet_remove_rows(uint16_t mask)
+{
+    int dst = TET_ROWS - 1;
+
+    for (int r = TET_ROWS - 1; r >= 0; r--)
+    {
+        if (mask & (uint16_t)(1u << r))
+            continue;
+        if (dst != r)
+            memcpy(tet_board[dst], tet_board[r], TET_COLS);
+        dst--;
+    }
+
+    for (; dst >= 0; dst--)
+        memset(tet_board[dst], 0, TET_COLS);
+}
+
+static void tet_finish_clear(uint32_t now)
+{
+    int low;
+
+    tet_remove_rows(tet_clears);
+    tet_clears = 0;
+
+    if (tet_topout)
+    {
+        low = tet_lowest_row();
+
+        if (low < 0) /* 清空了，重新开始堆 */
+        {
+            tet_topout = 0;
+            tet_spawn(now);
+            return;
+        }
+
+        tet_clears = (uint16_t)(1u << low);
+        tet_clear_ms = TET_TOPOUT_WIPE_MS;
+        tet_t0 = now;
+        return;
+    }
+
+    tet_spawn(now);
+}
+
+static void tet_step(uint32_t now)
+{
+    if (tet_state == TET_ST_CLEAR)
+    {
+        if (now - tet_t0 >= tet_clear_ms)
+            tet_finish_clear(now);
+        return;
+    }
+
+    if (!tet_active)
+        return;
+
+    if (tet_state == TET_ST_ENTER)
+    {
+        /* 进场：整块从屏幕上边外面一格一格掉下来，同时从屏幕正中缓到目标列。
+         * 整块都进屏幕（tet_y >= 0）之前不许旋转。 */
+        int rows = tet_mask_h(tet_shape[tet_shape_id][0]);
+        uint32_t dur = (uint32_t)rows * TET_ENTER_MS;
+        uint32_t el = now - tet_enter_t0;
+        uint32_t et = (el > dur) ? dur : el;
+        uint16_t mt = tet_shape[tet_shape_id][tet_rot_id]; /* 按最终朝向判断放不放得下 */
+        int ny, blocked = 0;
+        int32_t p, e, span;
+
+        /* 横着：从头到尾从屏幕正中缓到目标列 */
+        p = (int32_t)(et * 256u / dur);
+        e = p * p * (768 - 2 * p) / 65536; /* smoothstep(0..1) 的 Q8 版本 */
+        span = (int32_t)tet_x_to - (int32_t)tet_x_from;
+        tet_x = (int8_t)(tet_x_from + span * e / 256);
+
+        /* 竖着：一格一格往下露；下面已经堆起来了就停在那一格 */
+        ny = (int)(et / TET_ENTER_MS) - rows;
+
+        while (tet_y < ny)
+        {
+            if (tet_hits(tet_x, tet_y + 1, mt))
+            {
+                blocked = 1;
+                break;
+            }
+
+            tet_y++;
+        }
+
+        if (el < dur && !blocked)
+            return;
+
+        if (!blocked && tet_rot_show != tet_rot_id) /* 整块进屏幕了，这才开始转 */
+        {
+            tet_state = TET_ST_SPIN;
+            tet_spin_t0 = now;
+            return;
+        }
+
+        tet_rot_show = tet_rot_id; /* 没地方转就按最终朝向放，紧接着就落地 */
+        tet_state = TET_ST_FALL;
+        tet_last = now;
+        return;
+    }
+
+    if (tet_state == TET_ST_SPIN)
+    {
+        if (now - tet_spin_t0 >= TET_SPIN_MS)
+        {
+            tet_spin_t0 += TET_SPIN_MS;
+            tet_rot_show++;
+
+            if (tet_rot_show >= tet_rot_id)
+            {
+                tet_rot_show = tet_rot_id;
+                tet_state = TET_ST_FALL;
+                tet_last = now;
+            }
+        }
+
+        return;
+    }
+
+    if (now - tet_last < TET_DROP_MS)
+        return;
+
+    tet_last += TET_DROP_MS;
+
+    if (tet_hits(tet_x, tet_y + 1, tet_shape[tet_shape_id][tet_rot_id]))
+        tet_lock(now);
+    else
+        tet_y++;
+}
+
+/* 拼块边缘压暗、内部满亮度：
+ * 只有"邻格不是同一拼块（空格或别的块）"的那一侧才压暗，
+ * 所以每块 4 格内部是成片的亮色，块与块之间、块与背景之间都留一条暗缝。
+ * 斜对角也参与判断，否则凹进去的内折角会缺一个暗像素，轮廓断个口。 */
+#define TET_EDGE_GRAY 3
+#define TET_FILL_GRAY 7
+
+/* 当前是否有一块在场（进场 / 旋转 / 下落） */
+static uint8_t tet_piece_alive(void)
+{
+    return (uint8_t)(tet_active && (tet_state == TET_ST_FALL ||
+                                    tet_state == TET_ST_ENTER ||
+                                    tet_state == TET_ST_SPIN));
+}
+
+/* 取一格的占用值：高 6 位拼块编号、低 2 位颜色，0 = 空 */
+static uint8_t tet_cell_at(int c, int r)
+{
+    if (c < 0 || c >= TET_COLS || r < 0 || r >= TET_ROWS)
+        return 0;
+
+    if (tet_board[r][c])
+        return tet_board[r][c];
+
+    if (tet_piece_alive())
+    {
+        int bx = c - tet_x, by = r - tet_y;
+
+        if (bx >= 0 && bx < 4 && by >= 0 && by < 4 &&
+            (tet_shape[tet_shape_id][tet_rot_show] & (uint16_t)(1u << (by * 4 + bx))))
+            return (uint8_t)((tet_pid << TET_PID_SHIFT) | tet_color);
+    }
+
+    return 0;
+}
+
+/* 相邻格不是同一拼块（空、别块、屏幕外）→ 这一侧压暗 */
+static uint8_t tet_seam(int c, int r, int dc, int dr, uint8_t self)
+{
+    return (uint8_t)(tet_cell_at(c + dc, r + dr) != self);
+}
+
+/* 右上角预览窗盖住的范围：棋盘画到这里就跳过，给它留一块纯黑底 */
+static uint8_t tet_hud_hit(int x, int y)
+{
+    return (uint8_t)(x >= TET_NEXT_X - 1 && x <= TET_NEXT_X + TET_NEXT_W &&
+                     y >= TET_NEXT_Y - 1 && y <= TET_NEXT_Y + TET_NEXT_H);
+}
+
+static void tet_put_cell(int c, int r, Color color)
+{
+    int x0, y0;
+    uint8_t self, edge_l, edge_r, edge_u, edge_d;
+    uint8_t dg_lu, dg_ru, dg_ld, dg_rd;
+
+    if (c < 0 || c >= TET_COLS || r < 0 || r >= TET_ROWS)
+        return;
+
+    self = tet_cell_at(c, r);
+    edge_l = tet_seam(c, r, -1, 0, self);
+    edge_r = tet_seam(c, r, 1, 0, self);
+    edge_u = tet_seam(c, r, 0, -1, self);
+    edge_d = tet_seam(c, r, 0, 1, self);
+    dg_lu = tet_seam(c, r, -1, -1, self);
+    dg_ru = tet_seam(c, r, 1, -1, self);
+    dg_ld = tet_seam(c, r, -1, 1, self);
+    dg_rd = tet_seam(c, r, 1, 1, self);
+
+    x0 = c * TET_PX;
+    y0 = r * TET_PX;
+
+    for (int dy = 0; dy < TET_PX; dy++)
+        for (int dx = 0; dx < TET_PX; dx++)
+        {
+            uint8_t edge = 0;
+
+            if (dx == 0 && edge_l)
+                edge = 1;
+            if (dx == TET_PX - 1 && edge_r)
+                edge = 1;
+            if (dy == 0 && edge_u)
+                edge = 1;
+            if (dy == TET_PX - 1 && edge_d)
+                edge = 1;
+
+            /* 内折角：斜对角的格子空着时，这个角像素也要压暗 */
+            if (dx == 0 && dy == 0 && dg_lu)
+                edge = 1;
+            if (dx == TET_PX - 1 && dy == 0 && dg_ru)
+                edge = 1;
+            if (dx == 0 && dy == TET_PX - 1 && dg_ld)
+                edge = 1;
+            if (dx == TET_PX - 1 && dy == TET_PX - 1 && dg_rd)
+                edge = 1;
+
+            if (tet_hud_hit(x0 + dx, y0 + dy)) /* 让出右上角预览窗 */
+                continue;
+
+            draw_point_gray(x0 + dx, y0 + dy, color, edge ? TET_EDGE_GRAY : TET_FILL_GRAY);
+        }
+}
+
+/* 消行时整行刷白：整行当成一块来画，上下沿、左右到屏幕边都压暗边，
+ * 中间连续满亮度。相邻行也在消行时不断开，几条一起消就是一条完整的白带。 */
+static void tet_put_cell_solid(int c, int r, Color color)
+{
+    int x0, y0;
+    uint8_t edge_l, edge_r, edge_u, edge_d;
+
+    if (c < 0 || c >= TET_COLS || r < 0 || r >= TET_ROWS)
+        return;
+
+    edge_l = (uint8_t)(c == 0);            /* 屏幕左边缘 */
+    edge_r = (uint8_t)(c == TET_COLS - 1); /* 屏幕右边缘 */
+    edge_u = (uint8_t)(r == 0 || !((tet_clears >> (r - 1)) & 1u));
+    edge_d = (uint8_t)(r == TET_ROWS - 1 || !((tet_clears >> (r + 1)) & 1u));
+
+    x0 = c * TET_PX;
+    y0 = r * TET_PX;
+
+    for (int dy = 0; dy < TET_PX; dy++)
+        for (int dx = 0; dx < TET_PX; dx++)
+        {
+            uint8_t edge = (uint8_t)((dy == 0 && edge_u) ||
+                                     (dy == TET_PX - 1 && edge_d) ||
+                                     (dx == 0 && edge_l) ||
+                                     (dx == TET_PX - 1 && edge_r));
+
+            if (tet_hud_hit(x0 + dx, y0 + dy)) /* 让出右上角预览窗 */
+                continue;
+
+            draw_point_gray(x0 + dx, y0 + dy, color, edge ? TET_EDGE_GRAY : TET_FILL_GRAY);
+        }
+}
+
+/* 棋盘颜色值 -> 屏幕颜色（低 2 位才是颜色） */
+static Color tet_cell_color(uint8_t v)
+{
+    v &= TET_COLOR_MASK;
+
+    if (v == TET_CELL_RED)
+        return Red;
+    if (v == TET_CELL_BLUE)
+        return Cyan;
+    if (v == TET_CELL_WHITE)
+        return White;
+
+    return None;
+}
+
+/* 右上角：下一块预览。2 像素一格，形状居中放在 4x2 格里，
+ * 外圈画一条暗边把它和棋盘隔开（只压暗边框那几像素，底下的方块还看得见）。 */
+static void tet_render_next(void)
+{
+    uint16_t m = tet_shape[tet_next_shape][0];
+    int w = tet_mask_w(m);
+    int h = tet_mask_h(m);
+    int ox = TET_NEXT_X + (TET_NEXT_W - w * TET_NEXT_PX) / 2;
+    int oy = TET_NEXT_Y + (TET_NEXT_H - h * TET_NEXT_PX) / 2;
+    Color color = tet_cell_color(tet_next_color);
+
+    for (int x = TET_NEXT_X - 1; x <= TET_NEXT_X + TET_NEXT_W; x++)
+    {
+        draw_point_gray(x, TET_NEXT_Y - 1, White, TET_NEXT_EDGE);
+        draw_point_gray(x, TET_NEXT_Y + TET_NEXT_H, White, TET_NEXT_EDGE);
+    }
+
+    for (int y = TET_NEXT_Y; y < TET_NEXT_Y + TET_NEXT_H; y++)
+    {
+        draw_point_gray(TET_NEXT_X - 1, y, White, TET_NEXT_EDGE);
+        draw_point_gray(TET_NEXT_X + TET_NEXT_W, y, White, TET_NEXT_EDGE);
+    }
+
+    for (int by = 0; by < 4; by++)
+        for (int bx = 0; bx < 4; bx++)
+        {
+            if (!(m & (uint16_t)(1u << (by * 4 + bx))))
+                continue;
+
+            for (int dy = 0; dy < TET_NEXT_PX; dy++)
+                for (int dx = 0; dx < TET_NEXT_PX; dx++)
+                    draw_point_gray(ox + bx * TET_NEXT_PX + dx,
+                                    oy + by * TET_NEXT_PX + dy, color, TET_NEXT_GRAY);
+        }
+}
+
+static void tet_render(uint32_t now)
+{
+    int wipe = 0;
+    int c0, c1;
+
+    /* 消行：整行先变白，再从中间向两边擦掉 */
+    if (tet_clears)
+    {
+        uint32_t el = now - tet_t0;
+
+        if (el > tet_clear_ms)
+            el = tet_clear_ms;
+
+        wipe = (int)((uint32_t)(TET_COLS / 2) * el / tet_clear_ms);
+    }
+
+    c0 = TET_COLS / 2 - wipe;
+    c1 = TET_COLS / 2 + wipe;
+
+    for (int r = 0; r < TET_ROWS; r++)
+    {
+        uint8_t clearing = (uint8_t)((tet_clears >> r) & 1u);
+
+        for (int c = 0; c < TET_COLS; c++)
+        {
+            if (clearing)
+            {
+                /* 中间已经擦掉的部分留黑，还没擦到的部分保持白色 */
+                if (c < c0 || c >= c1)
+                    tet_put_cell_solid(c, r, White);
+                continue;
+            }
+
+            if (tet_board[r][c])
+                tet_put_cell(c, r, tet_cell_color(tet_board[r][c]));
+        }
+    }
+
+    /* 正在出场滑动 / 旋转 / 下落的方块 */
+    if (tet_piece_alive())
+    {
+        uint16_t m = tet_shape[tet_shape_id][tet_rot_show];
+        Color color = tet_cell_color(tet_color);
+
+        for (int by = 0; by < 4; by++)
+            for (int bx = 0; bx < 4; bx++)
+                if (m & (uint16_t)(1u << (by * 4 + bx)))
+                    tet_put_cell(tet_x + bx, tet_y + by, color);
+    }
+
+    /* 下一块预览画在最后，压在其他东西上面 */
+    tet_render_next();
+}
+
+/* 俄罗斯方块界面：推进一帧并画到显存（调用方负责先清屏） */
+void refrashTetris(void)
+{
+    uint32_t now = clock_anim_tick();
+
+    if (!tet_inited)
+    {
+        static const uint16_t base[7] = {
+            0x00F0, /* I */
+            0x0033, /* O */
+            0x0072, /* T */
+            0x0036, /* S */
+            0x0063, /* Z */
+            0x0071, /* J */
+            0x0074, /* L */
+        };
+
+        memset(tet_board, 0, sizeof(tet_board));
+        for (int s = 0; s < 7; s++)
+        {
+            tet_shape[s][0] = tet_align(base[s]);
+            for (int r = 1; r < 4; r++)
+                tet_shape[s][r] = tet_align(tet_rot90(tet_shape[s][r - 1]));
+        }
+
+        tet_state = TET_ST_FALL;
+        tet_last = now;
+        tet_inited = 1;
+        tet_roll_next(); /* 先把"下一块"摇出来，再生成当前这块 */
+        tet_spawn(now);
+    }
+
+    /* 切走界面 / 长时间没画之后回来：不要一次补几十步 */
+    if (now - tet_last > 1000)
+        tet_last = now;
+
+    tet_step(now);
+    tet_render(now);
+}
+
+/* ============================================================
+ * 坦克大战界面（DISP_MODE_TANKS）
+ * 1 像素一格：车身 4x4、2x2 一块墙、1 像素一颗子弹
+ *   - 红蓝两队各 3 辆，满场乱跑、互相开火
+ *   - 墙分单层（暗灰，打得掉）和多层（更亮，炸不毁）
+ *   - 一方全灭就结束本局，碎屏动画换一张新地图接着打
+ * ============================================================ */
+#define TNK_LONG 4  /* 车身长边 */
+#define TNK_SHORT 4 /* 车身短边 */
+#define TNK_BOX 4   /* 碰撞方框边长：车身正好铺满，转身不会卡住 */
+
+#define TNK_WALL_MAX 40
+#define TNK_TANK_NUM 6 /* 红蓝各 3 辆 */
+#define TNK_BULLET_MAX 10
+#define TNK_BOOM_MAX 5
+
+#define TNK_SIM_MS 8      /* 仿真步长 */
+#define TNK_MOVE_MS 46    /* 坦克每 46ms 走 1 像素 */
+#define TNK_BULLET_MS 16  /* 子弹每 16ms 走 1 像素 */
+#define TNK_FIRE_MIN 500  /* 开火间隔 */
+#define TNK_FIRE_MAX 1300
+#define TNK_REAIM_MS 120  /* 没瞄到人时隔多久再看一眼 */
+#define TNK_BREAK_MS 420  /* 顶着砖墙拆墙的开炮间隔 */
+#define TNK_BOOM_MS 280
+#define TNK_ROUND_END_MS 350 /* 全灭后停一下再走碎屏换关 */
+#define TNK_ROUND_MAX_MS 30000 /* 一局最长 30 秒：到点就换关，防止两边卡住打不完 */
+#define TNK_BOOM_R 2         /* 爆炸菱形半径 */
+#define TNK_LIVES 3          /* 每辆坦克 3 条命：中 3 炮才炸 */
+#define TNK_HURT_MS 700      /* 中一炮之后闪 0.7 秒，这期间打不穿 */
+
+#define TNK_DIR_UP 0
+#define TNK_DIR_RIGHT 1
+#define TNK_DIR_DOWN 2
+#define TNK_DIR_LEFT 3
+
+static const int8_t tnk_dx[4] = {0, 1, 0, -1};
+static const int8_t tnk_dy[4] = {-1, 0, 1, 0};
+
+/* 车身位图只存“朝上”这一张（4x4，中间的炮塔 2 格宽，两条履带各 1 格）：
+ *   . # # .     炮塔
+ *   # # # #     车体
+ *   # # # #     车体
+ *   # . . #     两条履带
+ * 另外三个朝向都按 90 度一格现转，保证四个方向严格互转
+ */
+static const uint8_t tnk_body_up[TNK_SHORT] = {0x06, 0x0F, 0x0F, 0x09};
+
+/* 朝 dir 时车身的宽高：朝左右就竖过来 */
+static void tnk_size(int dir, int *w, int *h)
+{
+    if (dir & 1)
+    {
+        *w = TNK_SHORT;
+        *h = TNK_LONG;
+    }
+    else
+    {
+        *w = TNK_LONG;
+        *h = TNK_SHORT;
+    }
+}
+
+/* 车身上 (x,y) 这一格是不是实心的：把坐标反着转回“朝上”基准图再查 */
+static uint8_t tnk_body_at(int x, int y, int dir)
+{
+    int w, h;
+
+    tnk_size(dir, &w, &h);
+
+    for (int k = 0; k < dir; k++)
+    {
+        int t = x;
+
+        x = y;
+        y = w - 1 - t;
+
+        t = w;
+        w = h;
+        h = t;
+    }
+
+    return (uint8_t)((tnk_body_up[y] >> x) & 1u);
+}
+
+/* 炮口那条边（车头最前面的一排）点得更亮，用来指示朝向 */
+static uint8_t tnk_bar_line(int dx, int dy, int w, int h, int dir)
+{
+    switch (dir)
+    {
+    case TNK_DIR_UP: return (uint8_t)(dy == 0);
+    case TNK_DIR_RIGHT: return (uint8_t)(dx == w - 1);
+    case TNK_DIR_DOWN: return (uint8_t)(dy == h - 1);
+    default: return (uint8_t)(dx == 0);
+    }
+}
+
+/* 炮口可以出弹的几列（沿车体宽度方向，相对碰撞方框）：正好是炮塔那 2 格 */
+static void tnk_lane_range(int dir, int *lo, int *hi)
+{
+    (void)dir;
+    *lo = TNK_BOX / 2 - 1;
+    *hi = TNK_BOX / 2;
+}
+
+typedef struct
+{
+    uint8_t x, y; /* 左上角 */
+    uint8_t dir;
+    uint8_t team;    /* 0 红 / 1 蓝 */
+    uint8_t alive;
+    uint8_t lives;      /* 还剩几条命 */
+    uint16_t hurt_ms;   /* >0：刚中一炮，闪一下，这期间无敌 */
+    uint16_t move_ms;
+    uint16_t fire_ms;
+} TnkTank;
+
+typedef struct
+{
+    uint8_t x, y, dir, team, on;
+} TnkBullet;
+
+typedef struct
+{
+    uint8_t x, y;
+    uint16_t age;
+} TnkBoom;
+
+/* [0]=x [1]=y [2]=层数：0 单层（能打掉）/ 1 多层（炸不毁） */
+static uint8_t tnk_wall[TNK_WALL_MAX][3];
+static uint8_t tnk_wall_n;
+static TnkTank tnk_tank[TNK_TANK_NUM];
+static TnkBullet tnk_bullet[TNK_BULLET_MAX];
+static TnkBoom tnk_boom[TNK_BOOM_MAX];
+
+static uint8_t tnk_inited;
+static uint8_t tnk_regen;
+static uint16_t tnk_acc;
+static uint16_t tnk_btick;
+static uint16_t tnk_round_ms; /* >0：本局已结束，倒计时开下一局 */
+static uint16_t tnk_round_len; /* 本局已经跑了多久 */
+static uint8_t tnk_level_flip; /* 该换关了：碎屏动画 + 新地图 */
+static uint32_t tnk_last;
+
+/* 下面几个函数互相调用，先声明一下 */
+static void tnk_muzzle_dir(const TnkTank *t, int d, int lane, int *ox, int *oy);
+static uint8_t tnk_wall_at(int x, int y);
+static uint8_t tnk_wall_hit(int x, int y);
+static int tnk_find_break(const TnkTank *t, int d, int max);
+
+static int tnk_rnd(int n)
+{
+    if (n <= 1)
+        return 0;
+
+    return (int)(tet_rand() % (uint32_t)n);
+}
+
+/* TNK_BOX x TNK_BOX 的位置能不能站：越界、砖墙、别的坦克都不行 */
+static uint8_t tnk_blocked(int x, int y, int self)
+{
+    if (x < 0 || y < 0 || x + TNK_BOX > MAX_X || y + TNK_BOX > MAX_Y)
+        return 1;
+
+    for (int i = 0; i < tnk_wall_n; i++)
+        if (x < tnk_wall[i][0] + 2 && tnk_wall[i][0] < x + TNK_BOX &&
+            y < tnk_wall[i][1] + 2 && tnk_wall[i][1] < y + TNK_BOX)
+            return 1;
+
+    for (int i = 0; i < TNK_TANK_NUM; i++)
+    {
+        if (i == self || !tnk_tank[i].alive)
+            continue;
+
+        if (x < tnk_tank[i].x + TNK_BOX && tnk_tank[i].x < x + TNK_BOX &&
+            y < tnk_tank[i].y + TNK_BOX && tnk_tank[i].y < y + TNK_BOX)
+            return 1;
+    }
+
+    return 0;
+}
+
+/* 朝最近的敌人走：横竖两个候选方向优先，都被堵就换别的 */
+static uint8_t tnk_pick_dir(int self)
+{
+    TnkTank *t = &tnk_tank[self];
+    uint8_t order[4];
+    int cx, cy;
+    int best = -1, bd = 1 << 14;
+    int adx, ady, tmp;
+    uint8_t hd, vd;
+
+    cx = t->x + TNK_BOX / 2;
+    cy = t->y + TNK_BOX / 2;
+
+    for (int i = 0; i < TNK_TANK_NUM; i++)
+    {
+        int dx, dy, d;
+
+        if (i == self || !tnk_tank[i].alive || tnk_tank[i].team == t->team)
+            continue;
+
+        dx = (int)tnk_tank[i].x + TNK_BOX / 2 - cx;
+        dy = (int)tnk_tank[i].y + TNK_BOX / 2 - cy;
+        d = (dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy);
+
+        if (d < bd)
+        {
+            bd = d;
+            best = i;
+        }
+    }
+
+    if (best < 0) /* 没敌人了：随便走 */
+        return (uint8_t)tnk_rnd(4);
+
+    adx = (int)tnk_tank[best].x + TNK_BOX / 2 - cx;
+    ady = (int)tnk_tank[best].y + TNK_BOX / 2 - cy;
+
+    hd = (adx < 0) ? TNK_DIR_LEFT : TNK_DIR_RIGHT;
+    vd = (ady < 0) ? TNK_DIR_UP : TNK_DIR_DOWN;
+
+    if ((adx < 0 ? -adx : adx) >= (ady < 0 ? -ady : ady))
+    {
+        order[0] = hd;
+        order[1] = vd;
+    }
+    else
+    {
+        order[0] = vd;
+        order[1] = hd;
+    }
+
+    order[2] = (uint8_t)((order[0] + 2) & 3);
+    order[3] = (uint8_t)((order[1] + 2) & 3);
+
+    if (tnk_rnd(100) < 30) /* 偶尔先把两个候选顺序倒一下，别走得太呆 */
+    {
+        tmp = order[0];
+        order[0] = order[1];
+        order[1] = (uint8_t)tmp;
+    }
+
+    /* 前路被能打掉的砖墙堵着：不绕路，原地顶着把它轰开 */
+    if (tnk_blocked(t->x + tnk_dx[t->dir], t->y + tnk_dy[t->dir], self) &&
+        tnk_find_break(t, t->dir, 2) >= 0)
+        return t->dir;
+
+    /* 只能直行 / 左转 / 右转，不许原地掉头 */
+    for (int i = 0; i < 4; i++)
+    {
+        int d = order[i];
+
+        if (((d - t->dir) & 3) == 2)
+            continue;
+
+        if (!tnk_blocked(t->x + tnk_dx[d], t->y + tnk_dy[d], self))
+            return (uint8_t)d;
+    }
+
+    return t->dir;
+}
+
+static void tnk_place_tank(int i)
+{
+    TnkTank *t = &tnk_tank[i];
+    uint8_t dir = (uint8_t)tnk_rnd(4);
+
+    for (int k = 0; k < 60; k++)
+    {
+        int x = tnk_rnd(MAX_X - TNK_BOX + 1);
+        int y = tnk_rnd(MAX_Y - TNK_BOX + 1);
+
+        if (tnk_blocked(x, y, i))
+            continue;
+
+        t->x = (uint8_t)x;
+        t->y = (uint8_t)y;
+        t->dir = dir;
+        t->alive = 1;
+        t->move_ms = (uint16_t)tnk_rnd(TNK_MOVE_MS);
+        t->fire_ms = (uint16_t)(200 + tnk_rnd(900));
+        return;
+    }
+
+    /* 随机没撞上：老老实实从左上角扫一个空位出来 */
+    for (int y = 0; y + TNK_BOX <= MAX_Y; y++)
+        for (int x = 0; x + TNK_BOX <= MAX_X; x++)
+            if (!tnk_blocked(x, y, i))
+            {
+                t->x = (uint8_t)x;
+                t->y = (uint8_t)y;
+                t->dir = dir;
+                t->alive = 1;
+                t->move_ms = TNK_MOVE_MS;
+                t->fire_ms = (uint16_t)(200 + tnk_rnd(900));
+                return;
+            }
+}
+
+static void tnk_boom_add(int x, int y)
+{
+    int slot = -1;
+
+    for (int i = 0; i < TNK_BOOM_MAX; i++)
+        if (tnk_boom[i].age >= TNK_BOOM_MS)
+        {
+            slot = i;
+            break;
+        }
+
+    if (slot < 0)
+        slot = 0;
+
+    tnk_boom[slot].x = (uint8_t)x;
+    tnk_boom[slot].y = (uint8_t)y;
+    tnk_boom[slot].age = 0;
+}
+
+/* 中一炮：掉一条命，车身闪一下接着打；命掉光了才真的炸掉 */
+static void tnk_hit(int i, int x, int y)
+{
+    TnkTank *t = &tnk_tank[i];
+
+    if (t->hurt_ms) /* 刚挨过一炮，这 0.7 秒打不穿 */
+        return;
+
+    tnk_boom_add(x, y);
+    t->lives--;
+
+    if (t->lives)
+    {
+        t->hurt_ms = TNK_HURT_MS;
+        return;
+    }
+
+    t->alive = 0;
+}
+
+/* 炮口位置：离碰撞框边缘一格，lane 是沿车体宽度方向的列号 */
+static void tnk_muzzle_dir(const TnkTank *t, int d, int lane, int *ox, int *oy)
+{
+    switch (d)
+    {
+    case TNK_DIR_UP: *ox = t->x + lane; *oy = t->y - 1; break;
+    case TNK_DIR_RIGHT: *ox = t->x + TNK_BOX; *oy = t->y + lane; break;
+    case TNK_DIR_DOWN: *ox = t->x + lane; *oy = t->y + TNK_BOX; break;
+    default: *ox = t->x - 1; *oy = t->y + lane; break;
+    }
+}
+
+/* 这个点上有墙吗？0=没有 1=单层 2=多层 */
+static uint8_t tnk_wall_at(int x, int y)
+{
+    for (int i = 0; i < tnk_wall_n; i++)
+        if (x >= tnk_wall[i][0] && x < tnk_wall[i][0] + 2 &&
+            y >= tnk_wall[i][1] && y < tnk_wall[i][1] + 2)
+            return (uint8_t)(tnk_wall[i][2] + 1);
+
+    return 0;
+}
+
+/* 顺着 d 方向看出去 max 格：有没有能打掉的砖墙挡着？有就返回对应的炮口列 */
+static int tnk_find_break(const TnkTank *t, int d, int max)
+{
+    int lo, hi;
+
+    tnk_lane_range(d, &lo, &hi);
+
+    for (int l = lo; l <= hi; l++)
+    {
+        int x, y;
+
+        tnk_muzzle_dir(t, d, l, &x, &y);
+
+        for (int n = 0; n < max; n++)
+        {
+            uint8_t wt;
+            int blocked_by_tank = 0;
+
+            if (x < 0 || x >= MAX_X || y < 0 || y >= MAX_Y)
+                break;
+
+            /* 前面挡着车：不算墙堵路，别对着自己人放炮 */
+            for (int k = 0; k < TNK_TANK_NUM; k++)
+            {
+                const TnkTank *o = &tnk_tank[k];
+
+                if (!o->alive)
+                    continue;
+
+                if (x >= o->x && x < o->x + TNK_BOX && y >= o->y && y < o->y + TNK_BOX)
+                {
+                    blocked_by_tank = 1;
+                    break;
+                }
+            }
+
+            if (blocked_by_tank)
+                break;
+
+            wt = tnk_wall_at(x, y);
+
+            if (wt == 1)
+                return l; /* 单层砖：一炮能拆 */
+
+            if (wt == 2)
+                break; /* 多层：别浪费炮弹 */
+
+            x += tnk_dx[d];
+            y += tnk_dy[d];
+        }
+    }
+
+    return -1;
+}
+
+/* 从炮口的第 lane 列出膛、朝 d 方向打，能打到敌方坦克吗？（墙会挡） */
+static uint8_t tnk_lane_clear(const TnkTank *t, int d, int lane)
+{
+    int x, y;
+
+    tnk_muzzle_dir(t, d, lane, &x, &y);
+
+    for (int n = 0; n < MAX_X + MAX_Y; n++)
+    {
+        if (x < 0 || x >= MAX_X || y < 0 || y >= MAX_Y)
+            return 0;
+
+        for (int k = 0; k < TNK_TANK_NUM; k++)
+        {
+            const TnkTank *o = &tnk_tank[k];
+
+            if (!o->alive || o->team == t->team)
+                continue;
+
+            if (x >= o->x && x < o->x + TNK_BOX && y >= o->y && y < o->y + TNK_BOX)
+                return 1;
+        }
+
+        /* 单层砖可以打穿，多层墙挡视线 */
+        if (tnk_wall_at(x, y) == 2)
+            return 0;
+
+        x += tnk_dx[d];
+        y += tnk_dy[d];
+    }
+
+    return 0;
+}
+
+/* 挑一个能打到人的朝向（顺带给出炮口列），打不到就返回 -1 */
+static int tnk_find_aim(const TnkTank *t, int *lane)
+{
+    int lo, hi;
+
+    /* 先看当前对着的方向，免得来回扭头 */
+    tnk_lane_range(t->dir, &lo, &hi);
+
+    for (int l = lo; l <= hi; l++)
+    {
+        if (tnk_lane_clear(t, t->dir, l))
+        {
+            *lane = l;
+            return t->dir;
+        }
+    }
+
+    for (int d = 0; d < 4; d++)
+    {
+        if (d == t->dir || ((d - t->dir) & 3) == 2)
+            continue; /* 不原地掉头：想打背后，先左/右转一格再说 */
+
+        tnk_lane_range(d, &lo, &hi);
+
+        for (int l = lo; l <= hi; l++)
+        {
+            if (tnk_lane_clear(t, d, l))
+            {
+                *lane = l;
+                return d;
+            }
+        }
+    }
+
+    return -1;
+}
+
+static void tnk_fire(int i, int lane)
+{
+    TnkTank *t = &tnk_tank[i];
+    int bx, by;
+
+    tnk_muzzle_dir(t, t->dir, lane, &bx, &by);
+
+    if (bx < 0 || bx >= MAX_X || by < 0 || by >= MAX_Y)
+        return;
+
+    /* 炮口就贴在墙上：单层砖当场拆掉，多层墙这一发根本打不出去 */
+    {
+        uint8_t wt = tnk_wall_at(bx, by);
+
+        if (wt == 2)
+            return;
+
+        if (wt == 1)
+        {
+            tnk_wall_hit(bx, by);
+            return;
+        }
+    }
+
+    /* 顶着别人开火：出膛即命中，别让子弹从人家身体里穿过去 */
+    for (int k = 0; k < TNK_TANK_NUM; k++)
+    {
+        TnkTank *o = &tnk_tank[k];
+
+        if (!o->alive || o->team == t->team || o->hurt_ms) /* 无敌状态：让它打过去 */
+            continue;
+
+        if (bx >= o->x && bx < o->x + TNK_BOX && by >= o->y && by < o->y + TNK_BOX)
+        {
+            tnk_hit(k, bx, by);
+            return;
+        }
+    }
+
+    for (int k = 0; k < TNK_BULLET_MAX; k++)
+    {
+        TnkBullet *b = &tnk_bullet[k];
+
+        if (b->on)
+            continue;
+
+        b->on = 1;
+        b->x = (uint8_t)bx;
+        b->y = (uint8_t)by;
+        b->dir = t->dir;
+        b->team = t->team;
+        return;
+    }
+}
+
+static void tnk_tank_step(int i)
+{
+    TnkTank *t = &tnk_tank[i];
+    int nd = t->dir;
+
+    if (tnk_rnd(100) < 8) /* 偶尔主动换个方向，看着像在找目标 */
+        nd = tnk_pick_dir(i);
+
+    if (!tnk_blocked(t->x + tnk_dx[nd], t->y + tnk_dy[nd], i))
+    {
+        t->dir = (uint8_t)nd;
+        t->x = (uint8_t)(t->x + tnk_dx[nd]);
+        t->y = (uint8_t)(t->y + tnk_dy[nd]);
+        return;
+    }
+
+    /* 撞墙 / 撞车：换个方向，下一拍再走（方框不随朝向变，转身随时都行） */
+    t->dir = tnk_pick_dir(i);
+
+    /* 真被围死了：允许倒着挪一格（不掉头，朝向不变） */
+    {
+        int back = (int)((t->dir + 2) & 3);
+
+        if (tnk_blocked(t->x + tnk_dx[t->dir], t->y + tnk_dy[t->dir], i) &&
+            tnk_find_break(t, t->dir, 2) < 0 &&
+            !tnk_blocked(t->x + tnk_dx[back], t->y + tnk_dy[back], i))
+        {
+            t->x = (uint8_t)(t->x + tnk_dx[back]);
+            t->y = (uint8_t)(t->y + tnk_dy[back]);
+        }
+    }
+}
+
+/* 打中墙：单层直接拆掉，多层留着挡路 */
+static uint8_t tnk_wall_hit(int x, int y)
+{
+    for (int i = 0; i < tnk_wall_n; i++)
+        if (x >= tnk_wall[i][0] && x < tnk_wall[i][0] + 2 &&
+            y >= tnk_wall[i][1] && y < tnk_wall[i][1] + 2)
+        {
+            if (tnk_wall[i][2])
+                return 1; /* 多层：炸不毁 */
+
+            tnk_wall_n--;
+            tnk_wall[i][0] = tnk_wall[tnk_wall_n][0];
+            tnk_wall[i][1] = tnk_wall[tnk_wall_n][1];
+            tnk_wall[i][2] = tnk_wall[tnk_wall_n][2];
+            return 1;
+        }
+
+    return 0;
+}
+
+static void tnk_bullets_step(void)
+{
+    for (int i = 0; i < TNK_BULLET_MAX; i++)
+    {
+        TnkBullet *b = &tnk_bullet[i];
+        int x, y;
+
+        if (!b->on)
+            continue;
+
+        x = b->x + tnk_dx[b->dir];
+        y = b->y + tnk_dy[b->dir];
+
+        if (x < 0 || x >= MAX_X || y < 0 || y >= MAX_Y)
+        {
+            b->on = 0;
+            continue;
+        }
+
+        if (tnk_wall_hit(x, y))
+        {
+            b->on = 0;
+            continue;
+        }
+
+        for (int k = 0; k < TNK_TANK_NUM; k++)
+        {
+            TnkTank *t = &tnk_tank[k];
+
+            if (!t->alive || t->team == b->team || t->hurt_ms) /* 无敌状态：子弹穿过去 */
+                continue;
+
+            if (x >= t->x && x < t->x + TNK_BOX && y >= t->y && y < t->y + TNK_BOX)
+            {
+                tnk_hit(k, x, y);
+                b->on = 0;
+                break;
+            }
+        }
+
+        if (!b->on)
+            continue;
+
+        b->x = (uint8_t)x;
+        b->y = (uint8_t)y;
+    }
+}
+
+/* 随机地图：几个 2x2 的墙簇，随便长几块；有的簇是多层的，炸不毁 */
+static void tnk_level(void)
+{
+    tnk_wall_n = 0;
+
+    for (int c = 0; c < 8; c++)
+    {
+        int x = 4 + tnk_rnd((MAX_X - 10) / 2) * 2;
+        int y = 2 + tnk_rnd((MAX_Y - 8) / 2) * 2;
+        int n = 2 + tnk_rnd(4);
+        uint8_t kind = (uint8_t)(tnk_rnd(100) < 40); /* 1 = 多层 */
+
+        for (int k = 0; k < n; k++)
+        {
+            if (tnk_wall_n >= TNK_WALL_MAX)
+                return;
+
+            tnk_wall[tnk_wall_n][0] = (uint8_t)x;
+            tnk_wall[tnk_wall_n][1] = (uint8_t)y;
+            tnk_wall[tnk_wall_n][2] = kind;
+            tnk_wall_n++;
+
+            switch (tnk_rnd(4))
+            {
+            case 0: x += 2; break;
+            case 1: x -= 2; break;
+            case 2: y += 2; break;
+            default: y += -2; break;
+            }
+
+            if (x < 2)
+                x = 2;
+            if (x > MAX_X - 4)
+                x = MAX_X - 4;
+            if (y < 0)
+                y = 0;
+            if (y > MAX_Y - 2)
+                y = MAX_Y - 2;
+        }
+    }
+}
+
+static uint8_t tnk_alive(int team)
+{
+    uint8_t n = 0;
+
+    for (int i = 0; i < TNK_TANK_NUM; i++)
+        if (tnk_tank[i].alive && tnk_tank[i].team == team)
+            n++;
+
+    return n;
+}
+
+/* 这队是不是全打光了（命也拼完了） */
+static uint8_t tnk_team_out(int team)
+{
+    for (int i = 0; i < TNK_TANK_NUM; i++)
+        if (tnk_tank[i].team == team && tnk_tank[i].alive)
+            return 0;
+
+    return 1;
+}
+
+/* 开一局新的：换地图、清子弹、双方满命复活 */
+static void tnk_new_round(void)
+{
+    tnk_level();
+    memset(tnk_bullet, 0, sizeof(tnk_bullet));
+    tnk_round_len = 0;
+
+    for (int i = 0; i < TNK_TANK_NUM; i++)
+    {
+        tnk_tank[i].alive = 0;
+        tnk_tank[i].lives = TNK_LIVES;
+        tnk_tank[i].hurt_ms = 0;
+        tnk_place_tank(i);
+    }
+
+    if (tnk_alive(0) == 0 || tnk_alive(1) == 0)
+    {
+        /* 极端情况：地图太挤摆不下，干脆清空墙再摆 */
+        tnk_wall_n = 0;
+        memset(tnk_bullet, 0, sizeof(tnk_bullet));
+
+        for (int i = 0; i < TNK_TANK_NUM; i++)
+        {
+            tnk_tank[i].alive = 0;
+            tnk_tank[i].lives = TNK_LIVES;
+            tnk_tank[i].hurt_ms = 0;
+            tnk_place_tank(i);
+        }
+    }
+}
+
+static uint8_t tnk_sim(void)
+{
+    /* 爆炸淡出一直走，停局的时候也让它放完 */
+    for (int i = 0; i < TNK_BOOM_MAX; i++)
+        if (tnk_boom[i].age < TNK_BOOM_MS)
+            tnk_boom[i].age = (uint16_t)(tnk_boom[i].age + TNK_SIM_MS);
+
+    if (tnk_round_ms) /* 本局结束：停一下，等外面放换关动画 */
+    {
+        if (tnk_round_ms > TNK_SIM_MS)
+        {
+            tnk_round_ms = (uint16_t)(tnk_round_ms - TNK_SIM_MS);
+        }
+        else
+        {
+            tnk_round_ms = 0;
+            tnk_level_flip = 1; /* 交给 refrashTanks 做碎屏换关 */
+            return 1;           /* 本帧别继续步进，免得又判一次全灭 */
+        }
+        return 0;
+    }
+
+    for (int i = 0; i < TNK_TANK_NUM; i++)
+    {
+        TnkTank *t = &tnk_tank[i];
+
+        if (!t->alive)
+            continue;
+
+        if (t->hurt_ms) /* 中弹后的无敌闪烁 */
+        {
+            if (t->hurt_ms > TNK_SIM_MS)
+                t->hurt_ms = (uint16_t)(t->hurt_ms - TNK_SIM_MS);
+            else
+                t->hurt_ms = 0;
+        }
+
+        if (t->move_ms > TNK_SIM_MS)
+            t->move_ms = (uint16_t)(t->move_ms - TNK_SIM_MS);
+        else
+        {
+            t->move_ms = TNK_MOVE_MS;
+            tnk_tank_step(i);
+        }
+
+        if (t->fire_ms > TNK_SIM_MS)
+            t->fire_ms = (uint16_t)(t->fire_ms - TNK_SIM_MS);
+        else
+        {
+            int lane = TNK_BOX / 2;
+            int bl = -1;
+
+            /* 前面被砖墙堵着就先拆墙：这条比打人优先，不然可能永远出不去 */
+            if (tnk_blocked(t->x + tnk_dx[t->dir], t->y + tnk_dy[t->dir], i))
+                bl = tnk_find_break(t, t->dir, 2);
+
+            if (bl >= 0)
+            {
+                t->fire_ms = (uint16_t)(TNK_BREAK_MS + tnk_rnd(240));
+                tnk_fire(i, bl);
+            }
+            else
+            {
+                int aim = tnk_find_aim(t, &lane);
+
+                if (aim < 0)
+                    t->fire_ms = TNK_REAIM_MS; /* 没瞄到人：不开枪 */
+                else if ((uint8_t)aim != t->dir)
+                {
+                    /* 先转炮口，下一拍再开火（方框不随朝向变，转身随时都行） */
+                    t->dir = (uint8_t)aim;
+                    t->fire_ms = TNK_REAIM_MS;
+                }
+                else
+                {
+                    t->fire_ms = (uint16_t)(TNK_FIRE_MIN + tnk_rnd(TNK_FIRE_MAX - TNK_FIRE_MIN));
+                    tnk_fire(i, lane);
+                }
+            }
+        }
+    }
+
+    tnk_btick = (uint16_t)(tnk_btick + TNK_SIM_MS);
+
+    if (tnk_btick >= TNK_BULLET_MS)
+    {
+        tnk_btick = 0;
+        tnk_bullets_step();
+    }
+
+    /* 一方全灭（连命都打光了），或者这一局拖太久：都算本局结束，碎屏换下一关 */
+    tnk_round_len = (uint16_t)(tnk_round_len + TNK_SIM_MS);
+
+    if (tnk_team_out(0) || tnk_team_out(1) || tnk_round_len >= TNK_ROUND_MAX_MS)
+        tnk_round_ms = TNK_ROUND_END_MS;
+
+    return 0;
+}
+
+static void tnk_render(void)
+{
+    /* 墙：单层暗白（打得掉），多层更亮（炸不毁） */
+    for (int i = 0; i < tnk_wall_n; i++)
+    {
+        int wx = tnk_wall[i][0];
+        int wy = tnk_wall[i][1];
+        uint8_t gray = (uint8_t)(tnk_wall[i][2] ? 6 : 3);
+
+        for (int dy = 0; dy < 2; dy++)
+            for (int dx = 0; dx < 2; dx++)
+                draw_point_gray(wx + dx, wy + dy, White, gray);
+    }
+
+    /* 坦克：4x4 的车身，正好铺满碰撞框，炮口那条边点得更亮 */
+    for (int i = 0; i < TNK_TANK_NUM; i++)
+    {
+        TnkTank *t = &tnk_tank[i];
+        int w, h, ox, oy;
+        Color c;
+
+        if (!t->alive)
+            continue;
+
+        if (t->hurt_ms && ((t->hurt_ms / 100) & 1))
+            continue; /* 中弹后闪一下，表明这条命已经掉了 */
+
+        c = t->team ? Cyan : Red;
+        tnk_size(t->dir, &w, &h);
+
+        /* 车身贴前沿：朝下贴下边、朝右贴右边，剩下的余量留在屁股后头 */
+        ox = t->x;
+        oy = t->y;
+
+        if (t->dir == TNK_DIR_DOWN)
+            oy = t->y + TNK_BOX - h;
+        else if (t->dir == TNK_DIR_RIGHT)
+            ox = t->x + TNK_BOX - w;
+
+        for (int dy = 0; dy < h; dy++)
+            for (int dx = 0; dx < w; dx++)
+            {
+                uint8_t gray;
+
+                if (!tnk_body_at(dx, dy, t->dir))
+                    continue;
+
+                gray = (uint8_t)(tnk_bar_line(dx, dy, w, h, t->dir) ? 7 : 5);
+                draw_point_gray(ox + dx, oy + dy, c, gray);
+            }
+    }
+
+    /* 子弹：1 像素白点 */
+    for (int i = 0; i < TNK_BULLET_MAX; i++)
+        if (tnk_bullet[i].on)
+            draw_point_gray(tnk_bullet[i].x, tnk_bullet[i].y, White, 7);
+
+    /* 爆炸：菱形闪一下再变暗 */
+    for (int i = 0; i < TNK_BOOM_MAX; i++)
+    {
+        TnkBoom *b = &tnk_boom[i];
+        uint8_t gray;
+
+        if (b->age >= TNK_BOOM_MS)
+            continue;
+
+        gray = (uint8_t)((b->age < 80) ? 7 : (b->age < 180 ? 5 : 3));
+
+        for (int dy = -TNK_BOOM_R; dy <= TNK_BOOM_R; dy++)
+            for (int dx = -TNK_BOOM_R; dx <= TNK_BOOM_R; dx++)
+            {
+                int ad = (dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy);
+
+                if (ad > TNK_BOOM_R)
+                    continue;
+
+                draw_point_gray(b->x + dx, b->y + dy, White, gray);
+            }
+    }
+}
+
+/* 重新随机一张地图（Exit 键用） */
+void tanksRegen(void)
+{
+    tnk_regen = 1;
+}
+
+/* 换关动画：冲击波（实现在文件后面的过渡动画区） */
+static void tnk_shockwave(void);
+
+/* 坦克大战界面：推进一帧并画到显存（调用方负责先清屏） */
+void refrashTanks(void)
+{
+    uint32_t now = clock_anim_tick();
+
+    if (!tnk_inited || tnk_regen)
+    {
+        tnk_regen = 0;
+
+        if (!tnk_inited)
+        {
+            for (int i = 0; i < TNK_TANK_NUM; i++)
+                tnk_tank[i].team = (uint8_t)(i & 1);
+
+            for (int i = 0; i < TNK_BOOM_MAX; i++)
+                tnk_boom[i].age = TNK_BOOM_MS;
+        }
+
+        tnk_round_ms = 0;
+        tnk_new_round();
+
+        tnk_inited = 1;
+        tnk_last = now;
+        tnk_acc = 0;
+        tnk_btick = 0;
+    }
+
+    /* 切走界面 / 卡顿之后回来：别一次补几十步 */
+    if (now - tnk_last > 200)
+        tnk_last = now;
+
+    tnk_acc = (uint16_t)(tnk_acc + (uint16_t)(now - tnk_last));
+    tnk_last = now;
+
+    while (tnk_acc >= TNK_SIM_MS)
+    {
+        tnk_acc = (uint16_t)(tnk_acc - TNK_SIM_MS);
+        if (tnk_sim())
+            break; /* 该换关了，别再补步 */
+    }
+
+    /* 一方全灭：冲击波把旧关冲掉，再从中间涌出下一关 */
+    if (tnk_level_flip)
+    {
+        tnk_level_flip = 0;
+
+        tnk_render();    /* 旧关最后一帧先留在屏上 */
+        tnk_shockwave(); /* 冲击波换关（内部会 tnk_new_round + tnk_render） */
+
+        tnk_last = clock_anim_tick();
+        tnk_acc = 0;
+        tnk_btick = 0;
+        return;
+    }
+
+    tnk_render();
+}
+
+/* 按主题选择背景动画并刷到显存 */
+void clock_draw_background(uint8_t bg)
+{
+    /* 背景一律满亮度，没有任何随时间淡出的逻辑 */
+    switch (bg)
+    {
+    case CLOCK_BG_WAVE:
+        gradient_flow_frame_clock(); /* 内部已经 flush */
+        return;
+
+    case CLOCK_BG_BANDS:
+        bg_frame_bands();
+        break;
+
+    case CLOCK_BG_GLOW:
+        bg_frame_glow();
+        break;
+
+    case CLOCK_BG_WIPE:
+        bg_frame_wipe();
+        break;
+
+    case CLOCK_BG_FLOW:
+        bg_frame_flow();
+        break;
+
+    case CLOCK_BG_PLASMA:
+        bg_frame_plasma();
+        break;
+
+    case CLOCK_BG_BREATHE:
+        bg_frame_breathe();
+        break;
+
+    default:
+        return; /* CLOCK_BG_NONE：保留纯黑背景 */
+    }
+
+    flush_frame();
+}
+
 void clock_init()
 {
     llist_init(&long_str_list);
@@ -382,6 +2584,165 @@ void set_g_clockWidth(uint8_t width)
 	g_clockWidth = width;
 }
 
+/* ---------------- 字体：标准 3x5 放大 / 原生 9x15 ---------------- */
+
+/*
+ *   0 = 标准：3x5 字模按 g_clockWidth 放大（原来的效果）
+ *   1 = 原生：按最终像素尺寸直接设计的 9x15 字模，笔画 2 像素、带斜线和圆角，
+ *             没有小字模放大后的方块感。
+ * 原生字模的 9x15 正好等于 3x5 三倍放大后的尺寸，所以布局、字距都不用改。
+ * 只覆盖时间和日期用到的字符，字母等其它字符以及小字号（日期用
+ * g_clockWidth = 1 绘制）自动回落到标准 3x5 字模。
+ */
+#define CLOCK_FONT_STD 0
+#define CLOCK_FONT_NATIVE 1
+
+static uint8_t g_fontStyle = CLOCK_FONT_STD;
+
+void clock_set_font_style(uint8_t style)
+{
+    g_fontStyle = (style != 0) ? CLOCK_FONT_NATIVE : CLOCK_FONT_STD;
+}
+
+/* 原生字模尺寸（= 3x5 字模 3 倍放大后的 9x15 像素） */
+#define NATIVE_GLYPH_W 9
+#define NATIVE_GLYPH_H 15
+
+/* 顺序必须和下面的字模表逐行对应 */
+static const char font_native_chars[] = " 0123456789:-/";
+
+/* 原生尺寸字模：9x15 像素/字，每列一个 16 位掩码（bit0 = 最上一行） */
+static const uint16_t font_native_9x15[][NATIVE_GLYPH_W] = {
+    {0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000}, /* ' ' */
+    {0x1FFC, 0x3FFE, 0x6003, 0x4001, 0x4001, 0x4001, 0x6003, 0x3FFE, 0x1FFC}, /* '0' */
+    {0x0000, 0x0000, 0x4004, 0x4006, 0x7FFF, 0x7FFF, 0x4000, 0x4000, 0x0000}, /* '1' */
+    {0x7804, 0x7C06, 0x4603, 0x4301, 0x4181, 0x40C1, 0x4063, 0x403E, 0x401C}, /* '2' */
+    {0x1004, 0x3006, 0x6003, 0x4001, 0x40C1, 0x40C1, 0x60C3, 0x3FFE, 0x1FFC}, /* '3' */
+    {0x03E0, 0x03F0, 0x0318, 0x030C, 0x0306, 0x7FFF, 0x7FFF, 0x0300, 0x0300}, /* '4' */
+    {0x18FF, 0x38FF, 0x6041, 0x4021, 0x4021, 0x4021, 0x6061, 0x3FC1, 0x1F81}, /* '5' */
+    {0x1FFC, 0x3FFE, 0x6083, 0x4041, 0x4041, 0x4041, 0x60C3, 0x3F86, 0x1F04}, /* '6' */
+    {0x0003, 0x7C03, 0x7F03, 0x03C3, 0x00F3, 0x003B, 0x000F, 0x0007, 0x0003}, /* '7' */
+    {0x1F1C, 0x3FBE, 0x60E3, 0x4041, 0x4041, 0x4041, 0x60E3, 0x3FBE, 0x1F1C}, /* '8' */
+    {0x00FC, 0x01FE, 0x4303, 0x4301, 0x4201, 0x6201, 0x6303, 0x7FFE, 0x3DFC}, /* '9' */
+    {0x0000, 0x0000, 0x0000, 0x1C1C, 0x1C1C, 0x0000, 0x0000, 0x0000, 0x0000}, /* ':' */
+    {0x0000, 0x0000, 0x00C0, 0x00C0, 0x00C0, 0x00C0, 0x00C0, 0x0000, 0x0000}, /* '-' */
+    {0x6000, 0x7800, 0x1E00, 0x0780, 0x01E0, 0x0078, 0x001E, 0x0007, 0x0001}, /* '/' */
+};
+
+/* 取原生字模，没有定义的字符返回 NULL */
+static inline const uint16_t *native_glyph(char ch)
+{
+    const char *p;
+
+    if (ch == '\0')
+        return NULL;
+
+    p = strchr(font_native_chars, ch);
+
+    if (p == NULL)
+        return NULL;
+
+    return font_native_9x15[p - font_native_chars];
+}
+
+/* 用原生字模绘制需要满足的条件：大字号 + 字模表里有这个字符 */
+static inline uint8_t use_native_font(char ch)
+{
+    return (g_fontStyle == CLOCK_FONT_NATIVE && g_clockWidth == 3) ? (native_glyph(ch) != NULL) : 0;
+}
+
+/* 取标准 3x5 字模 */
+static inline const uint8_t *clock_glyph(char ch)
+{
+    /* 越界字符按空格处理，避免读到表外 */
+    if ((uint8_t)ch < ' ' || (uint8_t)ch >= (uint8_t)(' ' + CHAR_COUNT))
+        return hex_codes_3x5[0];
+
+    return hex_codes_3x5[(uint8_t)ch - ' '];
+}
+
+/* 普通绘制：直接按像素画原生字模（px/py 已经是屏幕像素坐标） */
+static void native_draw_plain(const uint16_t *g, int px, int py, Color color)
+{
+    if (color == None)
+        return;
+
+    for (int c = 0; c < NATIVE_GLYPH_W; c++)
+    {
+        uint16_t bits = g[c];
+
+        if (bits == 0)
+            continue;
+
+        for (int r = 0; r < NATIVE_GLYPH_H; r++)
+            if (bits & (1u << r))
+                draw_point(px + c, py + r, color);
+    }
+}
+
+/* 波形背景下的原生字模绘制 */
+static void native_draw_wave(const uint16_t *g, int px, int py, Color color)
+{
+    for (int c = 0; c < NATIVE_GLYPH_W; c++)
+    {
+        uint16_t bits = g[c];
+
+        if (bits == 0)
+            continue;
+
+        for (int r = 0; r < NATIVE_GLYPH_H; r++)
+            if (bits & (1u << r))
+                draw_point_wave(px + c, py + r, color);
+    }
+}
+
+/* 某一行最右边的笔画在哪一列，没有笔画返回 -1 */
+static inline int native_right_edge(const uint16_t *g, int r)
+{
+    for (int c = NATIVE_GLYPH_W - 1; c >= 0; c--)
+        if (g[c] & (1u << r))
+            return c;
+
+    return -1;
+}
+
+/* 原生字模的右侧阴影：只沿字形右外沿补 2 个像素，
+ * 这样数字的中间镂空处不会出现多余的阴影线 */
+static void native_draw_shadow_plain(const uint16_t *g, int px, int py, Color color, uint8_t gray)
+{
+    uint8_t old = g_maxGray;
+
+    if (color == None)
+        return;
+
+    g_maxGray = gray;
+
+    for (int r = 0; r < NATIVE_GLYPH_H; r++)
+    {
+        int c = native_right_edge(g, r);
+
+        if (c < 0)
+            continue;
+
+        draw_point(px + c + 1, py + r, color);
+        draw_point(px + c + 2, py + r, color);
+    }
+
+    g_maxGray = old;
+}
+
+/* 波形背景下的右侧阴影（黑色，压在字符右边） */
+static void native_draw_shadow_wave(const uint16_t *g, int px, int py, Color color)
+{
+    for (int r = 0; r < NATIVE_GLYPH_H; r++)
+    {
+        int c = native_right_edge(g, r);
+
+        if (c >= 0)
+            draw_point_wave(px + c + 1, py + r, color);
+    }
+}
+
 static inline void draw_clock_block_wave(int x, int y, uint8_t color)
 {
     int px = x * g_clockWidth;
@@ -422,6 +2783,18 @@ static void draw_bits(uint8_t bit_mask, int x, int y, Color color)
             draw_clock_block(x, bit + y, color);
         }
     }
+}
+
+/* 纯字主题：文字右侧阴影的固定亮度 */
+#define CLOCK_SHADOW_GRAY 2
+
+static void draw_bits_gray(uint8_t bit_mask, int x, int y, Color color, uint8_t gray)
+{
+    uint8_t old = g_maxGray;
+
+    g_maxGray = gray;
+    draw_bits(bit_mask, x, y, color);
+    g_maxGray = old;
 }
 
 static int roll_long_str(LongStr_t *s)
@@ -567,6 +2940,18 @@ void draw_char_3x5_wave(int x, int y, char ch, Color color)
 {
     if (color == None)
         return;
+
+    /* 原生字号：右外沿 1 像素阴影（黑）+ 字符 */
+    if (use_native_font(ch))
+    {
+        const uint16_t *g = native_glyph(ch);
+        int px = x * g_clockWidth;
+        int py = (y + 1) * g_clockWidth;
+
+        native_draw_shadow_wave(g, px, py, None);
+        native_draw_wave(g, px, py, color);
+        return;
+    }
 #if 0
     for (int i = 2; i >= 0; i--)
 #else
@@ -575,7 +2960,7 @@ void draw_char_3x5_wave(int x, int y, char ch, Color color)
     {
         if ((i + x) < MAX_X && ((i + x) >= 0))
         {
-            uint8_t bit_mask = hex_codes_3x5[ch - ' '][i];
+            uint8_t bit_mask = clock_glyph(ch)[i];
             if (bit_mask == 0)
                 continue;
             draw_bits_wave(bit_mask, i + x, y + 1, color);
@@ -589,15 +2974,173 @@ void draw_char_3x5_wave(int x, int y, char ch, Color color)
     }
 }
 
-void draw_char_3x5(int x, int y, char ch, Color color)
+/* 在已绘制好的背景上淡入淡出地绘制一个点：
+ * level = 0 时保持背景原样，level = 7 时是正常字符亮度，
+ * 这样字符熄灭时露出的是背景（渐变或纯黑），而不会留下黑色空洞。 */
+static void draw_point_wave_fade(int x, int y, Color color, uint8_t level)
+{
+    if (x >= MAX_X || y >= MAX_Y || x < 0 || y < 0)
+        return;
+    if (level > 7)
+        level = 7;
+
+    /* 背景取当前缓冲区里已经画好的颜色 */
+    int bg_red = mn11236_read_pixel(x, y, MN11236_COLOR_RED);
+    int bg_blue = mn11236_read_pixel(x, y, MN11236_COLOR_BLUE);
+
+    /* 字符满亮度时的取色规则与 draw_point_wave 保持一致 */
+    int fg_red, fg_blue;
+    if (color == None)
+    {
+        /* 阴影：和原来一样是黑色，但会随字符一起淡入淡出 */
+        fg_red = 0;
+        fg_blue = 0;
+    }
+    else if (color == Red)
+    {
+        uint8_t p = frame_wave[x][y];
+        uint8_t red = (p >> 4) & 0x07;
+        uint8_t blue = p & 0x07;
+
+        if (red > blue)
+        {
+            fg_red = g_maxGray;
+            fg_blue = 0;
+        }
+        else
+        {
+            fg_red = 0;
+            fg_blue = g_maxGray;
+        }
+    }
+    else if (color == Cyan)
+    {
+        uint8_t p = frame_wave[x][y];
+
+        fg_red = (p >> 4) & 0x07;
+        fg_blue = p & 0x07;
+    }
+    else
+    {
+        fg_red = g_maxGray;
+        fg_blue = g_maxGray;
+    }
+
+    mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED,
+                            (uint8_t)(bg_red + (fg_red - bg_red) * level / 7));
+    mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE,
+                            (uint8_t)(bg_blue + (fg_blue - bg_blue) * level / 7));
+}
+
+static inline void draw_clock_block_wave_fade(int x, int y, Color color, uint8_t level)
+{
+    int px = x * g_clockWidth;
+    int py = y * g_clockWidth;
+
+    for (int dx = 0; dx < g_clockWidth; dx++)
+        for (int dy = 0; dy < g_clockWidth; dy++)
+            draw_point_wave_fade(px + dx, py + dy, color, level);
+}
+
+static void draw_bits_wave_fade(uint8_t bit_mask, int x, int y, Color color, uint8_t level)
+{
+    for (int bit = 0; bit < 8; bit++)
+    {
+        if (bit_mask & (1 << bit))
+            draw_clock_block_wave_fade(x, bit + y, color, level);
+    }
+}
+
+/* 波形背景下淡入淡出的原生字模绘制 */
+static void native_draw_wave_fade(const uint16_t *g, int px, int py, Color color, uint8_t level)
+{
+    for (int c = 0; c < NATIVE_GLYPH_W; c++)
+    {
+        uint16_t bits = g[c];
+
+        if (bits == 0)
+            continue;
+
+        for (int r = 0; r < NATIVE_GLYPH_H; r++)
+            if (bits & (1u << r))
+                draw_point_wave_fade(px + c, py + r, color, level);
+    }
+}
+
+/* 波形背景下淡入淡出的右侧阴影 */
+static void native_draw_shadow_wave_fade(const uint16_t *g, int px, int py, Color color, uint8_t level)
+{
+    for (int r = 0; r < NATIVE_GLYPH_H; r++)
+    {
+        int c = native_right_edge(g, r);
+
+        if (c >= 0)
+            draw_point_wave_fade(px + c + 1, py + r, color, level);
+    }
+}
+
+/* 波形背景下的字符淡入淡出，保留字符右侧 1 像素的阴影 */
+void draw_char_3x5_wave_fade(int x, int y, char ch, Color color, uint8_t level)
 {
     if (color == None)
         return;
+
+    /* 原生字号：阴影（黑）和字符一起淡入淡出 */
+    if (use_native_font(ch))
+    {
+        const uint16_t *g = native_glyph(ch);
+        int px = x * g_clockWidth;
+        int py = (y + 1) * g_clockWidth;
+
+        native_draw_shadow_wave_fade(g, px, py, None, level);
+        native_draw_wave_fade(g, px, py, color, level);
+        return;
+    }
+
     for (int i = 0; i < 3; i++)
     {
         if ((i + x) < MAX_X && ((i + x) >= 0))
         {
-            uint8_t bit_mask = hex_codes_3x5[ch - ' '][i];
+            uint8_t bit_mask = clock_glyph(ch)[i];
+            if (bit_mask == 0)
+                continue;
+            draw_bits_wave_fade(bit_mask, i + x, y + 1, color, level);
+
+            // x+1不越界时，绘制右侧阴影（None = 黑色，随亮度一起淡出）
+            if (i + x + 1 < MAX_X)
+                draw_bits_wave_fade(bit_mask, i + x + 1, y + 1, None, level);
+        }
+    }
+}
+
+void draw_char_3x5(int x, int y, char ch, Color color)
+{
+    if (color == None)
+        return;
+
+    /* 原生字号：右外沿阴影 + 主字 */
+    if (use_native_font(ch))
+    {
+        const uint16_t *g = native_glyph(ch);
+        int px = x * g_clockWidth;
+        int py = (y + 1) * g_clockWidth;
+
+        if (color & 0x0C)
+        {
+            uint8_t shadow = (g_maxGray < CLOCK_SHADOW_GRAY) ? g_maxGray : CLOCK_SHADOW_GRAY;
+
+            native_draw_shadow_plain(g, px, py, (Color)(((color & 0x0C) >> 2) & 0x03), shadow);
+        }
+
+        native_draw_plain(g, px, py, (Color)(color & 0x03));
+        return;
+    }
+
+    for (int i = 0; i < 3; i++)
+    {
+        if ((i + x) < MAX_X && ((i + x) >= 0))
+        {
+            uint8_t bit_mask = clock_glyph(ch)[i];
             if (bit_mask == 0)
                 continue; // 无点可绘，直接跳过
             // 颜色掩码1：青，原x坐标 → 调用封装函数
@@ -610,12 +3153,15 @@ void draw_char_3x5(int x, int y, char ch, Color color)
             // x+1不越界时，处理偏移坐标
             if (x + 1 < MAX_X)
             {
-                // 颜色掩码4：青，x+1坐标 → 调用封装函数
+                /* 纯字主题：右侧阴影固定用 5 级亮度（调暗时不高于当前最大灰度） */
+                uint8_t shadow = (g_maxGray < CLOCK_SHADOW_GRAY) ? g_maxGray : CLOCK_SHADOW_GRAY;
+
+                // 颜色掩码4：青，x+1坐标 → 阴影
                 if (color & 4)
-                    draw_bits(bit_mask, i + x + 1, y + 1, Cyan);
-                // 颜色掩码8：红，x+1坐标 → 调用封装函数
+                    draw_bits_gray(bit_mask, i + x + 1, y + 1, Cyan, shadow);
+                // 颜色掩码8：红，x+1坐标 → 阴影
                 if (color & 8)
-                    draw_bits(bit_mask, i + x + 1, y + 1, Red);
+                    draw_bits_gray(bit_mask, i + x + 1, y + 1, Red, shadow);
             }
         }
     }
@@ -789,7 +3335,7 @@ void draw_point(int x, int y, Color color)
             if (color & 1)
                 mn11236_draw_pixel_gray(x, y, MN11236_COLOR_BLUE, g_maxGray);
             if (color & 2)
-                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, g_maxGray - 2);
+                mn11236_draw_pixel_gray(x, y, MN11236_COLOR_RED, g_maxGray);
         }
         else
             mn11236_clear_pixel(x, y, MN11236_COLOR_RED);
@@ -799,7 +3345,7 @@ void draw_point(int x, int y, Color color)
             if (color & 4)
                 mn11236_draw_pixel_gray(x + 1, y, MN11236_COLOR_BLUE, g_maxGray);
             if (color & 8)
-                mn11236_draw_pixel_gray(x + 1, y, MN11236_COLOR_RED, g_maxGray - 2);
+                mn11236_draw_pixel_gray(x + 1, y, MN11236_COLOR_RED, g_maxGray);
         }
     }
 }
@@ -829,9 +3375,850 @@ void draw_point_gray(int x, int y, Color color,
     }
 }
 
+/*
+ * 翻页动画：把字符按“可见高度” visH（0..15 行）压扁，
+ * 以字格垂直中线为轴收缩/展开（像卡片翻面）。
+ * visH = 满高时和正常绘制一致，visH = 0 时什么都不画（正好在折页线上）。
+ * wave = 1：波形背景混色（动画背景主题）；wave = 0：普通绘制。
+ */
+void draw_char_flip(int x, int y, char ch, Color color, uint8_t visH, uint8_t wave)
+{
+    int px;
+    int cellTop;
+    int glyphH;
+
+    if (color == None || visH == 0)
+        return;
+
+    px = x * g_clockWidth;
+    cellTop = (y + 1) * g_clockWidth;
+
+    if (use_native_font(ch))
+    {
+        const uint16_t *g = native_glyph(ch);
+        int top;
+
+        if (visH > NATIVE_GLYPH_H)
+            visH = NATIVE_GLYPH_H;
+
+        top = (NATIVE_GLYPH_H - visH) / 2;
+
+        for (int rs = 0; rs < NATIVE_GLYPH_H; rs++)
+        {
+            int tr = top + rs * visH / NATIVE_GLYPH_H;
+
+            for (int c = 0; c < NATIVE_GLYPH_W; c++)
+            {
+                if (!(g[c] & (1u << rs)))
+                    continue;
+
+                if (wave)
+                    draw_point_wave(px + c, cellTop + tr, color);
+                else
+                    draw_point(px + c, cellTop + tr, color);
+            }
+        }
+
+        return;
+    }
+
+    /* 标准 3x5 字模：一个字模行对应 g_clockWidth 个设备行 */
+    glyphH = 5 * g_clockWidth;
+
+    if (visH > glyphH)
+        visH = glyphH;
+
+    int top = (glyphH - visH) / 2;
+
+    for (int rs = 0; rs < glyphH; rs++)
+    {
+        int tr = top + rs * visH / glyphH;
+        int bit = rs / g_clockWidth;
+        const uint8_t *glyph = clock_glyph(ch);
+
+        for (int i = 0; i < 3; i++)
+        {
+            if (!(glyph[i] & (1 << bit)))
+                continue;
+
+            for (int dx = 0; dx < g_clockWidth; dx++)
+            {
+                int p = px + i * g_clockWidth + dx;
+
+                if (wave)
+                    draw_point_wave(p, cellTop + tr, color);
+                else
+                    draw_point(p, cellTop + tr, color);
+            }
+        }
+    }
+}
+
+/*
+ * 数字切换的“碎裂/拼合”动画（和菜单切换同一套观感）：
+ * 把字格按 3x3 像素切成 3 列 x 5 行共 15 块碎片，
+ *   phase = 0：旧数字碎掉，碎片带重力下落并向外散开
+ *   phase = 1：新数字从字格上方落下拼合，同时向中间收拢
+ * elapsed：该阶段已经进行的毫秒数
+ * wave = 1：波形背景混色；wave = 0：普通绘制。
+ */
+#define SHARD_TRAVEL_MS 180 /* 单块碎片走完全程的时间 */
+#define SHARD_DROP_PX 20    /* 拼合时碎片起始高度（字格上方多少像素） */
+#define SHARD_GRAVITY 1500  /* 下落加速度：位移 = t^2 / SHARD_GRAVITY */
+
+void draw_char_shatter(int x, int y, char ch, Color color, uint8_t wave,
+                       uint8_t phase, uint16_t elapsed)
+{
+    int16_t offX[5][3];
+    int16_t offY[5][3];
+    int px;
+    int cellTop;
+
+    if (color == None)
+        return;
+
+    px = x * g_clockWidth;
+    cellTop = (y + 1) * g_clockWidth;
+
+    /* 先算出 15 块碎片各自的偏移 */
+    for (int sr = 0; sr < 5; sr++)
+    {
+        for (int sc = 0; sc < 3; sc++)
+        {
+            int delay = ((sr * 3 + sc * 5) % 4) * 8; /* 每块错开 0~24ms，避免整块一起动 */
+            int dt = (int)elapsed - delay;
+
+            if (dt < 0)
+                dt = 0;
+
+            if (phase == 0)
+            {
+                offY[sr][sc] = (int16_t)(dt * dt / SHARD_GRAVITY);
+                offX[sr][sc] = (int16_t)((sc - 1) * (dt * dt / 8000));
+            }
+            else
+            {
+                int q = SHARD_TRAVEL_MS - dt;
+
+                if (q < 0)
+                    q = 0;
+
+                offY[sr][sc] = (int16_t)(-(SHARD_DROP_PX * q * q) /
+                                         (SHARD_TRAVEL_MS * SHARD_TRAVEL_MS));
+                offX[sr][sc] = (int16_t)((sc - 1) * (3 * q / SHARD_TRAVEL_MS));
+            }
+        }
+    }
+
+    if (use_native_font(ch))
+    {
+        const uint16_t *g = native_glyph(ch);
+
+        for (int r = 0; r < NATIVE_GLYPH_H; r++)
+        {
+            int sr = r * 5 / NATIVE_GLYPH_H;
+
+            for (int c = 0; c < NATIVE_GLYPH_W; c++)
+            {
+                int sc;
+
+                if (!(g[c] & (1u << r)))
+                    continue;
+
+                sc = c * 3 / NATIVE_GLYPH_W;
+
+                if (wave)
+                    draw_point_wave(px + c + offX[sr][sc], cellTop + r + offY[sr][sc], color);
+                else
+                    draw_point(px + c + offX[sr][sc], cellTop + r + offY[sr][sc], color);
+            }
+        }
+
+        return;
+    }
+
+    /* 标准 3x5 字模：一个字模行对应 g_clockWidth 个设备行 */
+    {
+        int glyphH = 5 * g_clockWidth;
+        const uint8_t *glyph = clock_glyph(ch);
+
+        for (int r = 0; r < glyphH; r++)
+        {
+            int bit = r / g_clockWidth;
+            int sr = r * 5 / glyphH;
+
+            for (int i = 0; i < 3; i++)
+            {
+                if (!(glyph[i] & (1 << bit)))
+                    continue;
+
+                for (int dx = 0; dx < g_clockWidth; dx++)
+                {
+                    int c = i * g_clockWidth + dx;
+
+                    if (wave)
+                        draw_point_wave(px + c + offX[sr][i], cellTop + r + offY[sr][i], color);
+                    else
+                        draw_point(px + c + offX[sr][i], cellTop + r + offY[sr][i], color);
+                }
+            }
+        }
+    }
+}
+
+/*
+ * 冒号上下两点分别给亮度（0..7），用来做错时呼吸：
+ * 上点先亮、下点滞后，熄灭时也是上点先灭。
+ * wave = 1：波形背景混色；wave = 0：普通绘制（纯字主题）。
+ */
+void draw_colon_fade(int x, int y, Color color, uint8_t topLevel, uint8_t botLevel, uint8_t wave)
+{
+    int px;
+    int cellTop;
+    int glyphH;
+
+    if (color == None)
+        return;
+
+    if (topLevel > 7)
+        topLevel = 7;
+    if (botLevel > 7)
+        botLevel = 7;
+
+    px = x * g_clockWidth;
+    cellTop = (y + 1) * g_clockWidth;
+
+    if (use_native_font(':'))
+    {
+        const uint16_t *g = native_glyph(':');
+
+        for (int rs = 0; rs < NATIVE_GLYPH_H; rs++)
+        {
+            uint8_t level = (rs < NATIVE_GLYPH_H / 2) ? topLevel : botLevel;
+            int edge = native_right_edge(g, rs);
+
+            if (wave)
+            {
+                /* 右侧阴影：黑色，随该点一起淡入淡出 */
+                if (edge >= 0)
+                    draw_point_wave_fade(px + edge + 1, cellTop + rs, None, level);
+
+                for (int c = 0; c < NATIVE_GLYPH_W; c++)
+                    if (g[c] & (1u << rs))
+                        draw_point_wave_fade(px + c, cellTop + rs, color, level);
+            }
+            else
+            {
+                for (int c = 0; c < NATIVE_GLYPH_W; c++)
+                    if (g[c] & (1u << rs))
+                        draw_point_gray(px + c, cellTop + rs, (Color)(color & 0x03), level);
+
+                if (edge >= 0 && (color & 0x0C))
+                {
+                    uint8_t sh = (level < CLOCK_SHADOW_GRAY) ? level : CLOCK_SHADOW_GRAY;
+
+                    draw_point_gray(px + edge + 1, cellTop + rs,
+                                    (Color)(((color & 0x0C) >> 2) & 0x03), sh);
+                }
+            }
+        }
+
+        return;
+    }
+
+    /* 标准 3x5 字模 */
+    glyphH = 5 * g_clockWidth;
+
+    for (int rs = 0; rs < glyphH; rs++)
+    {
+        uint8_t level = (rs < glyphH / 2) ? topLevel : botLevel;
+        int bit = rs / g_clockWidth;
+        const uint8_t *glyph = clock_glyph(':');
+
+        for (int i = 0; i < 3; i++)
+        {
+            if (!(glyph[i] & (1 << bit)))
+                continue;
+
+            for (int dx = 0; dx < g_clockWidth; dx++)
+            {
+                int p = px + i * g_clockWidth + dx;
+
+                if (wave)
+                    draw_point_wave_fade(p, cellTop + rs, color, level);
+                else
+                    draw_point_gray(p, cellTop + rs, (Color)(color & 0x03), level);
+            }
+
+            /* 右侧阴影：波形主题留 1 个字符格的黑色，纯字主题用阴影色 */
+            if (wave)
+            {
+                int sp = px + (i + 1) * g_clockWidth;
+
+                for (int dx = 0; dx < g_clockWidth; dx++)
+                    draw_point_wave_fade(sp + dx, cellTop + rs, None, level);
+            }
+            else if (color & 0x0C)
+            {
+                uint8_t sh = (level < CLOCK_SHADOW_GRAY) ? level : CLOCK_SHADOW_GRAY;
+                int sp = px + (i + 1) * g_clockWidth;
+
+                for (int dx = 0; dx < g_clockWidth; dx++)
+                    draw_point_gray(sp + dx, cellTop + rs,
+                                    (Color)(((color & 0x0C) >> 2) & 0x03), sh);
+            }
+        }
+    }
+}
+
+void draw_icon(int x, int y, IconType type, Color color)
+{
+    const uint8_t *icon_data;
+    int width;
+    switch(type) {
+        case ICON_RPM:
+            icon_data = icon_rpm;
+						width = sizeof(icon_rpm);
+            break;
+        case ICON_KMH:
+            icon_data = icon_kmh;
+						width = sizeof(icon_kmh);
+            break;
+        case ICON_LOAD:
+            icon_data = icon_load;
+						width = sizeof(icon_load);
+            break;
+        case ICON_VOLT:
+            icon_data = icon_volt;
+						width = sizeof(icon_volt);
+            break;
+        default:
+            icon_data = icon_temp;
+						width = sizeof(icon_temp);
+            break;
+    }
+    if (color == None)
+        return;
+    draw_bitmap(x, y, icon_data, width, 5, color);
+}
+
+void draw_icon_wave(int x, int y, IconType type, Color color)
+{
+    const uint8_t *icon_data;
+    int width = 15;
+    switch(type) {
+        case ICON_RPM:
+            icon_data = icon_rpm;
+						width = sizeof(icon_rpm);
+            break;
+        case ICON_KMH:
+            icon_data = icon_kmh;
+						width = sizeof(icon_kmh);
+            break;
+        case ICON_LOAD:
+            icon_data = icon_load;
+						width = sizeof(icon_load);
+            break;
+        case ICON_VOLT:
+            icon_data = icon_volt;
+						width = sizeof(icon_volt);
+            break;
+        default:
+            icon_data = icon_temp;
+						width = sizeof(icon_temp);
+            break;
+    }
+    if (color == None)
+        return;
+    draw_bitmap_wave(x, y, icon_data, width, 5, color);
+}
+
+void draw_bitmap(int x, int y, const uint8_t *bitmap, int width, int height, Color color)
+{
+    if (color == None || bitmap == NULL || width <= 0 || height <= 0 || height > 8)
+        return;
+
+    for (int col = 0; col < width; col++)
+    {
+        int draw_x = x + col;
+        if (draw_x >= MAX_X || draw_x < 0)
+            continue;
+
+        uint8_t bit_mask = bitmap[col];
+        // Mask to only the lower 'height' bits
+        bit_mask &= (1 << height) - 1;
+
+        if (bit_mask == 0)
+            continue;
+
+        // Draw the bits
+        if (color & 1)
+            draw_bits(bit_mask, draw_x, y, Cyan);
+        if (color & 2)
+            draw_bits(bit_mask, draw_x, y, Red);
+
+        // Handle offset for color effects
+        if (x + 1 < MAX_X)
+        {
+            if (color & 4)
+                draw_bits(bit_mask, draw_x + 1, y, Cyan);
+            if (color & 8)
+                draw_bits(bit_mask, draw_x + 1, y, Red);
+        }
+    }
+}
+
+void draw_bitmap_wave(int x, int y, const uint8_t *bitmap, int width, int height, Color color)
+{
+    if (color == None || bitmap == NULL || width <= 0 || height <= 0 || height > 8)
+        return;
+
+    for (int col = 0; col < width; col++)
+    {
+        int draw_x = x + col;
+        if (draw_x >= MAX_X || draw_x < 0)
+            continue;
+
+        uint8_t bit_mask = bitmap[col];
+        // Mask to only the lower 'height' bits
+        bit_mask &= (1 << height) - 1;
+
+        if (bit_mask == 0)
+            continue;
+
+        draw_bits_wave(bit_mask, draw_x, y, color);
+
+        // Handle offset for color effects
+        if (x + 1 < MAX_X)
+        {
+            draw_bits_wave(bit_mask, draw_x + 1, y, None);
+        }
+    }
+}
+
 void refrash_gram()
 {
     mn11236_send_buffer();
+}
+
+/* ============================================================
+ * 画面碎裂落地 / 碎片归位拼合 共用
+ * ============================================================ */
+#define SHATTER_SHARD_W 14
+#define SHATTER_SHARD_H 6
+#define SHATTER_STEP_MS 16
+#define SHATTER_TOTAL_MS 400
+
+/* 碎裂/拼合共用的画面快照（[x][y]，与驱动缓冲区同布局） */
+static uint8_t g_shatterSnap[VFD_WIDTH][VFD_HEIGHT];
+
+/*
+ * 当前画面碎裂落地：切成小块，从中心向外依次裂开，
+ * 碎片带横向飞溅 + 重力下落，全部掉出屏幕后清屏返回。
+ */
+void clock_shatter_anim(void)
+{
+    uint8_t *buf = mn11236_get_buffer();
+    uint32_t t_begin = HAL_GetTick();
+    int cols = (VFD_WIDTH + SHATTER_SHARD_W - 1) / SHATTER_SHARD_W;
+    int rows = (VFD_HEIGHT + SHATTER_SHARD_H - 1) / SHATTER_SHARD_H;
+
+    /* 抓取当前画面作为碎片来源 */
+    memcpy(g_shatterSnap, buf, sizeof(g_shatterSnap));
+
+    for (int t = 0; t <= SHATTER_TOTAL_MS; t += SHATTER_STEP_MS)
+    {
+        mn11236_clear_buffers();
+
+        for (int r = 0; r < rows; r++)
+        {
+            for (int c = 0; c < cols; c++)
+            {
+                /* 奇数行错开半块，裂纹看起来不规则 */
+                int x0 = c * SHATTER_SHARD_W - ((r & 1) ? SHATTER_SHARD_W / 2 : 0);
+                int y0 = r * SHATTER_SHARD_H;
+                int w = SHATTER_SHARD_W - 1; /* 留 1px 缝当裂纹 */
+                int h = SHATTER_SHARD_H - 1;
+                int cx, dist, delay, dt, dx, dy, dir;
+
+                if (x0 < 0)
+                {
+                    w += x0;
+                    x0 = 0;
+                }
+                if (x0 + w > VFD_WIDTH)
+                    w = VFD_WIDTH - x0;
+                if (y0 + h > VFD_HEIGHT)
+                    h = VFD_HEIGHT - y0;
+                if (w <= 0 || h <= 0)
+                    continue;
+
+                cx = x0 + w / 2;
+                dist = (cx > VFD_WIDTH / 2) ? (cx - VFD_WIDTH / 2) : (VFD_WIDTH / 2 - cx);
+
+                /* 中间先碎，越靠边越晚，再叠一点参差 */
+                delay = dist * 2 + r * 20 + (c * 7 + r * 13) % 26;
+
+                dt = t - delay;
+                dx = 0;
+                dy = 0;
+
+                if (dt > 0)
+                {
+                    dir = (cx < VFD_WIDTH / 2) ? -1 : 1;
+                    dx = dir * ((dt * dt) / 9000 + dt / 40); /* 向外飞溅 */
+                    dy = (dt * dt) / 3000;                   /* 重力加速下落 */
+                }
+
+                if (dy >= VFD_HEIGHT)
+                    continue;
+
+                for (int yy = 0; yy < h; yy++)
+                {
+                    int sy = y0 + yy;
+                    int ty = sy + dy;
+
+                    if (ty < 0 || ty >= VFD_HEIGHT)
+                        continue;
+
+                    for (int xx = 0; xx < w; xx++)
+                    {
+                        int tx = x0 + xx + dx;
+                        uint8_t v = g_shatterSnap[x0 + xx][sy];
+
+                        if (v == 0 || tx < 0 || tx >= VFD_WIDTH)
+                            continue;
+
+                        buf[tx * VFD_HEIGHT + ty] = v;
+                    }
+                }
+            }
+        }
+
+        mn11236_send_buffer();
+        osDelay(SHATTER_STEP_MS);
+    }
+
+    mn11236_clear_buffers();
+    mn11236_send_buffer();
+
+    /* 过渡期间后台动画停表 */
+    clock_anim_pause(HAL_GetTick() - t_begin);
+}
+
+/* ============================================================
+ * 新画面从下方拼合上来
+ * 调用前缓冲区里必须是完整的新画面；结束时缓冲区恢复为新画面。
+ * 碎片从屏幕上方落下、由外向内归位，逐块“拼”回完整画面。
+ * ============================================================ */
+#define REBUILD_TOTAL_MS 340 /* 总时长 */
+#define REBUILD_DUR_MS 260   /* 单块碎片落下时长 */
+#define REBUILD_DROP_PX 20   /* 起始悬停高度（整屏高度 18） */
+
+void clock_shatter_rebuild(void)
+{
+    uint8_t *buf = mn11236_get_buffer();
+    uint32_t t_begin = HAL_GetTick();
+    int cols = (VFD_WIDTH + SHATTER_SHARD_W - 1) / SHATTER_SHARD_W;
+    int rows = (VFD_HEIGHT + SHATTER_SHARD_H - 1) / SHATTER_SHARD_H;
+
+    /* 抓取新画面 */
+    memcpy(g_shatterSnap, buf, sizeof(g_shatterSnap));
+
+    for (int t = 0; t <= REBUILD_TOTAL_MS; t += SHATTER_STEP_MS)
+    {
+        mn11236_clear_buffers();
+
+        for (int r = 0; r < rows; r++)
+        {
+            for (int c = 0; c < cols; c++)
+            {
+                int x0 = c * SHATTER_SHARD_W - ((r & 1) ? SHATTER_SHARD_W / 2 : 0);
+                int y0 = r * SHATTER_SHARD_H;
+                int w = SHATTER_SHARD_W - 1;
+                int h = SHATTER_SHARD_H - 1;
+                int delay, p, q, dy, dx, cx, dir;
+
+                if (x0 < 0)
+                {
+                    w += x0;
+                    x0 = 0;
+                }
+                if (x0 + w > VFD_WIDTH)
+                    w = VFD_WIDTH - x0;
+                if (y0 + h > VFD_HEIGHT)
+                    h = VFD_HEIGHT - y0;
+                if (w <= 0 || h <= 0)
+                    continue;
+
+                /* 每块错开一点，看起来是一块块拼上去的 */
+                delay = ((c * 5 + r * 11) % 4) * 18;
+
+                p = t - delay;
+                if (p < 0)
+                    p = 0;
+                if (p > REBUILD_DUR_MS)
+                    p = REBUILD_DUR_MS;
+
+                q = REBUILD_DUR_MS - p;
+                /* 从上方落下：先快后慢，最后稳稳落位 */
+                dy = -(REBUILD_DROP_PX * q * q / (REBUILD_DUR_MS * REBUILD_DUR_MS));
+
+                /* 从外侧向内收拢 */
+                cx = x0 + w / 2;
+                dir = (cx < VFD_WIDTH / 2) ? -1 : 1;
+                dx = -dir * (3 * q / REBUILD_DUR_MS);
+
+                if (dy <= -VFD_HEIGHT)
+                    continue;
+
+                for (int yy = 0; yy < h; yy++)
+                {
+                    int sy = y0 + yy;
+                    int ty = sy + dy;
+
+                    if (ty < 0 || ty >= VFD_HEIGHT)
+                        continue;
+
+                    for (int xx = 0; xx < w; xx++)
+                    {
+                        int tx = x0 + xx + dx;
+                        uint8_t v = g_shatterSnap[x0 + xx][sy];
+
+                        if (v == 0 || tx < 0 || tx >= VFD_WIDTH)
+                            continue;
+
+                        buf[tx * VFD_HEIGHT + ty] = v;
+                    }
+                }
+            }
+        }
+
+        mn11236_send_buffer();
+        osDelay(SHATTER_STEP_MS);
+    }
+
+    /* 最后一帧可能还差几个像素，直接恢复完整新画面 */
+    memcpy(buf, g_shatterSnap, sizeof(g_shatterSnap));
+    mn11236_send_buffer();
+
+    /* 过渡期间后台动画停表 */
+    clock_anim_pause(HAL_GetTick() - t_begin);
+}
+
+/* ============================================================
+ * 换关 / 换主题过渡：冲击波、扫描线刷屏
+ * 两者都直接改显存（display_buffer 低 4 位是蓝、高 4 位是红），
+ * 不需要额外缓冲区，快照复用碎裂动画的 g_shatterSnap。
+ * ============================================================ */
+
+/* 灰阶减半（每个颜色通道单独折一半） */
+static uint8_t wipe_dim(uint8_t v)
+{
+    return (uint8_t)((v >> 1) & 0x77);
+}
+
+/* 按 Q8 系数压暗（k = 256 保持原样，128 减半） */
+static uint8_t wipe_scale(uint8_t v, uint32_t k)
+{
+    uint8_t r = (uint8_t)((((v >> 4) & 0x0F) * k) >> 8);
+    uint8_t b = (uint8_t)(((v & 0x0F) * k) >> 8);
+
+    return (uint8_t)((r << 4) | b);
+}
+
+/* ---- 冲击波 ---- */
+#define SHOCK_RING_PX 3 /* 白环厚度 */
+#define SHOCK_MAX_R 62  /* 覆盖整屏的半径（对角线一半约 57） */
+#define SHOCK_OUT_MS 320
+#define SHOCK_IN_MS 250
+#define SHOCK_BLACK_MS 50
+#define SHOCK_STEP_MS 16
+
+/*
+ * 从快照铺一帧冲击波：
+ *   reveal = 0  环内已经清空、环外按 k 压暗（旧画面被炸掉）
+ *   reveal = 1  环内已经是新画面、环外全黑（新画面涌出来）
+ */
+static void shock_frame(const uint8_t *snap, int32_t r, uint8_t reveal, uint32_t k)
+{
+    uint8_t *buf = mn11236_get_buffer();
+    const int32_t cx = VFD_WIDTH / 2;
+    const int32_t cy = VFD_HEIGHT / 2;
+    int32_t rin2 = (r > SHOCK_RING_PX) ? (r - SHOCK_RING_PX) * (r - SHOCK_RING_PX) : 0;
+    int32_t rout2 = r * r;
+
+    for (int x = 0; x < VFD_WIDTH; x++)
+    {
+        int32_t dx = x - cx;
+        uint8_t *col = &buf[x * VFD_HEIGHT];
+        const uint8_t *scol = &snap[x * VFD_HEIGHT];
+
+        for (int y = 0; y < VFD_HEIGHT; y++)
+        {
+            int32_t dy = y - cy;
+            int32_t d2 = dx * dx + dy * dy;
+
+            if (d2 < rin2)
+                col[y] = reveal ? scol[y] : 0;
+            else if (d2 < rout2)
+                col[y] = 0xFF; /* 白环 */
+            else
+                col[y] = reveal ? 0 : wipe_scale(scol[y], k);
+        }
+    }
+}
+
+/* 跑一段冲击波，半径按 smoothstep 从中心推到整屏 */
+static void shock_run(const uint8_t *snap, uint16_t total_ms, uint8_t reveal)
+{
+    for (uint32_t t = 0; t <= total_ms; t += SHOCK_STEP_MS)
+    {
+        uint32_t p = t * 256u / total_ms;
+        uint32_t e = p * p * (768u - 2u * p) / 65536u; /* smoothstep(0..1) 的 Q8 版 */
+        int32_t r = 1 + (int32_t)(e * SHOCK_MAX_R / 256u);
+        uint32_t k = 256u - e / 2u; /* 环外从原亮度渐变到一半 */
+
+        mn11236_clear_buffers();
+        shock_frame(snap, r, reveal, k);
+        mn11236_send_buffer();
+        osDelay(SHOCK_STEP_MS);
+    }
+}
+
+/* 坦克大战换关：旧关被冲击波炸开 → 黑场里换好下一关 → 从中心涌出来 */
+static void tnk_shockwave(void)
+{
+    uint8_t *buf = mn11236_get_buffer();
+    uint32_t t_begin = HAL_GetTick();
+
+    memcpy(g_shatterSnap, buf, sizeof(g_shatterSnap)); /* 旧关最后一帧 */
+
+    shock_run((const uint8_t *)g_shatterSnap, SHOCK_OUT_MS, 0);
+
+    mn11236_clear_buffers();
+    mn11236_send_buffer();
+    osDelay(SHOCK_BLACK_MS);
+
+    tnk_new_round(); /* 黑场里把新关准备好 */
+
+    mn11236_clear_buffers();
+    tnk_render();
+    memcpy(g_shatterSnap, buf, sizeof(g_shatterSnap)); /* 新关快照 */
+
+    shock_run((const uint8_t *)g_shatterSnap, SHOCK_IN_MS, 1);
+
+    /* 收尾：显存里留下完整的新关 */
+    memcpy(buf, g_shatterSnap, sizeof(g_shatterSnap));
+    mn11236_send_buffer();
+
+    clock_anim_pause(HAL_GetTick() - t_begin);
+}
+
+/* ---- 扫描线刷屏（时钟换主题） ---- */
+#define WIPE_OUT_MS 130
+#define WIPE_IN_MS 180
+#define WIPE_BLACK_MS 45 /* 黑场停留，调用方在这段时间里存档 */
+#define WIPE_STEP_MS 10
+#define WIPE_BAND 2 /* 亮线高度（行） */
+
+static uint8_t wipe_in_active;
+static uint32_t wipe_in_t0;
+
+/* 扫描线刷掉：线以上直接黑、线本身亮白、线下面压暗 */
+static void wipe_mask_out(int32_t line)
+{
+    uint8_t *buf = mn11236_get_buffer();
+
+    for (int y = 0; y < VFD_HEIGHT; y++)
+    {
+        int mode = (y < line - 1) ? 0 : ((y < line + WIPE_BAND) ? 1 : 2);
+
+        for (int x = 0; x < VFD_WIDTH; x++)
+        {
+            uint8_t *p = &buf[x * VFD_HEIGHT + y];
+
+            if (mode == 0)
+                *p = 0;
+            else if (mode == 1)
+                *p = 0xFF;
+            else
+                *p = wipe_dim(*p);
+        }
+    }
+}
+
+/* 阻塞：把当前画面用扫描线刷掉，结束时全黑并停一小会儿 */
+void clock_wipe_scan_out(void)
+{
+    uint8_t *buf = mn11236_get_buffer();
+    uint32_t t_begin = HAL_GetTick();
+
+    memcpy(g_shatterSnap, buf, sizeof(g_shatterSnap));
+
+    for (uint32_t t = 0; t <= WIPE_OUT_MS; t += WIPE_STEP_MS)
+    {
+        int32_t line = -2 + (int32_t)(t * (VFD_HEIGHT + 4) / WIPE_OUT_MS);
+
+        /* 每帧都从快照重画，压暗不会叠加 */
+        memcpy(buf, g_shatterSnap, sizeof(g_shatterSnap));
+        wipe_mask_out(line);
+        mn11236_send_buffer();
+        osDelay(WIPE_STEP_MS);
+    }
+
+    mn11236_clear_buffers();
+    mn11236_send_buffer();
+    osDelay(WIPE_BLACK_MS);
+
+    /* 过渡期间后台动画停表 */
+    clock_anim_pause(HAL_GetTick() - t_begin);
+}
+
+/* 黑场结束后调用：新主题的画面从扫描线下面长出来 */
+void clock_wipe_scan_begin_in(void)
+{
+    wipe_in_active = 1;
+    wipe_in_t0 = HAL_GetTick();
+}
+
+/* 每帧画完新主题、送屏之前调用 */
+void clock_wipe_scan_in(void)
+{
+    uint8_t *buf = mn11236_get_buffer();
+    uint32_t el;
+    int32_t line;
+
+    if (!wipe_in_active)
+        return;
+
+    el = HAL_GetTick() - wipe_in_t0;
+
+    if (el >= WIPE_IN_MS)
+    {
+        wipe_in_active = 0;
+        return;
+    }
+
+    line = -4 + (int32_t)(el * (VFD_HEIGHT + 8) / WIPE_IN_MS);
+
+    for (int y = 0; y < VFD_HEIGHT; y++)
+    {
+        int mode = (y < line - 4) ? 0 : ((y < line + WIPE_BAND) ? 1 : 2);
+
+        if (mode == 0)
+            continue; /* 线上面已经是新画面，原样保留 */
+
+        for (int x = 0; x < VFD_WIDTH; x++)
+        {
+            uint8_t *p = &buf[x * VFD_HEIGHT + y];
+
+            if (mode == 1)
+                *p = 0xFF;
+            else
+                *p = 0;
+        }
+    }
 }
 
 static uint8_t g_snakeWidth = 2; // 默认宽度
@@ -1397,7 +4784,7 @@ void draw_bar(FFTDisplay_t *fft, Color bar, Color dot)
 void draw_fft(long *fft_result, int len, int delta, Color bar, Color dot)
 {
     static uint32_t last_time = 0;
-    uint32_t current_time = HAL_GetTick();
+    uint32_t current_time = clock_anim_tick();
     float dt = (current_time - last_time) / 1000.0f; // 转换为秒
     last_time = current_time;
 

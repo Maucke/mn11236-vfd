@@ -51,6 +51,7 @@
 #include "lv_anim_light.h"
 #include "animation.h"
 #include "fftaffect.h"
+#include "iwdg.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -86,21 +87,22 @@ struct tm tm_set;
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
-    .name = "defaultTask",
-    .stack_size = 128 * 4,
-    .priority = (osPriority_t)osPriorityNormal,
+  .name = "defaultTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for displayTask */
 osThreadId_t displayTaskHandle;
 const osThreadAttr_t displayTask_attributes = {
-    .name = "displayTask",
-    .stack_size = 512 * 8,
-    .priority = (osPriority_t)osPriorityLow,
+  .name = "displayTask",
+  .stack_size = 1024 * 4,
+  .priority = (osPriority_t) osPriorityLow,
 };
 /* Definitions for myMutex01 */
 osMutexId_t myMutex01Handle;
 const osMutexAttr_t myMutex01_attributes = {
-    .name = "myMutex01"};
+  .name = "myMutex01"
+};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -168,12 +170,11 @@ extern void MX_USB_DEVICE_Init(void);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
 /**
- * @brief  FreeRTOS initialization
- * @param  None
- * @retval None
- */
-void MX_FREERTOS_Init(void)
-{
+  * @brief  FreeRTOS initialization
+  * @param  None
+  * @retval None
+  */
+void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
 
   /* USER CODE END Init */
@@ -213,6 +214,7 @@ void MX_FREERTOS_Init(void)
   /* USER CODE BEGIN RTOS_EVENTS */
   /* add events, ... */
   /* USER CODE END RTOS_EVENTS */
+
 }
 
 /* USER CODE BEGIN Header_StartDefaultTask */
@@ -225,10 +227,12 @@ void MX_FREERTOS_Init(void)
 __weak void StartDefaultTask(void *argument)
 {
   /* init code for USB_DEVICE */
-  MX_USB_DEVICE_Init();
-  /* USER CODE BEGIN StartDefaultTask */
-  osDelay(200);
-  NexLinkInit();
+	{
+		MX_USB_DEVICE_Init();
+		/* USER CODE BEGIN StartDefaultTask */
+	}
+	osDelay(500);
+	NexLinkInit();
   /* Infinite loop */
   FFT_Start();
   for (;;)
@@ -288,24 +292,27 @@ const char *weekDays[7] = {
 extern int fps;
 __weak void StartClockTask(void *argument)
 {
-	static int flash = 0;
   static char tempstr[32] = {0};
   static int count = 60;
   RX8900_Init();
   // RX8900_SetTime(&tm_local);
-  osDelay(500);
+  MX_IWDG_Init();
   for (;;)
-  {
+  {  
+		HAL_IWDG_Refresh(&hiwdg);
+//		if (MPU6050_Read(&ax, &ay, &az, &gx, &gy, &gz))
+//		{
+//			nexlink_log("A: %d %d %d\n", (int)ax, (int)ay, (int)az);
+//			nexlink_log("G: %d %d %d\n", (int)gx, (int)gy, (int)gz);
+//		}
     if (RX8900_GetTime(&tm_local))
     {
-			nexlink_log("%d fps\r\n", fps);fps = 0;
+//			nexlink_log("%d fps\r\n", fps);
+			fps = 0;
+//			nexlink_log("%d brightadc\r\n", GetLightADC());
 //      nexlink_log("%02d:%02d:%02d\r\n", tm_local.tm_hour, tm_local.tm_min, tm_local.tm_sec);
 //      nexlink_log("20%02d-%02d-%02d %d\r\n", tm_local.tm_year, tm_local.tm_mon, tm_local.tm_mday, tm_local.tm_wday);
-      flash = !flash;
-      if (flash)
-        snprintf(timeStr, sizeof timeStr, "%02d:%02d", tm_local.tm_hour, tm_local.tm_min);
-      else
-        snprintf(timeStr, sizeof timeStr, "%02d %02d", tm_local.tm_hour, tm_local.tm_min);
+      snprintf(timeStr, sizeof timeStr, "%02d:%02d", tm_local.tm_hour, tm_local.tm_min);
       snprintf(hourMinute, sizeof hourMinute, "%02d%02d", tm_local.tm_hour, tm_local.tm_min);
       snprintf(date, sizeof date, "%02d-%02d", tm_local.tm_mon + 1, tm_local.tm_mday);
       snprintf(week, sizeof week, "%s", weekDays[tm_local.tm_wday % 7]);
@@ -317,8 +324,9 @@ __weak void StartClockTask(void *argument)
 				// draw_long_str(tempstr, Red, 0);
 			}
     }
-    osDelay(500);
+    osDelay(250);
   }
 }
 
 /* USER CODE END Application */
+

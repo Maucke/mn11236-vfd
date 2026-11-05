@@ -415,6 +415,21 @@ void EasyUIGetItemPos(EasyUIPage_t *page, EasyUIItem_t *item, uint8_t index, uin
   moveFlag = 0;
   target = itemHeightOffset + item->lineId * page->rowheight;
 
+  /*
+   * 首次显示该页面：条目位置还没初始化（都是 0），
+   * 若走下面的动画就会从屏幕顶部“掉下来”。这里直接落到目标位置。
+   */
+  if (time == 0 && item->posForCal == 0.0f && item->position == 0 && target != 0)
+  {
+    item->posForCal = (float)target;
+    item->position = (int16_t)target;
+    item->step = 0;
+    lastIndex = index;
+    if (item->next == NULL)
+      time = 0;
+    return;
+  }
+
   // Calculate current position
   if (time == 0 || index != lastIndex)
   {

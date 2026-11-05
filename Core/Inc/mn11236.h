@@ -36,6 +36,18 @@ void mn11236_clear_buffers(void);
 void mn11236_send_buffer(void);
 
 /**
+ * 暂停/恢复送屏（过渡动画用）
+ * hold = 1 时 mn11236_send_buffer() 被忽略，屏幕保持上一帧
+ */
+void mn11236_hold_send(uint8_t hold);
+
+/**
+ * 每送完一帧显存数据回调一次（驱动里是 __weak 空实现）
+ * 应用层覆写它即可把每一帧画面同步给上位机，过渡动画的中间帧也不会漏。
+ */
+void mn11236_on_frame_sent(void);
+
+/**
  * 画一个点,起点从0,0开始
  */
 void mn11236_draw_pixel(uint8_t x, uint8_t y, mn11236_color_t color);
@@ -54,10 +66,22 @@ void mn11236_clear_pixel(uint8_t x, uint8_t y, mn11236_color_t color);
  */
 uint8_t mn11236_read_pixel(uint8_t x, uint8_t y, mn11236_color_t color);
 
+/**
+ * 获取显示缓冲区首地址，布局 [x][y]（索引 x * VFD_HEIGHT + y）
+ * 低 4 位蓝色灰度，高 4 位红色灰度
+ */
+uint8_t *mn11236_get_buffer(void);
+
 /* Development test function */
 void mn11236_development_test(void);
 
 void mn11236_gray_test(void);
+
+void mn11236_setbrightness(uint8_t bright);
+
+/* 停止 / 恢复整屏扫描（写 Flash、睡眠期间不刷新） */
+void mn11236_scan_stop(void);
+void mn11236_scan_start(void);
 
 
 #endif

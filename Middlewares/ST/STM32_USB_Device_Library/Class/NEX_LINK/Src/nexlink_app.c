@@ -59,7 +59,7 @@ static void send_resp_internal(
     nexlink_tx_send(tx, frame_len);
 }
 
-static void send_resp_err(
+void send_resp_err(
     uint16_t cmd,
     uint16_t seq,
     nl_err_t err)
@@ -67,7 +67,7 @@ static void send_resp_err(
     send_resp_internal(cmd, seq, (uint8_t)err, NULL, 0);
 }
 
-static void send_resp_ok(
+void send_resp_ok(
     uint16_t cmd,
     uint16_t seq,
     const void *payload,
@@ -85,6 +85,7 @@ void send_event(
         return;
 
     uint16_t frame_len = HEAD_LEN + len;
+
     if (frame_len > BUF_SIZE)
         return;
 		
@@ -121,6 +122,24 @@ void nexlink_log(const char *fmt, ...)
         n = sizeof(buf) - 1;
 
     send_event(EVT_LOG, buf, (uint16_t)n);
+}
+
+void nex_send_heartbeat(void)
+{
+    uint8_t payload[9];
+
+    uint32_t uptime = HAL_GetTick();
+    uint16_t vcc = 1;   
+    uint8_t state = 1;  
+    uint8_t err = 0;
+
+    memcpy(&payload[0], &uptime, 4);
+    payload[4] = state;
+    payload[5] = err;
+    memcpy(&payload[6], &vcc, 2);
+    payload[8] = 0;
+
+    send_event(EVT_HEARTBEAT, payload, sizeof(payload));
 }
 
 static void nexlink_cmd_loopback(const nl_packet_t *req)
@@ -313,7 +332,6 @@ void upload_frame_upload()
                sizeof startPayload);
 
     upload_frame_expected_size = pack_frame_buffer(upload_frame_buffer, width, height);
-//		nexlink_log("upload_frame_expected_size: %d", upload_frame_expected_size);
     while (upload_offset < upload_frame_expected_size)
     {
         uint32_t size = upload_frame_expected_size - upload_offset;
@@ -328,6 +346,16 @@ void upload_frame_upload()
 
     send_event(EVT_FRAME_UPLOAD_END, NULL,
                0);
+}
+
+__weak void external_handle_cmd(nl_packet_t *pkt)
+{
+    switch (pkt->cmd)
+    {
+        default:
+            send_resp_err(pkt->cmd, pkt->seq, NL_ERR_UNSUPPORTED);
+            break;
+    }
 }
 
 static void handle_cmd(nl_packet_t *pkt)
@@ -420,7 +448,7 @@ static void handle_cmd(nl_packet_t *pkt)
         break;
 
     default:
-        send_resp_err(pkt->cmd, pkt->seq, NL_ERR_UNSUPPORTED);
+        external_handle_cmd(pkt);
         break;
     }
 }
