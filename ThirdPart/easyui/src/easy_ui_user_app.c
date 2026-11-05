@@ -1172,6 +1172,7 @@ void AppGUI_Loop(uint8_t timer)
       draw_colon_fade(timeX + 8, 0, fontColor, colonTop, colonBot, 0);
     }
     roll_all_long_str();
+    clock_wipe_scan_in(); /* 换主题时：新画面跟着扫描线长出来 */
     refrash_gram();
     break;
   }
@@ -1313,7 +1314,15 @@ void AppGUI_Loop(uint8_t timer)
     {
       if (disp_mode == DISP_MODE_FFT)
         pUserInfo->musictheme = (pUserInfo->musictheme + 1) % 12;
-      else if (disp_mode == DISP_MODE_CLOCK || disp_mode == DISP_MODE_OBD)
+      else if (disp_mode == DISP_MODE_CLOCK)
+      {
+        /* 换主题：扫描线把旧画面刷掉 → 黑场里换主题并落盘 → 新主题再刷进来 */
+        clock_wipe_scan_out();
+        pUserInfo->clocktheme = (pUserInfo->clocktheme + 1) % CLOCK_THEME_COUNT;
+        UserInfo_AutoSave(); /* 黑场时存档（FLASH 写入正好藏在黑屏里） */
+        clock_wipe_scan_begin_in();
+      }
+      else if (disp_mode == DISP_MODE_OBD)
         pUserInfo->clocktheme = (pUserInfo->clocktheme + 1) % CLOCK_THEME_COUNT;
       else if (disp_mode == DISP_MODE_SNAKE)
       {

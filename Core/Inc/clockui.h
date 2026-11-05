@@ -115,6 +115,9 @@ void gradient_flow_frame_clock(void);
 void clock_draw_background(uint8_t bg);
 void clock_shatter_anim(void);   /* 当前画面碎裂落地（进菜单用） */
 void clock_shatter_rebuild(void); /* 新画面从上方落下拼合（碎裂之后调用） */
+void clock_wipe_scan_out(void);   /* 扫描线把当前画面刷掉（结束时全黑，换主题用） */
+void clock_wipe_scan_begin_in(void); /* 黑场结束后调用，新画面开始刷进来 */
+void clock_wipe_scan_in(void);    /* 每帧画完、送屏之前调用，把新画面用扫描线刷出来 */
 uint32_t clock_anim_tick(void);   /* 可暂停的动画时间基准（ms） */
 void clock_anim_pause(uint32_t ms); /* 过渡动画期间把动画时间按住 */
 

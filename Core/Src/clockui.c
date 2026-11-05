@@ -2421,6 +2421,9 @@ void tanksRegen(void)
     tnk_regen = 1;
 }
 
+/* 换关动画：冲击波（实现在文件后面的过渡动画区） */
+static void tnk_shockwave(void);
+
 /* 坦克大战界面：推进一帧并画到显存（调用方负责先清屏） */
 void refrashTanks(void)
 {
@@ -2462,18 +2465,13 @@ void refrashTanks(void)
             break; /* 该换关了，别再补步 */
     }
 
-    /* 一方全灭：走和切界面一样的碎屏动画，再拼出下一关 */
+    /* 一方全灭：冲击波把旧关冲掉，再从中间涌出下一关 */
     if (tnk_level_flip)
     {
         tnk_level_flip = 0;
 
-        tnk_render();          /* 旧关最后一帧先留在屏上 */
-        clock_shatter_anim();  /* 碎裂落地 */
-
-        tnk_new_round();       /* 下一关 */
-        tnk_render();          /* 新关进显存 */
-
-        clock_shatter_rebuild(); /* 碎片从上面拼回来 */
+        tnk_render();    /* 旧关最后一帧先留在屏上 */
+        tnk_shockwave(); /* 冲击波换关（内部会 tnk_new_round + tnk_render） */
 
         tnk_last = clock_anim_tick();
         tnk_acc = 0;
@@ -4006,6 +4004,221 @@ void clock_shatter_rebuild(void)
 
     /* 过渡期间后台动画停表 */
     clock_anim_pause(HAL_GetTick() - t_begin);
+}
+
+/* ============================================================
+ * 换关 / 换主题过渡：冲击波、扫描线刷屏
+ * 两者都直接改显存（display_buffer 低 4 位是蓝、高 4 位是红），
+ * 不需要额外缓冲区，快照复用碎裂动画的 g_shatterSnap。
+ * ============================================================ */
+
+/* 灰阶减半（每个颜色通道单独折一半） */
+static uint8_t wipe_dim(uint8_t v)
+{
+    return (uint8_t)((v >> 1) & 0x77);
+}
+
+/* 按 Q8 系数压暗（k = 256 保持原样，128 减半） */
+static uint8_t wipe_scale(uint8_t v, uint32_t k)
+{
+    uint8_t r = (uint8_t)((((v >> 4) & 0x0F) * k) >> 8);
+    uint8_t b = (uint8_t)(((v & 0x0F) * k) >> 8);
+
+    return (uint8_t)((r << 4) | b);
+}
+
+/* ---- 冲击波 ---- */
+#define SHOCK_RING_PX 3 /* 白环厚度 */
+#define SHOCK_MAX_R 62  /* 覆盖整屏的半径（对角线一半约 57） */
+#define SHOCK_OUT_MS 320
+#define SHOCK_IN_MS 250
+#define SHOCK_BLACK_MS 50
+#define SHOCK_STEP_MS 16
+
+/*
+ * 从快照铺一帧冲击波：
+ *   reveal = 0  环内已经清空、环外按 k 压暗（旧画面被炸掉）
+ *   reveal = 1  环内已经是新画面、环外全黑（新画面涌出来）
+ */
+static void shock_frame(const uint8_t *snap, int32_t r, uint8_t reveal, uint32_t k)
+{
+    uint8_t *buf = mn11236_get_buffer();
+    const int32_t cx = VFD_WIDTH / 2;
+    const int32_t cy = VFD_HEIGHT / 2;
+    int32_t rin2 = (r > SHOCK_RING_PX) ? (r - SHOCK_RING_PX) * (r - SHOCK_RING_PX) : 0;
+    int32_t rout2 = r * r;
+
+    for (int x = 0; x < VFD_WIDTH; x++)
+    {
+        int32_t dx = x - cx;
+        uint8_t *col = &buf[x * VFD_HEIGHT];
+        const uint8_t *scol = &snap[x * VFD_HEIGHT];
+
+        for (int y = 0; y < VFD_HEIGHT; y++)
+        {
+            int32_t dy = y - cy;
+            int32_t d2 = dx * dx + dy * dy;
+
+            if (d2 < rin2)
+                col[y] = reveal ? scol[y] : 0;
+            else if (d2 < rout2)
+                col[y] = 0xFF; /* 白环 */
+            else
+                col[y] = reveal ? 0 : wipe_scale(scol[y], k);
+        }
+    }
+}
+
+/* 跑一段冲击波，半径按 smoothstep 从中心推到整屏 */
+static void shock_run(const uint8_t *snap, uint16_t total_ms, uint8_t reveal)
+{
+    for (uint32_t t = 0; t <= total_ms; t += SHOCK_STEP_MS)
+    {
+        uint32_t p = t * 256u / total_ms;
+        uint32_t e = p * p * (768u - 2u * p) / 65536u; /* smoothstep(0..1) 的 Q8 版 */
+        int32_t r = 1 + (int32_t)(e * SHOCK_MAX_R / 256u);
+        uint32_t k = 256u - e / 2u; /* 环外从原亮度渐变到一半 */
+
+        mn11236_clear_buffers();
+        shock_frame(snap, r, reveal, k);
+        mn11236_send_buffer();
+        osDelay(SHOCK_STEP_MS);
+    }
+}
+
+/* 坦克大战换关：旧关被冲击波炸开 → 黑场里换好下一关 → 从中心涌出来 */
+static void tnk_shockwave(void)
+{
+    uint8_t *buf = mn11236_get_buffer();
+    uint32_t t_begin = HAL_GetTick();
+
+    memcpy(g_shatterSnap, buf, sizeof(g_shatterSnap)); /* 旧关最后一帧 */
+
+    shock_run((const uint8_t *)g_shatterSnap, SHOCK_OUT_MS, 0);
+
+    mn11236_clear_buffers();
+    mn11236_send_buffer();
+    osDelay(SHOCK_BLACK_MS);
+
+    tnk_new_round(); /* 黑场里把新关准备好 */
+
+    mn11236_clear_buffers();
+    tnk_render();
+    memcpy(g_shatterSnap, buf, sizeof(g_shatterSnap)); /* 新关快照 */
+
+    shock_run((const uint8_t *)g_shatterSnap, SHOCK_IN_MS, 1);
+
+    /* 收尾：显存里留下完整的新关 */
+    memcpy(buf, g_shatterSnap, sizeof(g_shatterSnap));
+    mn11236_send_buffer();
+
+    clock_anim_pause(HAL_GetTick() - t_begin);
+}
+
+/* ---- 扫描线刷屏（时钟换主题） ---- */
+#define WIPE_OUT_MS 130
+#define WIPE_IN_MS 180
+#define WIPE_BLACK_MS 45 /* 黑场停留，调用方在这段时间里存档 */
+#define WIPE_STEP_MS 10
+#define WIPE_BAND 2 /* 亮线高度（行） */
+
+static uint8_t wipe_in_active;
+static uint32_t wipe_in_t0;
+
+/* 扫描线刷掉：线以上直接黑、线本身亮白、线下面压暗 */
+static void wipe_mask_out(int32_t line)
+{
+    uint8_t *buf = mn11236_get_buffer();
+
+    for (int y = 0; y < VFD_HEIGHT; y++)
+    {
+        int mode = (y < line - 1) ? 0 : ((y < line + WIPE_BAND) ? 1 : 2);
+
+        for (int x = 0; x < VFD_WIDTH; x++)
+        {
+            uint8_t *p = &buf[x * VFD_HEIGHT + y];
+
+            if (mode == 0)
+                *p = 0;
+            else if (mode == 1)
+                *p = 0xFF;
+            else
+                *p = wipe_dim(*p);
+        }
+    }
+}
+
+/* 阻塞：把当前画面用扫描线刷掉，结束时全黑并停一小会儿 */
+void clock_wipe_scan_out(void)
+{
+    uint8_t *buf = mn11236_get_buffer();
+    uint32_t t_begin = HAL_GetTick();
+
+    memcpy(g_shatterSnap, buf, sizeof(g_shatterSnap));
+
+    for (uint32_t t = 0; t <= WIPE_OUT_MS; t += WIPE_STEP_MS)
+    {
+        int32_t line = -2 + (int32_t)(t * (VFD_HEIGHT + 4) / WIPE_OUT_MS);
+
+        /* 每帧都从快照重画，压暗不会叠加 */
+        memcpy(buf, g_shatterSnap, sizeof(g_shatterSnap));
+        wipe_mask_out(line);
+        mn11236_send_buffer();
+        osDelay(WIPE_STEP_MS);
+    }
+
+    mn11236_clear_buffers();
+    mn11236_send_buffer();
+    osDelay(WIPE_BLACK_MS);
+
+    /* 过渡期间后台动画停表 */
+    clock_anim_pause(HAL_GetTick() - t_begin);
+}
+
+/* 黑场结束后调用：新主题的画面从扫描线下面长出来 */
+void clock_wipe_scan_begin_in(void)
+{
+    wipe_in_active = 1;
+    wipe_in_t0 = HAL_GetTick();
+}
+
+/* 每帧画完新主题、送屏之前调用 */
+void clock_wipe_scan_in(void)
+{
+    uint8_t *buf = mn11236_get_buffer();
+    uint32_t el;
+    int32_t line;
+
+    if (!wipe_in_active)
+        return;
+
+    el = HAL_GetTick() - wipe_in_t0;
+
+    if (el >= WIPE_IN_MS)
+    {
+        wipe_in_active = 0;
+        return;
+    }
+
+    line = -4 + (int32_t)(el * (VFD_HEIGHT + 8) / WIPE_IN_MS);
+
+    for (int y = 0; y < VFD_HEIGHT; y++)
+    {
+        int mode = (y < line - 4) ? 0 : ((y < line + WIPE_BAND) ? 1 : 2);
+
+        if (mode == 0)
+            continue; /* 线上面已经是新画面，原样保留 */
+
+        for (int x = 0; x < VFD_WIDTH; x++)
+        {
+            uint8_t *p = &buf[x * VFD_HEIGHT + y];
+
+            if (mode == 1)
+                *p = 0xFF;
+            else
+                *p = 0;
+        }
+    }
 }
 
 static uint8_t g_snakeWidth = 2; // 默认宽度
