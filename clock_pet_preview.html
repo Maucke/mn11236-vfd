@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>时钟界面 · 电子宠物效果预览</title>
+<style>
+  :root{
+    --bg:#0d0b0b; --panel:#161313; --line:#2a2424; --text:#e8e2da; --sub:#8d8580; --acc:#5fe3f3;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:28px 22px 48px; background:radial-gradient(900px 420px at 50% -10%, #1b1717, var(--bg));
+    color:var(--text); font:14px/1.6 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+  }
+  .app{max-width:1000px;margin:0 auto}
+  h1{font-size:19px;font-weight:600;margin:0 0 4px;letter-spacing:.5px}
+  .sub{color:var(--sub);font-size:12.5px;margin:0 0 18px}
+  .bezel{
+    background:linear-gradient(#241f1f,#1a1616); border:1px solid #3a3232; border-radius:14px;
+    padding:18px; box-shadow:0 18px 50px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.05);
+  }
+  canvas.screen{display:block;width:100%;height:auto;border-radius:6px;background:#241f1f;
+    box-shadow:inset 0 0 40px rgba(0,0,0,.85), inset 0 0 2px rgba(255,255,255,.12);}
+  .hud{display:flex;gap:14px;align-items:center;margin-top:12px;font-size:12.5px;color:var(--sub)}
+  .hud b{color:var(--acc);font-weight:600}
+  .pill{border:1px solid var(--line);background:#191515;border-radius:999px;padding:2px 10px;color:#cfc7bf}
+  .bar{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+  button{
+    background:#211c1c;color:#ddd6ce;border:1px solid #3a3232;border-radius:8px;
+    padding:7px 12px;font:13px/1 "Microsoft YaHei",sans-serif;cursor:pointer;transition:.15s
+  }
+  button:hover{background:#2b2424;border-color:#4a4040;color:#fff}
+  button.on{background:#123236;border-color:#2c6f78;color:#9ff2ff}
+  .row{display:flex;flex-wrap:wrap;gap:18px;align-items:center;margin-top:14px}
+  .grp{display:flex;gap:6px;align-items:center}
+  .grp span{color:var(--sub);font-size:12.5px;margin-right:2px}
+  input[type=text]{
+    background:#191515;border:1px solid #3a3232;border-radius:8px;color:#e8e2da;
+    padding:6px 10px;width:92px;font:14px/1 ui-monospace,Consolas,monospace;letter-spacing:2px;text-align:center
+  }
+  .poses{display:flex;gap:16px;flex-wrap:wrap;margin-top:22px}
+  .pose{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px 8px;text-align:center}
+  .pose canvas{display:block;margin:0 auto 6px;image-rendering:pixelated}
+  .pose span{font-size:11.5px;color:var(--sub)}
+  .note{margin-top:22px;color:var(--sub);font-size:12.5px;border-left:2px solid #2c6f78;padding-left:12px}
+  .note b{color:#cfc7bf;font-weight:600}
+  label.chk{display:flex;gap:6px;align-items:center;color:var(--sub);font-size:12.5px;cursor:pointer}
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>时钟界面 · 电子宠物</h1>
+  <p class="sub">112 × 18 VFD 像素 · 与固件同一套 9×15 原生字模 · 仅效果预览，未改任何固件代码</p>
+
+  <div class="bezel">
+    <canvas id="screen" class="screen"></canvas>
+    <div class="hud">
+      <span>当前动作：<b id="actName">坐着</b></span>
+      <span class="pill" id="sideName">左侧</span>
+      <span class="pill" id="clockName">12:34</span>
+      <span style="margin-left:auto" id="fps"></span>
+    </div>
+  </div>
+
+  <div class="bar">
+    <button data-act="auto" class="on">自动演示</button>
+    <button data-act="sit">坐着</button>
+    <button data-act="wag">摇尾巴</button>
+    <button data-act="jump">跳跃</button>
+    <button data-act="lie">趴在底部</button>
+    <button data-act="peekL">左边探头</button>
+    <button data-act="peekR">右边探头</button>
+    <button data-act="drop">顶部落下</button>
+  </div>
+
+  <div class="row">
+    <div class="grp"><span>时间</span><input id="clockInput" type="text" value="12:34" maxlength="5"></div>
+    <div class="grp"><span>宠物颜色</span>
+      <button data-color="2" class="on">青</button>
+      <button data-color="1">白</button>
+      <button data-color="3">红</button>
+    </div>
+    <label class="chk"><input type="checkbox" id="petShadowChk" checked> 宠物右侧阴影</label>
+    <label class="chk"><input type="checkbox" id="gridChk" checked> 显示像素网格</label>
+    <label class="chk"><input type="checkbox" id="slowChk"> 0.5× 速度</label>
+  </div>
+
+  <div class="poses" id="poses"></div>
+
+  <div class="note">
+    <b>布局说明：</b>数字占 <b>x=27…83 / y=3…17</b>，左右两侧各留出 27 / 28 像素宽的空地，宠物就活动在这两块区域里；
+    顶部 3 行（y=0…2）也是空的，所以“从上方跌落”会落在侧边空地里。<br>
+    <b>颜色：</b>VFD 只有 青 / 红 / 白 三色可选，宠物建议用青色或红色和白色时间区分开；
+    宠物和数字一样带 <b>右侧 1px 阴影</b>（同色系压暗一档），光源方向统一，层次更明显。
+  </div>
+</div>
+
+<script>
+/* ---------- 字模：直接从 clockui.c 的 font_native_9x15 提出来 ---------- */
+const FONT = {" ": [0,0,0,0,0,0,0,0,0], "0": [8188,16382,24579,16385,16385,16385,24579,16382,8188], "1": [0,0,16388,16390,32767,32767,16384,16384,0], "2": [30724,31750,17923,17153,16769,16577,16483,16446,16412], "3": [4100,12294,24579,16385,16577,16577,24771,16382,8188], "4": [992,1008,792,780,774,32767,32767,768,768], "5": [6399,14591,24641,16417,16417,16417,24673,16321,8065], "6": [8188,16382,24707,16449,16449,16449,24771,16262,7940], "7": [3,31747,32515,963,243,59,15,7,3], "8": [7964,16318,24803,16449,16449,16449,24803,16318,7964], "9": [252,510,17155,17153,16897,25089,25347,32766,15868], ":": [0,0,0,7196,7196,0,0,0,0]};
+
+/* ---------- 画布 ---------- */
+const W = 112, H = 18, PITCH = 8, GAP = 1, LIT = PITCH - GAP * 2;
+const cv = document.getElementById('screen');
+const ctx = cv.getContext('2d');
+cv.width = W * PITCH;
+cv.height = H * PITCH;
+
+const PAL = {
+  0: null,
+  1: '#f2efe9',   // 白
+  2: '#5fe3f3',   // 青
+  3: '#ff5b52',   // 红
+  4: '#6d6533',   // 时钟字的暗影（CLOCK_SHADOW_GRAY）
+  5: '#2a6268',   // 宠物暗影 · 青
+  6: '#6d2825',   // 宠物暗影 · 红
+  7: '#686764',   // 宠物暗影 · 白
+};
+
+const grid = new Uint8Array(W * H);
+const clearGrid = () => grid.fill(0);
+function put(x, y, c) {
+  if (x >= 0 && x < W && y >= 0 && y < H) grid[y * W + x] = c;
+}
+
+/* ---------- 时钟 ---------- */
+function drawGlyph(px, py, ch, color, withShadow) {
+  const g = FONT[ch];
+  if (!g) return;
+  if (withShadow) {
+    for (let c = 0; c < 9; c++)
+      for (let r = 0; r < 15; r++)
+        if ((g[c] >> r) & 1) put(px + c + 1, py + r, 4);
+  }
+  for (let c = 0; c < 9; c++)
+    for (let r = 0; r < 15; r++)
+      if ((g[c] >> r) & 1) put(px + c, py + r, color);
+}
+
+function drawClock(str) {
+  // 与固件一致：timeX=9 格 → 27px，字符步进 4 格 = 12px，冒号在 timeX+8 格
+  for (let i = 0; i < 5; i++) {
+    if (i === 2) continue;
+    drawGlyph(27 + i * 12, 3, str[i] || ' ', 1, true);
+  }
+  drawGlyph(51, 3, ':', 1, true);
+}
+
+/* ---------- 宠物像素图（10 宽） ---------- */
+const SPR_SIT = [
+  "..#....#..",   // 耳朵尖
+  ".###..###.",   // 耳朵
+  ".########.",   // 头顶
+  "##########",
+  "##..##..##",   // 眼睛（2x2 暗格）
+  "##..##..##",
+  "##########",
+  "####..####",   // 嘴
+  ".########.",
+  ".#.#..#.#.",   // 脚
+];
+const SPR_SIT_BLINK = SPR_SIT.slice();
+SPR_SIT_BLINK[4] = "##########";
+SPR_SIT_BLINK[5] = "##########";
+
+const SPR_LIE = [
+  ".########.",
+  "##..##..##",
+  "##########",
+  "##########",
+  ".#.#..#.#.",
+];
+
+const TAILS = [
+  [[10,5],[11,4],[12,3]],
+  [[10,6],[11,6],[12,6]],
+  [[10,7],[11,7],[12,8]],
+];
+
+function spritePixels(rows, x, y, flip) {
+  const out = [], h = rows.length, w = rows[0].length;
+  for (let r = 0; r < h; r++)
+    for (let c = 0; c < w; c++)
+      if (rows[r][c] === '#') out.push([x + (flip ? (w - 1 - c) : c), y + r]);
+  return out;
+}
+
+function tailPixels(x, y, k, flip) {
+  return TAILS[k].map(([dx, dy]) => [x + (flip ? (9 - dx) : dx), y + dy]);
+}
+
+// 宠物用的暗影色：跟主体同色系压暗一档，方向上和时钟字一致（右侧 +1px）
+const PET_DIM = { 1: 7, 2: 5, 3: 6 };
+
+// 计算右侧 1px 阴影格子：把整体右移 1 格，落在"自身轮廓之外"的才保留，
+// 落在眼睛/嘴这类内部空腔里的丢掉（空腔靠 flood fill 从包围盒外圈判定）
+function shadowCells(pts) {
+  const lit = new Set(pts.map(([px, py]) => px + ',' + py));
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const [px, py] of pts) {
+    if (px < x0) x0 = px;
+    if (px > x1) x1 = px;
+    if (py < y0) y0 = py;
+    if (py > y1) y1 = py;
+  }
+  x0--; x1++; y0--; y1++;
+
+  const outside = new Set();
+  const stack = [];
+  for (let x = x0; x <= x1; x++) { stack.push([x, y0], [x, y1]); }
+  for (let y = y0; y <= y1; y++) { stack.push([x0, y], [x1, y]); }
+  while (stack.length) {
+    const [px, py] = stack.pop();
+    if (px < x0 || px > x1 || py < y0 || py > y1) continue;
+    const k = px + ',' + py;
+    if (lit.has(k) || outside.has(k)) continue;
+    outside.add(k);
+    stack.push([px + 1, py], [px - 1, py], [px, py + 1], [px, py - 1]);
+  }
+
+  const out = [];
+  for (const [px, py] of pts) {
+    const k = (px + 1) + ',' + py;
+    if (lit.has(k)) continue;      // 被自身盖住
+    if (!outside.has(k)) continue; // 内部空腔
+    out.push([px + 1, py]);
+  }
+  return out;
+}
+
+function drawPet(rows, x, y, flip, color, k, withShadow) {
+  let pts = spritePixels(rows, x, y, flip);
+  if (k >= 0) pts = pts.concat(tailPixels(x, y, k, flip));
+  if (withShadow) {
+    const d = PET_DIM[color] || 4;
+    for (const [px, py] of shadowCells(pts)) put(px, py, d);
+  }
+  for (const [px, py] of pts) put(px, py, color);
+}
+
+/* ---------- 动作 ---------- */
+const ACT = {
+  sit:  { dur: 2600, label: '坐着' },
+  wag:  { dur: 1900, label: '摇尾巴' },
+  jump: { dur: 1500, label: '跳跃' },
+  lie:  { dur: 3200, label: '趴在底部' },
+  peekL:{ dur: 2400, label: '左边探头' },
+  peekR:{ dur: 2400, label: '右边探头' },
+  drop: { dur: 2200, label: '顶部落下' },
+};
+
+let state = { name: 'sit', t: 0, color: 2, auto: true, slow: false, clock: '12:34', homeSide: 'L' };
+let lastPick = '';
+
+const HOME_L = 2;            // 身体左边界（左边空地）
+const HOME_R = W - 14;       // 身体左边界（右边空地；尾巴 +1px 阴影都在屏内）
+const GROUND = 8;            // 站立时 y（10 行高 → 8..17 底部对齐）
+
+function setAction(n) {
+  state.name = n;
+  state.t = 0;
+  // 探头方向决定之后待在屏幕哪一侧
+  if (n === 'peekL') state.homeSide = 'L';
+  if (n === 'peekR') state.homeSide = 'R';
+}
+
+function tick(dt) {
+  state.t += dt;
+  const a = ACT[state.name];
+  if (state.t >= a.dur) {
+    state.t = 0;
+    if (state.auto) {
+      // 自动演示：随机挑一个动作，避免连续重复
+      const pool = ['sit','wag','jump','lie','peekL','peekR','drop'];
+      let n;
+      do { n = pool[Math.floor(Math.random() * pool.length)]; } while (n === lastPick);
+      lastPick = state.name; setAction(n);
+    } else {
+      setAction('sit');
+    }
+  }
+}
+
+function petGeometry() {
+  const t = state.t, name = state.name;
+  const flip = name === 'peekR' ? true : (name === 'peekL' ? false : state.homeSide === 'R');
+  const homeX = flip ? HOME_R : HOME_L;
+  let sprite = SPR_SIT, x = homeX, y = GROUND, tailK = 1, blink = false;
+
+  switch (name) {
+    case 'sit':
+    case 'wag': {
+      const speed = name === 'wag' ? 150 : 420;
+      tailK = Math.floor(t / speed) % 3;
+      // 偶尔眨眼（避开动作刚开始的那一下）
+      blink = (t % 2100) > 1500 && (t % 2100) < 1630;
+      sprite = blink ? SPR_SIT_BLINK : SPR_SIT;
+      break;
+    }
+    case 'jump': {
+      const ANT = 140, PER = 340, N = 3;
+      if (t < ANT) {
+        // 起跳前压一下
+        sprite = SPR_LIE; y = 13; tailK = 0;
+      } else {
+        const u = (t - ANT) % PER, p = u / PER;
+        const h = Math.sin(Math.PI * p);
+        y = GROUND - Math.round(5 * h);
+        tailK = p < 0.5 ? 0 : 2;
+        sprite = SPR_SIT;
+      }
+      break;
+    }
+    case 'lie': {
+      sprite = SPR_LIE;
+      y = 13;
+      tailK = Math.floor(t / 220) % 3;
+      break;
+    }
+    case 'peekL':
+    case 'peekR': {
+      // 从屏幕边缘滑进来，只露出脑袋，停一下再缩回去
+      const p = t / ACT[name].dur;
+      let vis; // 0 = 完全藏起来，1 = 露出 5 像素
+      if (p < 0.28) vis = p / 0.28;
+      else if (p < 0.72) vis = 1;
+      else vis = 1 - (p - 0.72) / 0.28;
+      const out = 10; // 完全隐藏时超出屏幕的像素
+      x = flip ? (W - 10 + out - vis * (out - 5)) : (-out + vis * (out - 5));
+      y = GROUND;
+      sprite = SPR_SIT;
+      tailK = -1; // 探头时不画尾巴
+      break;
+    }
+    case 'drop': {
+      // 先从顶部探出小半个身子吊一会儿，再自由落体
+      const PEEK = 520, FALL = 430;
+      if (t < PEEK) {
+        const p = t / PEEK;
+        y = -10 + Math.round(4 * Math.min(1, p * 1.6)); // -10 → -6
+        sprite = SPR_SIT;
+        tailK = Math.floor(t / 220) % 3;
+      } else if (t < PEEK + FALL) {
+        const p = (t - PEEK) / FALL;
+        y = -6 + Math.round((GROUND + 6) * (p * p)); // 加速掉下来
+        sprite = SPR_SIT;
+        tailK = 0;
+      } else if (t < PEEK + FALL + 170) {
+        const p = (t - PEEK - FALL) / 170;
+        y = GROUND - Math.round(4 * Math.sin(Math.PI * p));
+        sprite = SPR_SIT;
+        tailK = 2;
+      } else {
+        y = GROUND;
+        sprite = (t - PEEK - FALL) < 520 ? SPR_LIE : SPR_SIT;
+        if (sprite === SPR_LIE) y = 13;
+        tailK = Math.floor(t / 200) % 3;
+      }
+      break;
+    }
+  }
+  return { sprite, x, y, flip, tailK };
+}
+
+/* ---------- 渲染 ---------- */
+const showGridEl = document.getElementById('gridChk');
+
+function render() {
+  clearGrid();
+  drawClock(state.clock);
+
+  const g = petGeometry();
+  drawPet(g.sprite, g.x, g.y, g.flip, state.color, g.tailK, document.getElementById('petShadowChk').checked);
+
+  ctx.fillStyle = PAL[0] || '#241f1f';
+  ctx.fillStyle = '#241f1f';
+  ctx.fillRect(0, 0, cv.width, cv.height);
+
+  if (showGridEl.checked) {
+    ctx.fillStyle = '#2b2626';
+    for (let y = 0; y < H; y++)
+      for (let x = 0; x < W; x++)
+        ctx.fillRect(x * PITCH + GAP, y * PITCH + GAP, LIT, LIT);
+  }
+
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const c = grid[y * W + x];
+      if (!c) continue;
+      ctx.fillStyle = PAL[c] || '#fff';
+      ctx.fillRect(x * PITCH + GAP, y * PITCH + GAP, LIT, LIT);
+    }
+  }
+}
+
+/* ---------- 循环 ---------- */
+let prev = performance.now();
+let acc = 0, frames = 0, fpsT = prev;
+
+function loop(now) {
+  const raw = Math.min(now - prev, 100);
+  prev = now;
+  tick(raw * (state.slow ? 0.5 : 1));
+  render();
+
+  frames++;
+  if (now - fpsT > 500) {
+    document.getElementById('fps').textContent = Math.round(frames * 1000 / (now - fpsT)) + ' fps';
+    frames = 0; fpsT = now;
+  }
+  document.getElementById('actName').textContent = ACT[state.name].label;
+  document.getElementById('sideName').textContent =
+    (state.name === 'peekR' || (state.name !== 'peekL' && state.homeSide === 'R')) ? '右侧' : '左侧';
+  requestAnimationFrame(loop);
+}
+
+/* ---------- 交互 ---------- */
+document.querySelectorAll('[data-act]').forEach(b => {
+  b.addEventListener('click', () => {
+    const v = b.dataset.act;
+    document.querySelectorAll('[data-act]').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+    if (v === 'auto') { state.auto = true; state.homeSide = 'L'; lastPick = ''; setAction('sit'); }
+    else { state.auto = false; setAction(v); }
+  });
+});
+
+document.querySelectorAll('[data-color]').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('[data-color]').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+    state.color = +b.dataset.color;
+  });
+});
+
+document.getElementById('clockInput').addEventListener('input', e => {
+  let v = e.target.value.replace(/[^0-9:]/g, '');
+  if (v.length === 5 && v[2] !== ':') v = v.slice(0, 2) + ':' + v.slice(3);
+  state.clock = (v.length === 5 ? v : '12:34');
+  document.getElementById('clockName').textContent = state.clock;
+});
+
+document.getElementById('slowChk').addEventListener('change', e => { state.slow = e.target.checked; });
+
+/* ---------- 姿态图鉴 ---------- */
+const poseDefs = [
+  ['坐着', SPR_SIT], ['眨眼', SPR_SIT_BLINK], ['趴下', SPR_LIE],
+  ['尾巴 1', SPR_SIT, 0], ['尾巴 2', SPR_SIT, 1], ['尾巴 3', SPR_SIT, 2],
+];
+const posesEl = document.getElementById('poses');
+poseDefs.forEach(([label, spr, tailK]) => {
+  const box = document.createElement('div');
+  box.className = 'pose';
+  const c = document.createElement('canvas');
+  const S = 6, pad = 1;
+  const w = 14, h = 11;
+  c.width = w * S; c.height = h * S;
+  c.style.width = (w * S) + 'px';
+  const cc = c.getContext('2d');
+  cc.fillStyle = '#241f1f'; cc.fillRect(0, 0, c.width, c.height);
+
+  const pts = spritePixels(spr, pad, 1, false);
+  if (tailK !== undefined) pts.push(...tailPixels(pad, 1, tailK, false));
+
+  // 先铺 1px 右侧阴影（轮廓外，不含空腔），再铺主体
+  cc.fillStyle = PAL[5];
+  for (const [px, py] of shadowCells(pts)) cc.fillRect((px) * S + 1, py * S + 1, S - 2, S - 2);
+  cc.fillStyle = PAL[2];
+  for (const [px, py] of pts) cc.fillRect(px * S + 1, py * S + 1, S - 2, S - 2);
+  const cap = document.createElement('span');
+  cap.textContent = label;
+  box.appendChild(c); box.appendChild(cap);
+  posesEl.appendChild(box);
+});
+
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

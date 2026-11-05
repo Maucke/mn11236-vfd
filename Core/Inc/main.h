@@ -97,32 +97,25 @@ void Error_Handler(void);
 
 #define OBD_ITEM_COUNT 8
 
-	typedef struct __attribute__((aligned(4)))
-	{
-		uint8_t enMind;
-		uint8_t enCircle;
-		uint8_t enSnowflake;
-		uint8_t enMeteo;
-		uint8_t enPlanet;
-		uint8_t enTriangle;
-		uint8_t enStarwar;
-		uint8_t enGCircle;
-		uint8_t enFirework;
-		uint8_t reserved;
-	} EffectSwitch_t;
-
   typedef struct __attribute__((aligned(4)))
   {
     uint8_t defaultfunc;
     uint8_t clocktheme;
     uint8_t musictheme;
-    uint8_t snakewidth;
-		EffectSwitch_t effectswitch;
+    uint8_t snakewidth;   /* 已废弃：贪吃蛇宽度固定 3，仅保留字段占位 */
+    /* 动画编号 0..ANIM_COUNT-1（单选，对应菜单 Animation 进度条） */
+    uint8_t motion;
+    /* 游戏编号 0=贪吃蛇 1=俄罗斯方块 2=坦克大战（菜单 Game 或游戏界面长按上键切换） */
+    uint8_t game;
+    /* 原来 EffectSwitch_t 的 10 字节（motion + game + 8 字节占位），保留占位：
+     * 总长度和字段偏移都不变，旧配置读出来不需要迁移 */
+    uint8_t motionpad[8];
     uint8_t clockdimming;
 		uint8_t screen_on_hour;   
 		uint8_t screen_off_hour;  
 		uint8_t esp_en;  
     uint8_t valid;
+    uint8_t musiccolor;   /* FFT 配色 0..5，与 musictheme（风格 0..7）独立 */
   } UserInfo_t;
 
   typedef struct

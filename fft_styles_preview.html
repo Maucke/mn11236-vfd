@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MN11236 · FFT 频谱风格方案</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 20px 24px 40px;
+    background: #171414; color: #d8d2c8;
+    font: 13px/1.6 "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  h1 { font-size: 19px; font-weight: 600; margin: 0 0 6px; color: #f2efe9; }
+  .sub { margin: 0 0 16px; color: #8d857a; font-size: 12.5px; }
+  .bar {
+    display: flex; flex-wrap: wrap; gap: 16px; align-items: center;
+    padding: 10px 14px; margin-bottom: 18px;
+    background: #1f1b1b; border: 1px solid #302a29; border-radius: 6px;
+  }
+  .bar label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  button, select {
+    background: #2a2424; color: #e6e0d6; border: 1px solid #3b3332;
+    border-radius: 4px; padding: 5px 12px; font: inherit; cursor: pointer;
+  }
+  button:hover, select:hover { background: #352d2d; }
+  #grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(540px, 1fr)); gap: 18px; }
+  .panel {
+    background: #1f1b1b; border: 1px solid #302a29; border-radius: 6px;
+    padding: 10px 12px 12px; overflow: hidden;
+  }
+  .head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+  .name { color: #f2efe9; font-weight: 600; font-size: 13.5px; }
+  .meta { color: #6f6a5f; font-size: 11.5px; white-space: nowrap; }
+  canvas { display: block; width: 100%; height: auto; border-radius: 3px; image-rendering: pixelated; }
+  .desc { margin-top: 8px; color: #8d857a; font-size: 12px; }
+  .desc b { color: #b9b0a2; font-weight: 600; }
+  h2 { font-size: 14px; margin: 28px 0 10px; color: #cfc7ba; font-weight: 600; }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid #2b2525; }
+  th { color: #8d857a; font-weight: 500; }
+  td { color: #b9b0a2; }
+  .ok { color: #7fc98a; }
+  .warn { color: #e0a35c; }
+  .note { margin-top: 10px; color: #6f6a5f; font-size: 11.5px; }
+</style>
+</head>
+<body>
+
+<h1>FFT 频谱风格方案 · 112 × 18</h1>
+<p class="sub">
+  下面每一格都是真实的 112 × 18 像素、8 级灰度、R/B/W 三色管约束下画出来的，喂的是同一段模拟音乐。
+  第 ⑨ 格是<b>现在的实现</b>，其余是新方案，方便直接对比。
+</p>
+
+<div class="bar">
+  <button id="play">暂停</button>
+  <label><input type="radio" name="map" value="log" checked> 对数频率映射（推荐）</label>
+  <label><input type="radio" name="map" value="lin"> 线性频率映射（现状）</label>
+  <label>配色
+    <select id="theme">
+      <option value="0">青柱 + 红点</option>
+      <option value="1">青柱 + 白点</option>
+      <option value="2">红柱 + 青点</option>
+      <option value="3">白柱 + 青点</option>
+    </select>
+  </label>
+  <span style="color:#6f6a5f">（滚动到下方可看到成本表）</span>
+</div>
+
+<div id="grid"></div>
+
+<h2>成本与风险</h2>
+<table>
+  <thead><tr><th style="width:22%">风格</th><th style="width:34%">视觉</th><th>RAM</th><th>Flash</th><th>难度</th></tr></thead>
+  <tbody>
+    <tr><td>① 经典柱状（改良）</td><td>现有柱状 + 对数映射 + 峰值拖尾 + 顶部高光</td><td>0 B</td><td>+150 B</td><td class="ok">低</td></tr>
+    <tr><td>② 左右镜像</td><td>56 段对折，左右完全对称，像蝴蝶/山脊</td><td>0 B</td><td>+80 B</td><td class="ok">低</td></tr>
+    <tr><td>③ 包络曲线</td><td>频谱连成一条曲线 + 线下渐变填充，像 EQ 曲线</td><td>0 B</td><td>+220 B</td><td class="ok">低</td></tr>
+    <tr><td>④ 点阵柱</td><td>柱子做成隔行点阵，像 LED 矩阵电平表</td><td>0 B</td><td>+40 B</td><td class="ok">低</td></tr>
+    <tr><td>⑤ 瀑布声谱</td><td>18 行历史滚动，音乐留下"声纹"，最抓眼</td><td class="warn">252 B</td><td>+260 B</td><td class="warn">中</td></tr>
+    <tr><td>⑥ 节拍火花</td><td>柱状 + 峰值迸出粒子、受重力下落，动感强</td><td class="warn">96 B</td><td>+300 B</td><td class="warn">中</td></tr>
+    <tr><td>⑦ VU 指针表</td><td>弧形刻度 + 指针 + 峰值记忆，复古仪器感</td><td>0 B</td><td>+260 B</td><td class="ok">低</td></tr>
+    <tr><td>⑧ 三色分段</td><td>低频青 / 中频红 / 高频白，同屏三色</td><td>0 B</td><td>+40 B</td><td class="ok">低</td></tr>
+  </tbody>
+</table>
+<p class="note">
+  当前 RAM 只剩约 500 B（RW+ZI = 65000 / 65536），⑤⑥ 的缓冲区建议放进同一个 union，二选一同时只占 252 B；
+  其余风格零额外 RAM。Flash 还剩约 145 KB，都够。
+</p>
+
+<script>
+(() => {
+  const W = 112, H = 18, S = 5, CELL = 4;
+
+  const COLORS = {
+    white: [242, 239, 233],
+    cyan:  [95, 227, 243],
+    red:   [255, 91, 82],
+  };
+  const BG = '#241f1f';
+
+  // ---- 调色板（柱色 / 点色） -------------------------------------------
+  const PALETTES = [
+    { bar: COLORS.cyan,  dot: COLORS.red   },
+    { bar: COLORS.cyan,  dot: COLORS.white },
+    { bar: COLORS.red,   dot: COLORS.cyan  },
+    { bar: COLORS.white, dot: COLORS.cyan  },
+  ];
+  let pal = PALETTES[0];
+
+  // ---- 灰度：0..7 -> 颜色 ----------------------------------------------
+  const shadeCache = new Map();
+  function shade(rgb, lv) {
+    if (lv <= 0) return null;
+    const key = rgb[0] * 8 + lv;
+    let c = shadeCache.get(key);
+    if (c) return c;
+    const k = Math.pow(lv / 7, 0.7);
+    c = `rgb(${(rgb[0] * k) | 0},${(rgb[1] * k) | 0},${(rgb[2] * k) | 0})`;
+    shadeCache.set(key, c);
+    return c;
+  }
+
+  function P(ctx, x, y, rgb, lv) {
+    x |= 0; y |= 0;
+    if (x < 0 || x >= W || y < 0 || y >= H || lv <= 0) return;
+    ctx.fillStyle = shade(rgb, lv);
+    ctx.fillRect(x * S, y * S, CELL, CELL);
+  }
+
+  // ---- 模拟音乐（按 Hz 合成，再由映射取每根柱子） ----------------------
+  function energy(f, t) {
+    const phase = (t % 0.5) / 0.5;
+    const env = Math.exp(-phase * 7);            // 120 BPM 鼓点包络
+
+    let v = 0;
+    // 底鼓 70 Hz + 低音贝斯滑动
+    v += 0.95 * Math.exp(-Math.pow((f - 70) / 45, 2)) * (0.55 + 0.45 * env);
+    const bf = 105 + 45 * Math.sin(t * 0.9);
+    v += 0.75 * Math.exp(-Math.pow((f - bf) / 22, 2)) * (0.6 + 0.4 * env);
+    // 中频旋律（来回滑动）
+    const mf = 650 * Math.pow(2, Math.sin(t * 0.55) * 1.15);
+    v += 0.60 * Math.exp(-Math.pow((f - mf) / 85, 2)) * (0.45 + 0.55 * Math.sin(t * 3.7));
+    v += 0.40 * Math.exp(-Math.pow((f - mf * 2.1) / 150, 2)) * (0.4 + 0.6 * Math.sin(t * 2.9 + 1.3));
+    // 高频镲片
+    v += 0.55 * Math.exp(-Math.pow((f - 3800) / 1100, 2)) * env;
+    v += 0.30 * Math.exp(-Math.pow((f - 2600) / 900, 2)) * (0.25 + 0.75 * Math.random());
+    // 噪声底
+    v += 0.05 + 0.05 * Math.random();
+    return Math.min(1, Math.max(0, v));
+  }
+
+  function barFreq(i, mode) {
+    if (mode === 'log') {
+      const lo = 40, hi = 5000;
+      return lo * Math.pow(hi / lo, i / (W - 1));
+    }
+    return 20 + (5000 - 20) * i / (W - 1);
+  }
+
+  const vals = new Float32Array(W);
+  function sampleSpectrum(t, mode) {
+    for (let i = 0; i < W; i++) {
+      const f = barFreq(i, mode);
+      vals[i] = energy(f, t) * (0.9 + 0.1 * Math.sin(t * 13 + i * 0.7));
+    }
+  }
+
+  // ---- 平滑（快起慢落） -------------------------------------------------
+  function smoothInto(arr, target, up, down) {
+    for (let i = 0; i < arr.length; i++) {
+      const tv = target[i];
+      if (tv > arr[i]) arr[i] = Math.min(tv, arr[i] + up);
+      else arr[i] = Math.max(tv, arr[i] - down);
+    }
+  }
+
+  // =====================================================================
+  //  各风格
+  // =====================================================================
+  const STYLES = [];
+
+  // ① 经典柱状（改良） --------------------------------------------------
+  STYLES.push({
+    name: '① 经典柱状（改良）',
+    meta: 'RAM 0 B · Flash +150 B',
+    desc: '改动最小：对数映射 + 柱顶高光 + 峰值点带拖尾慢慢落。',
+    init() {
+      this.v = new Float32Array(W);
+      this.pk = new Float32Array(W);
+      this.pv = new Float32Array(W);
+    },
+    draw(ctx, t) {
+      smoothInto(this.v, vals, 0.55, 0.10);
+      for (let i = 0; i < W; i++) {
+        const h = Math.round(this.v[i] * (H - 1));
+        for (let j = 0; j < h; j++) {
+          const lv = Math.min(6, 2 + Math.round((j + 1) / h * 4));
+          P(ctx, i, H - 1 - j, pal.bar, lv);
+        }
+        if (h > 0) P(ctx, i, H - h, pal.bar, 7);          // 柱顶高光
+
+        if (h >= this.pk[i]) this.pk[i] = h;
+        else this.pk[i] = Math.max(h, this.pk[i] - 0.30);  // 峰值缓慢下落
+        if (this.pk[i] > h + 1.5)
+          P(ctx, i, H - 1 - Math.round(this.pk[i]), pal.dot, 5);
+      }
+    }
+  });
+
+  // ② 左右镜像 ----------------------------------------------------------
+  STYLES.push({
+    name: '② 左右镜像',
+    meta: 'RAM 0 B · Flash +80 B',
+    desc: '只算 56 段，左右完全对称，像一对翅膀 / 山脊，安静的歌也很耐看。',
+    init() { this.v = new Float32Array(W / 2); this.pk = new Float32Array(W / 2); },
+    draw(ctx) {
+      const tgt = this.tmp || (this.tmp = new Float32Array(W / 2));
+      for (let i = 0; i < W / 2; i++) tgt[i] = Math.max(vals[i * 2], vals[i * 2 + 1]);
+      smoothInto(this.v, tgt, 0.55, 0.10);
+
+      for (let i = 0; i < W / 2; i++) {
+        const h = Math.round(this.v[i] * (H - 1));
+        for (const x of [i, W - 1 - i]) {
+          for (let j = 0; j < h; j++) {
+            const lv = Math.min(6, 2 + Math.round((j + 1) / h * 4));
+            P(ctx, x, H - 1 - j, pal.bar, lv);
+          }
+          if (h > 0) P(ctx, x, H - h, pal.bar, 7);
+          const p = Math.round(this.pk[i]);
+          if (p > h + 1.5) P(ctx, x, H - 1 - p, pal.dot, 5);
+        }
+        if (h >= this.pk[i]) this.pk[i] = h;
+        else this.pk[i] = Math.max(h, this.pk[i] - 0.30);
+      }
+    }
+  });
+
+  // ③ 包络曲线 ----------------------------------------------------------
+  STYLES.push({
+    name: '③ 包络曲线',
+    meta: 'RAM 0 B · Flash +220 B',
+    desc: '频谱连成一条平滑曲线，线下用两级灰渐变填充，像专业 EQ 的实时曲线。',
+    init() { this.v = new Float32Array(W); },
+    draw(ctx) {
+      smoothInto(this.v, vals, 0.5, 0.09);
+      const y = new Int8Array(W);
+      for (let i = 0; i < W; i++) y[i] = H - 1 - Math.round(this.v[i] * (H - 1));
+
+      // 填充：靠近曲线亮一点，越往下越暗
+      for (let i = 0; i < W; i++)
+        for (let yy = y[i] + 1; yy < H; yy++) {
+          const d = yy - y[i];
+          P(ctx, i, yy, pal.bar, d <= 2 ? 3 : d <= 5 ? 2 : 1);
+        }
+
+      // 曲线
+      for (let i = 0; i < W; i++) {
+        P(ctx, i, y[i], pal.bar, 7);
+        if (i + 1 < W) {
+          const a = y[i], b = y[i + 1];
+          const step = b > a ? 1 : -1;
+          for (let yy = a; yy !== b + step; yy += step) P(ctx, i, yy, pal.bar, 6);
+        }
+      }
+
+      // 峰值点
+      for (let i = 1; i < W - 1; i++)
+        if (this.v[i] > 0.55 && this.v[i] >= this.v[i - 1] && this.v[i] > this.v[i + 1])
+          P(ctx, i, y[i] - 1, pal.dot, 7);
+    }
+  });
+
+  // ④ 点阵柱 ------------------------------------------------------------
+  STYLES.push({
+    name: '④ 点阵柱',
+    meta: 'RAM 0 B · Flash +40 B',
+    desc: '柱子改成隔行亮点，像一块 LED 矩阵电平表，VFD 的颗粒感会被放大。',
+    init() { this.v = new Float32Array(W); },
+    draw(ctx) {
+      smoothInto(this.v, vals, 0.55, 0.10);
+      for (let i = 0; i < W; i++) {
+        const h = Math.round(this.v[i] * (H - 1));
+        for (let j = 0; j < h; j++) {
+          if (j % 2 === 0) P(ctx, i, H - 1 - j, pal.bar, Math.min(7, 2 + Math.round((j + 1) / h * 5)));
+        }
+        if (h > 0) P(ctx, i, H - h, pal.bar, 7);
+      }
+    }
+  });
+
+  // ⑤ 瀑布声谱 ----------------------------------------------------------
+  STYLES.push({
+    name: '⑤ 瀑布声谱',
+    meta: 'RAM 252 B · Flash +260 B',
+    desc: '每帧把新频谱压进 18 行历史，音乐留下"声纹"。慢歌、人声都很好看，是最抓眼的一个。',
+    init() {
+      this.cols = W / 2;
+      this.hist = new Uint8Array(this.cols * H); // 2 bit/格，这里用 0..3
+      this.acc = 0;
+    },
+    draw(ctx) {
+      // 每帧推进一行（预览固定 20 帧/秒 → 18 行约 0.9 秒历史）
+      if (++this.acc >= 1) {
+        this.acc = 0;
+        this.hist.copyWithin(0, this.cols); // 整体上移
+        const base = this.cols * (H - 1);
+        for (let c = 0; c < this.cols; c++) {
+          const v = Math.max(vals[c * 2], vals[c * 2 + 1]);
+          this.hist[base + c] = v < 0.07 ? 0 : v < 0.28 ? 1 : v < 0.55 ? 2 : 3;
+        }
+      }
+
+      for (let r = 0; r < H; r++)
+        for (let c = 0; c < this.cols; c++) {
+          const lv = this.hist[r * this.cols + c];
+          if (!lv) continue;
+          const rgb = lv >= 3 ? pal.dot : pal.bar;
+          const g = lv === 1 ? 2 : lv === 2 ? 5 : 7;
+          P(ctx, c * 2, r, rgb, g);
+          P(ctx, c * 2 + 1, r, rgb, g);
+        }
+    }
+  });
+
+  // ⑥ 节拍火花 ----------------------------------------------------------
+  STYLES.push({
+    name: '⑥ 节拍火花',
+    meta: 'RAM 96 B · Flash +300 B',
+    desc: '柱状图上方，能量突然冲高时迸出粒子，受重力下落、落地弹一下就消失。',
+    init() {
+      this.v = new Float32Array(W);
+      this.pk = new Float32Array(W);
+      this.ps = [];
+    },
+    draw(ctx) {
+      smoothInto(this.v, vals, 0.75, 0.13);
+
+      for (let i = 0; i < W; i++) {
+        const h = Math.round(this.v[i] * (H - 1));
+        for (let j = 0; j < h; j += 1) {
+          P(ctx, i, H - 1 - j, pal.bar, Math.min(5, 2 + ((j * 4 / (h || 1)) | 0)));
+        }
+        if (h > this.pk[i] + 0.30 && this.ps.length < 46) {
+          this.ps.push({ x: i, y: H - 1 - h, vx: (Math.random() - 0.5) * 0.9, vy: -0.7 - Math.random() * 0.7, b: true });
+        }
+        this.pk[i] = Math.max(h, this.pk[i] - 0.15);
+      }
+
+      for (let k = this.ps.length - 1; k >= 0; k--) {
+        const p = this.ps[k];
+        p.x += p.vx; p.y += p.vy; p.vy += 0.16;
+        if (p.y >= H - 1) {
+          if (p.b) { p.b = false; p.y = H - 1; p.vy *= -0.45; p.vx *= 0.7; }
+          else { this.ps.splice(k, 1); continue; }
+        }
+        P(ctx, Math.round(p.x), Math.round(p.y), pal.dot, 7);
+      }
+    }
+  });
+
+  // ⑦ VU 指针表 ---------------------------------------------------------
+  STYLES.push({
+    name: '⑦ VU 指针表',
+    meta: 'RAM 0 B · Flash +260 B',
+    desc: '弧形刻度 + 带阻尼的指针 + 峰值记忆点，最像一台老仪器，和 VFD 的气质最搭。',
+    init() { this.needle = 0; this.pk = 0; this.hold = 0; },
+    draw(ctx) {
+      // 总体电平：加权平均（低频权重略高）
+      let sum = 0, w = 0;
+      for (let i = 0; i < W; i++) {
+        const k = 1.4 - i / W * 0.8;
+        sum += vals[i] * k; w += k;
+      }
+      const lv = Math.min(1, sum / w * 1.55);
+
+      // 指针阻尼
+      const up = 0.16, down = 0.035;
+      this.needle += (lv - this.needle) * (lv > this.needle ? up : down);
+      if (lv >= this.pk) { this.pk = lv; this.hold = 26; }
+      else if (this.hold > 0) this.hold--;
+      else this.pk = Math.max(lv, this.pk - 0.004);
+
+      const cx = W / 2, cy = H + 2, R = 15;
+      const ang = (-62 + this.needle * 124) * Math.PI / 180;
+
+      // 刻度弧
+      for (let s = 0; s <= 20; s++) {
+        const a = (-62 + (s / 20) * 124) * Math.PI / 180;
+        const major = s % 5 === 0;
+        const rr = major ? R + 1.4 : R + 0.6;
+        P(ctx, Math.round(cx + Math.sin(a) * rr), Math.round(cy - Math.cos(a) * rr),
+          pal.bar, major ? 5 : 2);
+      }
+
+      // 峰值记忆
+      const pa = (-62 + this.pk * 124) * Math.PI / 180;
+      P(ctx, Math.round(cx + Math.sin(pa) * (R + 0.2)), Math.round(cy - Math.cos(pa) * (R + 0.2)), pal.dot, 7);
+
+      // 指针
+      const steps = 16;
+      for (let s = 0; s <= steps; s++) {
+        const rr = R + 0.2 - s * 0.9;
+        const x = Math.round(cx + Math.sin(ang) * rr);
+        const y = Math.round(cy - Math.cos(ang) * rr);
+        P(ctx, x, y, pal.bar, s < 2 ? 7 : 6);
+      }
+
+      // 底部电平条
+      for (let i = 0; i < Math.round(lv * W); i++) P(ctx, i, H - 1, pal.dot, i > W * 0.82 ? 7 : 4);
+    }
+  });
+
+  // ⑧ 三色分段 ----------------------------------------------------------
+  STYLES.push({
+    name: '⑧ 三色分段',
+    meta: 'RAM 0 B · Flash +40 B',
+    desc: '低频青、中频红、高频白，一块屏幕上同时出现三种颜色，远看层次最强。',
+    init() { this.v = new Float32Array(W); },
+    draw(ctx) {
+      smoothInto(this.v, vals, 0.55, 0.10);
+      for (let i = 0; i < W; i++) {
+        const h = Math.round(this.v[i] * (H - 1));
+        const rgb = i < W * 0.28 ? COLORS.cyan : i < W * 0.66 ? COLORS.red : COLORS.white;
+        for (let j = 0; j < h; j++) {
+          const lv = Math.min(7, 2 + Math.round((j + 1) / h * 5));
+          P(ctx, i, H - 1 - j, rgb, lv);
+        }
+        if (h > 0) P(ctx, i, H - h, COLORS.white, 7);
+      }
+    }
+  });
+
+  // ⑨ 现状（线性映射，原参数） ------------------------------------------
+  STYLES.push({
+    name: '⑨ 现状（线性映射）',
+    meta: '当前固件 · 对照组',
+    desc: '现在跑在机器上的样子：线性频率 + 原来的柱状画法。前 1/4 屏幕吃掉几乎所有音乐能量。',
+    fixedLinear: true,
+    init() { this.v = new Float32Array(W); this.pk = new Float32Array(W); },
+    draw(ctx) {
+      smoothInto(this.v, vals, 0.55, 0.10);
+      for (let i = 0; i < W; i++) {
+        const h = Math.round(this.v[i] * (H - 1));
+        for (let j = 0; j < h; j++) {
+          const lv = Math.min(7, 2 + Math.round((j + 1) / h * 7));
+          P(ctx, i, H - 1 - j, pal.bar, lv);
+        }
+        if (h >= this.pk[i]) this.pk[i] = h;
+        else this.pk[i] = Math.max(0, this.pk[i] - 1);
+        P(ctx, i, H - 1 - this.pk[i], pal.dot, 7);
+      }
+    }
+  });
+
+  // =====================================================================
+  //  页面装配
+  // =====================================================================
+  const grid = document.getElementById('grid');
+  const panels = [];
+
+  STYLES.forEach((st, idx) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'panel';
+
+    const head = document.createElement('div');
+    head.className = 'head';
+    head.innerHTML = `<span class="name">${st.name}</span><span class="meta">${st.meta}</span>`;
+
+    const cv = document.createElement('canvas');
+    cv.width = W * S;
+    cv.height = H * S;
+
+    const desc = document.createElement('div');
+    desc.className = 'desc';
+    desc.innerHTML = st.desc;
+
+    wrap.append(head, cv, desc);
+    grid.append(wrap);
+
+    const ctx = cv.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    st.init();
+    panels.push({ st, ctx, cv, wrap });
+  });
+
+  let playing = true;
+  document.getElementById('play').addEventListener('click', (e) => {
+    playing = !playing;
+    e.target.textContent = playing ? '暂停' : '播放';
+  });
+
+  document.querySelectorAll('input[name=map]').forEach((r) =>
+    r.addEventListener('change', () => { /* 每帧读取，无需重绘 */ }));
+
+  document.getElementById('theme').addEventListener('change', (e) => {
+    pal = PALETTES[+e.target.value];
+    shadeCache.clear();
+  });
+
+  const t0 = performance.now();
+  let simT = 0;
+  let last = t0;
+  let acc = 0;
+  const STEP = 0.05;            // 实机频谱刷新约 20 Hz，预览按同样节拍走
+
+  function renderAll(t, mode) {
+    mode = mode || document.querySelector('input[name=map]:checked').value;
+    for (const p of panels) {
+      const ctx = p.ctx;
+      ctx.fillStyle = BG;
+      ctx.fillRect(0, 0, W * S, H * S);
+
+      // 每个面板单独取样：⑨ 永远用线性映射代表现状
+      sampleSpectrum(t, p.st.fixedLinear ? 'lin' : mode);
+      p.st.draw(ctx, t);
+    }
+  }
+  window.__fftRender = renderAll;   // 便于离线截帧/自检
+  window.__fftStyles = STYLES;      // 便于离线检查内部状态
+
+  function frame(now) {
+    const dt = Math.min(0.2, (now - last) / 1000);
+    last = now;
+    acc += dt;
+    if (acc < STEP) { requestAnimationFrame(frame); return; }
+    acc = 0;
+    if (playing) simT += STEP;
+
+    renderAll(simT);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

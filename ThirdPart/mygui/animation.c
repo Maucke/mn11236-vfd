@@ -1,1144 +1,729 @@
+/*!
+ * @file    animation.c
+ * @brief   MOTION 界面的 8 个动画（单选，112 x 18 双通道 8 级灰度）
+ *
+ * 设计约束：
+ *  - 屏幕是 112x18 的横幅，所有运动都顺着横向 / 纵向 / 放射三个方向做；
+ *  - 每帧由调用方先 clear_gram()，本文件只负责画像素，不保留上一帧；
+ *  - 只有当前选中的那一个动画在使用状态，所以所有动画共用一块 union。
+ */
+
 #include "animation.h"
 #include "main.h"
-#include "gpio.h"
-#include "math.h"
+#include "clockui.h"
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
 
-#ifdef __cplusplus
-extern "C"
+#define W MAX_X
+#define H MAX_Y
+
+/* ============================================================
+ *  公共小工具
+ * ============================================================ */
+
+static uint8_t anim_cur = 0xFF;
+static uint32_t anim_frame;
+
+static void px(int x, int y, Color c, int g)
 {
-#endif
-
-EffectSwitch_t g_EffectSwitch;
-
-uint16_t randomColor()
-{
-  return 0x7<<((rand() % 2)*4);
+    if (g <= 0)
+        return;
+    draw_point_gray(x, y, c, (uint8_t)(g > 7 ? 7 : g));
 }
 
-typedef struct
+static float rndf(float a, float b)
 {
-  uint8_t Mind;
-  uint8_t Circle;
-  uint8_t Snowflake;
-  uint8_t Meteo;
-  uint8_t Planet;
-  uint8_t Triangle;
-  uint8_t Starwar;
-  uint8_t GCircle;
-} ANI_TYPE;
-
-ANI_TYPE ani_len = { .Mind = 5, .Circle = 1,
-  .Snowflake = 5,
-  .Meteo = 5,
-  .Planet = 5,
-  .Triangle = 2,
-  .Starwar = 2,
-  .GCircle = 2};
-
-void Motion_Init(void)
-{
-  Motion_MindInit();
-  Motion_CircleInit();
-  Motion_SnowflakeInit();
-  Motion_MovmeteorInit();
-  Motion_PlanetInit();
-  Motion_TriangleInit();
-  Motion_StarWarInit();
-  Motion_GCFireworksInit();
-	Motion_FireworkInit();
+    return a + (float)(rand() % 10000) * (b - a) / 10000.0f;
 }
 
-typedef struct
+static void draw_line(int x0, int y0, int x1, int y1, Color c, int g)
 {
-  float x;
-  float y;
-  float dirx;
-  float diry;
-  float r;
-  uint16_t color;
-} MTMOVMIND;
+    int dx = abs(x1 - x0);
+    int dy = abs(y1 - y0);
+    int n = dx > dy ? dx : dy;
 
-MTMOVMIND mtmovmind[MINDMAX];
-
-ANI_STATUS MovMind(uint8_t Index)
-{
-  if(mtmovmind[Index].x <= 3)
-  {
-    mtmovmind[Index].x = 4;
-    return IDLE;
-  }
-  else if(mtmovmind[Index].x >= SCR_WIDTH - 2)
-  {
-    mtmovmind[Index].x = SCR_WIDTH - 3;
-    return IDLE;
-  }
-  else if(mtmovmind[Index].y <= 0)
-  {
-    mtmovmind[Index].y = 1;
-    return IDLE;
-  }
-  else if(mtmovmind[Index].y >= SCR_HEIGHT - 2)
-  {
-    mtmovmind[Index].y = SCR_HEIGHT - 3;
-    return IDLE;
-  }
-  else
-  {
-    mtmovmind[Index].x += mtmovmind[Index].dirx;
-    mtmovmind[Index].y += mtmovmind[Index].diry;
-  }
-  return BUSY;
-}
-
-uint16_t GetMindDistanceSquare(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
-{
-  return ((x0 - x1) * (x0 - x1) + (y0 - y1) * (y0 - y1));
-}
-
-void Motion_MindInit(void)
-{
-  int i;
-  for(i = 0; i < MINDMAX; i++)
-  {
-    mtmovmind[i].color = randomColor();
-    __ASM("NOP");
-    mtmovmind[i].x = rand() % (SCR_WIDTH - 4) + 4;
-    __ASM("NOP");
-    mtmovmind[i].y = rand() % SCR_HEIGHT;
-
-    mtmovmind[i].dirx = (rand() % 30 - 15) * 0.05f;
-    mtmovmind[i].diry = (rand() % 30 - 15) * 0.05f;
-    if(mtmovmind[i].dirx < 0.2f && mtmovmind[i].dirx > -0.2f)
-      mtmovmind[i].dirx = 0.5f;
-    if(mtmovmind[i].diry < 0.2f && mtmovmind[i].diry > -0.2f)
-      mtmovmind[i].diry = 0.5f;
-  }
-}
-
-void Motion_Mind(void)
-{
-  int i;
-  for(i = 0; i < ani_len.Mind; i++)
-  {
-    if(MovMind(i) == IDLE)
+    if (n <= 0)
     {
-      mtmovmind[i].color = randomColor();
-      mtmovmind[i].dirx = (rand() % 30 - 15) * 0.05f;
-      mtmovmind[i].diry = (rand() % 30 - 15) * 0.05f;
-      if(mtmovmind[i].dirx < 0.2f && mtmovmind[i].dirx > -0.2f)
-        mtmovmind[i].dirx = 0.5f;
-      if(mtmovmind[i].diry < 0.2f && mtmovmind[i].diry > -0.2f)
-        mtmovmind[i].diry = 0.5f;
-
-			if(ani_len.Mind < MINDMAX)
-			{
-				ani_len.Mind ++;
-			}
+        px(x0, y0, c, g);
+        return;
     }
-  }
 
-//  for(i = 0; i < ani_len.Mind ; i++)
-//  {
-//    for(j = 0; j < ani_len.Mind ; j++)
-//    {
-//      if((mtmovmind[i].x - mtmovmind[j].x) * (mtmovmind[i].x - mtmovmind[j].x) + (mtmovmind[i].y - mtmovmind[j].y) * (mtmovmind[i].y - mtmovmind[j].y) < 900)
-//      {
-//        AniDrawLine(mtmovmind[j].x, mtmovmind[j].y, mtmovmind[i].x, mtmovmind[i].y, RGB565_GRAY);
-//      }
-//    }
-//  }
-
-  for(i = 0; i < ani_len.Mind ; i++)
-    AniDrawDisc(mtmovmind[i].x, mtmovmind[i].y, 1, mtmovmind[i].color, CIRCLE_DRAW_ALL);
+    for (int i = 0; i <= n; i++)
+        px(x0 + (x1 - x0) * i / n, y0 + (y1 - y0) * i / n, c, g);
 }
 
-typedef struct
-{
-  int x;
-  int y;
-  float r;
-  uint16_t color;
-  float crt;
-} MTCIRCLE;
+/* ============================================================
+ *  状态（只有一个动画在跑，共用一块内存）
+ * ============================================================ */
 
-MTCIRCLE mtcircle[CIRCLEMAX];
+#define FLY_N 10
+#define RIP_N 3
+#define RAIN_N 56
+#define CITY_N 26
+#define STAR_N 30
+#define WARP_N 46
+#define BUB_N 15
+#define FW_P_N 40
 
-ANI_STATUS FucCircle(uint8_t Index)
+static union
 {
-  if(mtcircle[Index].crt < (mtcircle[Index].x % 6 + 16))
-  {
-    if(mtcircle[Index].r - mtcircle[Index].crt < 0)
+    struct
     {
-      mtcircle[Index].crt = 0;
-      return IDLE;
-    }
-    AniDrawDisc(mtcircle[Index].x, mtcircle[Index].y, mtcircle[Index].r - mtcircle[Index].crt, mtcircle[Index].color, CIRCLE_DRAW_ALL);
-//    AniDrawCircle(mtcircle[Index].x, mtcircle[Index].y, mtcircle[Index].r + mtcircle[Index].crt, RGB565_GRAY, CIRCLE_DRAW_ALL);
-    mtcircle[Index].crt += 0.2f;
-    return BUSY;
-  }
-  else
-  {
-    mtcircle[Index].crt = 0;
-    return IDLE;
-  }
-}
-void Motion_CircleInit(void)
-{
-  int i;
-  for(i = 0; i < CIRCLEMAX; i++)
-  {
-    mtcircle[i].x = rand() % (SCR_WIDTH - 12) + 6;
-    __ASM("NOP");
-    mtcircle[i].y = rand() % SCR_HEIGHT;
-    __ASM("NOP");
-    mtcircle[i].r = rand() % 5;
-    __ASM("NOP");
-    mtcircle[i].color = randomColor();
-  }
-}
+        float x, y, ph, w;
+        uint8_t c;
+    } fly[FLY_N];
 
-void Motion_Circle(void)
-{
-  int i;
-  for(i = 0; i < ani_len.Circle; i++)
-  {
-    if(FucCircle(i) == IDLE)
+    struct
     {
-      mtcircle[i].x = rand() % (SCR_WIDTH - 12) + 6;
-      __ASM("NOP");
-      mtcircle[i].y = rand() % SCR_HEIGHT;
-      __ASM("NOP");
-      mtcircle[i].r = rand() % 5;
-      __ASM("NOP");
-      mtcircle[i].color = randomColor();
+        float x, y, r;
+    } rip[RIP_N];
 
-      if(ani_len.Circle < CIRCLEMAX)
-      {
-        ani_len.Circle++;
-      }
-    }
-  }
-}
-typedef struct
-{
-  float x;
-  float y;
-  float dirx;
-  uint16_t color;
-  uint16_t type;
-} MTSNOWFLAKE;
-
-MTSNOWFLAKE mtsnowflake[STARMAX];
-
-ANI_STATUS MovSnowflake(uint8_t Index)
-{
-  mtsnowflake[Index].x += 0; // 求取两点之间的差值
-  mtsnowflake[Index].y+=0.4f;
-  if(mtsnowflake[Index].y > SCR_HEIGHT || mtsnowflake[Index].x > SCR_WIDTH || mtsnowflake[Index].y < 0 || mtsnowflake[Index].x < 0)
-    return IDLE;
-  return BUSY;
-}
-
-void Motion_SnowflakeInit(void)
-{
-  int i;
-  for(i = 0; i < STARMAX; i++)
-  {
-    mtsnowflake[i].x = rand() % (SCR_WIDTH - 12) + 6;
-    mtsnowflake[i].y = 1;
-    mtsnowflake[i].dirx = mtsnowflake[i].x + 32;
-    __ASM("NOP");
-    mtsnowflake[i].type = rand() % 5;
-    mtsnowflake[i].color = randomColor();
-    if(ani_len.Snowflake < STARMAX)
+    struct
     {
-      ani_len.Snowflake++;
-    }
-  }
-  //	ani_len.Snowflake = 5;
-}
+        float y, sp;
+        uint8_t len;
+    } rain[RAIN_N];
 
-void Motion_Snowflake(void)
-{
-  int i, j;
-  //	AniDrawLine(MovSnowflake[0][0],mtsnowflake[i].y,mtsnowflake[i].dirx,95,15);
-  for(i = 0; i < ani_len.Snowflake; i++)
-  {
-    for(j = 0; j < mtsnowflake[i].color % 5 + 1; j++)
+    struct
     {
-      if(MovSnowflake(i) == IDLE)
-      {
-        mtsnowflake[i].x = rand() % (SCR_WIDTH - 12) + 6;
-        mtsnowflake[i].y = 1;
-        mtsnowflake[i].dirx = 32.0f / SCR_HEIGHT;
-        __ASM("NOP");
-        mtsnowflake[i].type = rand() % 5;
-        mtsnowflake[i].color = randomColor();
-        if(ani_len.Snowflake < STARMAX)
+        int8_t b[W];
+        uint16_t t;
+    } ecg;
+
+    struct
+    {
+        struct
         {
-          ani_len.Snowflake++;
+            int16_t x;
+            uint8_t w, h, seed;
+        } b[CITY_N];
+        struct
+        {
+            uint8_t x, y, ph;
+        } st[STAR_N];
+        int16_t total;
+        float off;
+    } city;
+
+    struct
+    {
+        float a, d;
+    } warp[WARP_N];
+
+    struct
+    {
+        float x, y, ph, sp;
+        uint8_t r;
+    } bub[BUB_N];
+
+    struct
+    {
+        struct
+        {
+            float x, y, vx, vy;
+            uint8_t life, c;
+        } p[FW_P_N];
+        struct
+        {
+            float x, y, vy, ty;
+        } rk;
+        uint8_t n, rk_on, burst;
+        int16_t timer;
+    } fw;
+} st;
+
+/* ============================================================
+ *  1  萤火虫：慢速游荡 + 呼吸闪烁
+ * ============================================================ */
+
+static void fly_init(void)
+{
+    for (int i = 0; i < FLY_N; i++)
+    {
+        st.fly[i].x = rndf(0.0f, (float)W);
+        st.fly[i].y = rndf(0.0f, (float)H);
+        st.fly[i].ph = rndf(0.0f, 6.2832f);
+        st.fly[i].w = rndf(0.03f, 0.07f);
+        st.fly[i].c = (i < 6) ? Red : Cyan;
+    }
+}
+
+static void fly_step(void)
+{
+    for (int i = 0; i < FLY_N; i++)
+    {
+        st.fly[i].ph += st.fly[i].w;
+        st.fly[i].x += cosf(st.fly[i].ph * 1.7f) * 0.5f;
+        st.fly[i].y += sinf(st.fly[i].ph * 2.3f) * 0.18f;
+
+        if (st.fly[i].x < 0.0f)
+            st.fly[i].x += (float)W;
+        else if (st.fly[i].x >= (float)W)
+            st.fly[i].x -= (float)W;
+
+        if (st.fly[i].y < 0.0f)
+            st.fly[i].y += (float)H;
+        else if (st.fly[i].y >= (float)H)
+            st.fly[i].y -= (float)H;
+    }
+}
+
+static void fly_draw(void)
+{
+    for (int i = 0; i < FLY_N; i++)
+    {
+        int g = (int)(3.0f + 4.0f * sinf(st.fly[i].ph * 2.4f) + 0.5f);
+        int x = (int)(st.fly[i].x + 0.5f);
+        int y = (int)(st.fly[i].y + 0.5f);
+        int hg = g * 45 / 100;
+        Color c = (Color)st.fly[i].c;
+
+        if (hg < 1)
+            hg = 1;
+
+        px(x, y, c, g);
+        px(x - 1, y, c, hg);
+        px(x + 1, y, c, hg);
+        px(x, y - 1, c, hg);
+        px(x, y + 1, c, hg);
+    }
+}
+
+/* ============================================================
+ *  2  涟漪：椭圆水波扩散
+ * ============================================================ */
+
+static void rip_init(void)
+{
+    for (int i = 0; i < RIP_N; i++)
+    {
+        st.rip[i].x = rndf(12.0f, (float)(W - 12));
+        st.rip[i].y = rndf(7.0f, 12.0f);
+        st.rip[i].r = rndf(0.0f, 32.0f);
+    }
+}
+
+static void rip_step(void)
+{
+    for (int i = 0; i < RIP_N; i++)
+    {
+        st.rip[i].r += 0.55f;
+
+        if (st.rip[i].r > 34.0f)
+        {
+            st.rip[i].r = 0.0f;
+            st.rip[i].x = rndf(12.0f, (float)(W - 12));
+            st.rip[i].y = rndf(7.0f, 12.0f);
         }
-      }
     }
-    switch(mtsnowflake[i].type)
-    {
-    case 0:
-      AniDrawDisc(mtsnowflake[i].x, mtsnowflake[i].y, 1, mtsnowflake[i].color, CIRCLE_DRAW_ALL);
-      break;
-    case 1:
-      AniDrawDisc(mtsnowflake[i].x, mtsnowflake[i].y, 1, mtsnowflake[i].color, CIRCLE_DRAW_ALL);
-      AniDrawDot(mtsnowflake[i].x, mtsnowflake[i].y, 0);
-      break;
-    case 2:
-      AniDrawDot(mtsnowflake[i].x, mtsnowflake[i].y, mtsnowflake[i].color);
-      break;
-    case 3:
-      AniDrawDot(mtsnowflake[i].x, mtsnowflake[i].y, mtsnowflake[i].color);
-      AniDrawDot(mtsnowflake[i].x + 1, mtsnowflake[i].y + 1, mtsnowflake[i].color);
-      break;
-    case 4:
-      AniDrawDot(mtsnowflake[i].x, mtsnowflake[i].y, mtsnowflake[i].color);
-      AniDrawDot(mtsnowflake[i].x, mtsnowflake[i].y + 1, mtsnowflake[i].color);
-      AniDrawDot(mtsnowflake[i].x + 1, mtsnowflake[i].y, mtsnowflake[i].color);
-      break;
-    }
-  }
 }
 
-typedef struct
+static void rip_draw(void)
 {
-  int start;
-  uint16_t color;
-  float spd;
-  float x;
-  float y;
-  int len;
-  int type;
-} MTMOVMETEOR;
-
-MTMOVMETEOR mtmovmeteor[METEORMAX];
-#define MOVMETEORDEF 60.0f
-float movmeteorstep = MOVMETEORDEF / SCR_HEIGHT;
-
-ANI_STATUS Movmeteor(uint8_t Index)
-{
-  mtmovmeteor[Index].y++;
-  mtmovmeteor[Index].x += 0;
-  if(mtmovmeteor[Index].y > SCR_HEIGHT)
-    return IDLE;
-  else
-    return BUSY;
-}
-
-void Motion_MovmeteorInit(void)
-{
-  int i;
-  for(i = 0; i < METEORMAX; i++)
-  {
-    mtmovmeteor[i].start = rand() % SCR_WIDTH;
-    mtmovmeteor[i].x = mtmovmeteor[i].start;
-    mtmovmeteor[i].y = 0;
-    mtmovmeteor[i].spd = rand() % 10/10 + 0.2; // Speed
-    __ASM("NOP");
-    mtmovmeteor[i].type = rand() % 4; // Type
-    __ASM("NOP");
-    mtmovmeteor[i].len = rand() % 8;
-    ; // LineColor
-    __ASM("NOP");
-    mtmovmeteor[i].color = randomColor();
-    __ASM("NOP");
-    if(ani_len.Meteo < METEORMAX)
+    for (int i = 0; i < RIP_N; i++)
     {
-      ani_len.Meteo++;
-    }
-  }
-  //	ani_len.Meteo = 5;
-}
+        float r = st.rip[i].r;
+        int g = (int)(7.0f * (1.0f - r / 34.0f) + 0.5f);
+        int n;
 
-void Motion_Movmeteor(void)
-{
-  int i, j;
-  for(i = 0; i < ani_len.Meteo; i++)
-  {
-    for(j = 0; j < mtmovmeteor[i].spd; j++)
-    {
-      if(Movmeteor(i) == IDLE)
-      {
-        mtmovmeteor[i].start = rand() % SCR_WIDTH;
-        mtmovmeteor[i].x = mtmovmeteor[i].start;
-        mtmovmeteor[i].y = 0;
-        mtmovmeteor[i].spd = rand() % 10/10 + 0.2;// Speed
-        __ASM("NOP");
-        mtmovmeteor[i].type = rand() % 4; // Type
-        __ASM("NOP");
-        mtmovmeteor[i].len = rand() % 8;
-        ; // LineColor
-        __ASM("NOP");
-        mtmovmeteor[i].color = randomColor();
-        __ASM("NOP");
-        if(ani_len.Meteo < METEORMAX)
+        if (g <= 0)
+            continue;
+
+        n = 14 + (int)(r * 6.0f);
+
+        for (int k = 0; k < n; k++)
         {
-          ani_len.Meteo++;
+            float a = (float)k * 6.2832f / (float)n;
+
+            px((int)(st.rip[i].x + cosf(a) * r + 0.5f),
+               (int)(st.rip[i].y + sinf(a) * r * 0.5f + 0.5f), Cyan, g);
         }
-      }
+
+        px((int)(st.rip[i].x + 0.5f), (int)(st.rip[i].y + 0.5f), Red, g / 2 + 1);
     }
-    if(mtmovmeteor[i].len > 1)
-    {
-      mtmovmeteor[i].len--;
-      AniDrawLine(mtmovmeteor[i].start, 0, mtmovmeteor[i].x, mtmovmeteor[i].y, RGB565_GRAY);
-    }
-    else if((mtmovmeteor[i].y - (mtmovmeteor[i].spd * 3)) > 0)
-      AniDrawLine((mtmovmeteor[i].y - (mtmovmeteor[i].spd * 3)) * movmeteorstep + mtmovmeteor[i].start, mtmovmeteor[i].y - (mtmovmeteor[i].spd * 3), mtmovmeteor[i].x, mtmovmeteor[i].y, RGB565_GRAY);
-    switch(mtmovmeteor[i].type)
-    {
-    case 0:
-      AniDrawDot(mtmovmeteor[i].x, mtmovmeteor[i].y, mtmovmeteor[i].color);
-      break;
-    case 1:
-      AniDrawDot(mtmovmeteor[i].x + 1, mtmovmeteor[i].y, mtmovmeteor[i].color);
-      AniDrawDot(mtmovmeteor[i].x, mtmovmeteor[i].y + 1, mtmovmeteor[i].color);
-      break;
-    case 2:
-      AniDrawDisc(mtmovmeteor[i].x, mtmovmeteor[i].y, 1, mtmovmeteor[i].color, CIRCLE_DRAW_ALL);
-      break;
-    case 3:
-      AniDrawCircle(mtmovmeteor[i].x, mtmovmeteor[i].y, 1, mtmovmeteor[i].color, CIRCLE_DRAW_ALL);
-      AniDrawDot(mtmovmeteor[i].x, mtmovmeteor[i].y, 0);
-      break;
-    }
-  }
 }
 
-typedef struct
-{
-  int r;		 //行星大小
-  uint16_t color;	 //行星颜色
-  float spd;	 //行星转速
-  float orb;	 //行星运行轨道
-  float angle; //行星运行角度
-  float x;	 //行星X
-  float y;	 //行星Y
-} MTPLANET;
+/* ============================================================
+ *  3  数字雨：56 列下落光柱
+ * ============================================================ */
 
-MTPLANET mtplanet[PLANETMAX];
-
-ANI_STATUS Planet(uint8_t Index)
+static void rain_init(void)
 {
-  mtplanet[Index].angle += mtplanet[Index].spd;
-  if(mtplanet[Index].angle >= 360)
-  {
-    mtplanet[Index].angle = 0;
-    mtplanet[Index].orb++;
-    if(mtplanet[Index].orb >= 64)
-      return IDLE;
-  }
-  return BUSY;
+    for (int i = 0; i < RAIN_N; i++)
+    {
+        st.rain[i].y = -rndf(0.0f, (float)H * 1.6f);
+        st.rain[i].sp = rndf(0.35f, 0.9f);
+        st.rain[i].len = (uint8_t)(3 + rand() % 6);
+    }
 }
 
-void Motion_PlanetInit(void)
+static void rain_step(void)
 {
-
-  int i;
-  for(i = 0; i < PLANETMAX; i++)
-  {
-    mtplanet[i].r = rand() % 4 + 1;
-    __ASM("NOP");
-    mtplanet[i].color = randomColor();
-    __ASM("NOP");
-    mtplanet[i].spd = (rand() % 20 + 10) / 5;
-    __ASM("NOP");
-    mtplanet[i].orb = rand() % 60 + 4;
-    __ASM("NOP");
-    mtplanet[i].angle = 0;
-
-    mtplanet[i].x = 0;
-    mtplanet[i].y = 0;
-
-    if(ani_len.Planet < PLANETMAX)
+    for (int i = 0; i < RAIN_N; i++)
     {
-      ani_len.Planet++;
-    }
-  }
-  //	ani_len.Planet = 5;
-}
+        st.rain[i].y += st.rain[i].sp;
 
-void Motion_Planet(void)
-{
-
-  int i;
-  for(i = 0; i < ani_len.Planet; i++)
-  {
-    if(Planet(i) == IDLE)
-    {
-      mtplanet[i].r = rand() % 3 + 0; //行星大小
-      __ASM("NOP");
-      mtplanet[i].color = randomColor(); //行星颜色
-      __ASM("NOP");
-      mtplanet[i].spd = (rand() % 20 + 10) / 10; //行星转速
-      __ASM("NOP");
-      mtplanet[i].orb = rand() % 30 + 4; //行星运行轨道
-      __ASM("NOP");
-      mtplanet[i].angle = 0; //行星运行角度
-
-      mtplanet[i].x = 0; //行星X
-      mtplanet[i].y = 0; //行星Y
-
-      if(ani_len.Planet < PLANETMAX)
-      {
-        ani_len.Planet++;
-      }
-    }
-    mtplanet[i].x = SCR_WIDTH/2 + (mtplanet[i].orb * cos(mtplanet[i].angle * PI / 180));
-    mtplanet[i].y = SCR_HEIGHT/2 + (mtplanet[i].orb * sin(mtplanet[i].angle * PI / 180));
-
-    //		AniDrawCircle(SCR_WIDTH/2,SCR_HEIGHT/2,mtplanet[i].orb,3);
-  }
-
-//  for(i = 0; i < ani_len.Planet; i++)
-//  {
-//    for(j = 0; j < ani_len.Planet; j++)
-//    {
-//      //			Temp = GetMindDistanceSquare(mtmovmind[i].x,mtmovmind[i].y,mtmovmind[j].x,mtmovmind[j].y);
-//      if((mtplanet[i].x - mtplanet[j].x) * (mtplanet[i].x - mtplanet[j].x) + (mtplanet[i].y - mtplanet[j].y) * (mtplanet[i].y - mtplanet[j].y) < 1600)
-//      {
-//        if(mtplanet[i].r == 1 || mtplanet[j].r == 1)
-//          ;
-//        else
-//          AniDrawLine(mtplanet[j].x, mtplanet[j].y, mtplanet[i].x, mtplanet[i].y, RGB565_GRAY);
-//      }
-//    }
-//  }
-
-  //	for(i=0;i<ani_len.Planet-1;i++)
-  //	{
-  //		AniDrawLine(SCR_WIDTH/2+(mtplanet[i].orb*cos(mtplanet[i].angle*PI/180)),SCR_HEIGHT/2+(mtplanet[i].orb*sin(mtplanet[i].angle*PI/180)),SCR_WIDTH/2+(MovPlanet[3][i+1]*cos(MovPlanet[4][i+1]*PI/180)),SCR_HEIGHT/2+(MovPlanet[3][i+1]*sin(MovPlanet[4][i+1]*PI/180)),RGB565_GRAY);
-  //	}
-  //	AniDrawLine(SCR_WIDTH/2+(MovPlanet[3][0]*cos(MovPlanet[4][0]*PI/180)),SCR_HEIGHT/2+(MovPlanet[3][0]*sin(MovPlanet[4][0]*PI/180)),SCR_WIDTH/2+(MovPlanet[3][ani_len.Planet-1]*cos(MovPlanet[4][ani_len.Planet-1]*PI/180)),SCR_HEIGHT/2+(MovPlanet[3][ani_len.Planet-1]*sin(MovPlanet[4][ani_len.Planet-1]*PI/180)),RGB565_GRAY);
-
-  for(i = 0; i < ani_len.Planet; i++)
-  {
-    AniDrawDisc(mtplanet[i].x, mtplanet[i].y, mtplanet[i].r, mtplanet[i].color, CIRCLE_DRAW_ALL);
-  }
-}
-
-typedef struct
-{
-  int r;		 //外切圆半径
-  uint16_t color;	 //三角形颜色
-  float spd;	 //三角形转速
-  float angle; //三角形角度
-  float x;	 //行星X
-  float y;	 //行星Y
-  float dirx;
-  float diry;
-  float delt1;
-  float delt2;
-} MTTRIANGLE;
-
-MTTRIANGLE mttriangle[TRIANGLEMAX];
-
-ANI_STATUS Triangle(uint8_t Index)
-{
-  mttriangle[Index].angle += mttriangle[Index].spd;
-
-  mttriangle[Index].x += mttriangle[Index].dirx;
-  mttriangle[Index].y += mttriangle[Index].diry;
-
-  if(mttriangle[Index].x - mttriangle[Index].r > SCR_WIDTH || mttriangle[Index].y - mttriangle[Index].r > SCR_HEIGHT || mttriangle[Index].x + mttriangle[Index].r < 0 || mttriangle[Index].y + mttriangle[Index].r < 0)
-  {
-    return IDLE;
-  }
-  return BUSY;
-}
-
-void Motion_TriangleInit(void)
-{
-
-  int i;
-  for(i = 0; i < FULLTRIANGLEMAX; i++)
-  {
-    mttriangle[i].r = rand() % 10 + 5;
-    __ASM("NOP");
-    mttriangle[i].color = randomColor();
-    __ASM("NOP");
-    mttriangle[i].spd = (rand() % 20 + 10) / 15;
-    __ASM("NOP");
-    mttriangle[i].angle = rand() % 60; //运行角度30 150 270
-
-    mttriangle[i].x = rand() % SCR_WIDTH;
-    mttriangle[i].y = rand() % SCR_HEIGHT;
-
-    mttriangle[i].dirx = rand() % 20 * 0.1f - 1.0f;
-    if(mttriangle[i].dirx < 0.2f && mttriangle[i].dirx > -0.2f)
-      mttriangle[i].dirx = 0.5f;
-    mttriangle[i].diry = rand() % 20 * 0.1f - 1.0f;
-    if(mttriangle[i].diry < 0.2f && mttriangle[i].diry > -0.2f)
-      mttriangle[i].diry = 0.5f;
-    mttriangle[i].delt1 = rand() % 60 + 90;
-    mttriangle[i].delt2 = rand() % 60 + 210;
-
-    if(ani_len.Triangle < TRIANGLEMAX)
-    {
-      ani_len.Triangle++;
-    }
-  }
-  //	ani_len.Triangle = 2;
-}
-
-void Motion_Triangle(void)
-{
-
-  int i;
-  for(i = 0; i < ani_len.Triangle; i++)
-  {
-    if(Triangle(i) == IDLE)
-    {
-      mttriangle[i].r = rand() % 10 + 5;
-      __ASM("NOP");
-      mttriangle[i].color = randomColor();
-      __ASM("NOP");
-      mttriangle[i].spd = (rand() % 20 + 10) / 15;
-      __ASM("NOP");
-      mttriangle[i].angle = rand() % 60; //运行角度30 150 270
-
-      mttriangle[i].x = rand() % SCR_WIDTH;
-      mttriangle[i].y = rand() % SCR_HEIGHT;
-
-      mttriangle[i].dirx = rand() % 20 * 0.1f - 1.0f;
-      if(mttriangle[i].dirx < 0.2f && mttriangle[i].dirx > -0.2f)
-        mttriangle[i].dirx = 0.5f;
-      mttriangle[i].diry = rand() % 20 * 0.1f - 1.0f;
-      if(mttriangle[i].diry < 0.2f && mttriangle[i].diry > -0.2f)
-        mttriangle[i].diry = 0.5f;
-      mttriangle[i].delt1 = rand() % 60 + 90;
-      mttriangle[i].delt2 = rand() % 60 + 210;
-
-      if(ani_len.Triangle < TRIANGLEMAX)
-      {
-        ani_len.Triangle++;
-      }
-      else if(ani_len.Triangle > TRIANGLEMAX)
-        ani_len.Triangle = TRIANGLEMAX;
-    }
-  }
-
-  for(i = 0; i < ani_len.Triangle; i++)
-  {
-    AniTriangle(mttriangle[i].x + (mttriangle[i].r * cos(mttriangle[i].angle * PI / 180)), mttriangle[i].y + (mttriangle[i].r * sin(mttriangle[i].angle * PI / 180)), mttriangle[i].x + (mttriangle[i].r * cos((mttriangle[i].angle + mttriangle[i].delt1) * PI / 180)), mttriangle[i].y + (mttriangle[i].r * sin((mttriangle[i].angle + mttriangle[i].delt1) * PI / 180)), mttriangle[i].x + (mttriangle[i].r * cos((mttriangle[i].angle + mttriangle[i].delt2) * PI / 180)), mttriangle[i].y + (mttriangle[i].r * sin((mttriangle[i].angle + mttriangle[i].delt2) * PI / 180)), mttriangle[i].color);
-    if(mttriangle[i].r > 5)
-      AniTriangle(mttriangle[i].x + ((mttriangle[i].r - 5) * cos(mttriangle[i].angle * PI / 180)), mttriangle[i].y + ((mttriangle[i].r - 5) * sin(mttriangle[i].angle * PI / 180)), mttriangle[i].x + ((mttriangle[i].r - 5) * cos((mttriangle[i].angle + mttriangle[i].delt1) * PI / 180)), mttriangle[i].y + ((mttriangle[i].r - 5) * sin((mttriangle[i].angle + mttriangle[i].delt1) * PI / 180)), mttriangle[i].x + ((mttriangle[i].r - 5) * cos((mttriangle[i].angle + mttriangle[i].delt2) * PI / 180)), mttriangle[i].y + ((mttriangle[i].r - 5) * sin((mttriangle[i].angle + mttriangle[i].delt2) * PI / 180)), RGB565_GRAY);
-  }
-}
-
-void Motion_TriangleF(void)
-{
-
-  int i;
-  for(i = 0; i < ani_len.Triangle; i++)
-  {
-    if(Triangle(i) == IDLE)
-    {
-      mttriangle[i].r = rand() % 10 + 5;
-      __ASM("NOP");
-      mttriangle[i].color = randomColor();
-      __ASM("NOP");
-      mttriangle[i].spd = (rand() % 20 + 10) / 40;
-      __ASM("NOP");
-      mttriangle[i].angle = rand() % 60; //运行角度30 150 270
-
-      mttriangle[i].x = rand() % SCR_WIDTH;
-      mttriangle[i].y = rand() % SCR_HEIGHT;
-
-      mttriangle[i].dirx = rand() % 20 * 0.1f - 1.0f;
-      if(mttriangle[i].dirx < 0.2f && mttriangle[i].dirx > -0.2f)
-        mttriangle[i].dirx = 0.5f;
-      mttriangle[i].diry = rand() % 20 * 0.1f - 1.0f;
-      if(mttriangle[i].diry < 0.2f && mttriangle[i].diry > -0.2f)
-        mttriangle[i].diry = 0.5f;
-      mttriangle[i].delt1 = rand() % 60 + 90;
-      mttriangle[i].delt2 = rand() % 60 + 210;
-
-      if(ani_len.Triangle < FULLTRIANGLEMAX)
-      {
-        ani_len.Triangle++;
-      }
-    }
-  }
-
-  for(i = 0; i < ani_len.Triangle; i++)
-  {
-    AniFillTriangle(mttriangle[i].x + ((mttriangle[i].r) * cos(mttriangle[i].angle * PI / 180)), mttriangle[i].y + ((mttriangle[i].r) * sin(mttriangle[i].angle * PI / 180)), mttriangle[i].x + ((mttriangle[i].r) * cos((mttriangle[i].angle + mttriangle[i].delt1) * PI / 180)), mttriangle[i].y + ((mttriangle[i].r) * sin((mttriangle[i].angle + mttriangle[i].delt1) * PI / 180)), mttriangle[i].x + ((mttriangle[i].r) * cos((mttriangle[i].angle + mttriangle[i].delt2) * PI / 180)), mttriangle[i].y + ((mttriangle[i].r) * sin((mttriangle[i].angle + mttriangle[i].delt2) * PI / 180)), mttriangle[i].color);
-
- //   AniTriangle(mttriangle[i].x + ((mttriangle[i].r + 1) * cos(mttriangle[i].angle * PI / 180)), mttriangle[i].y + ((mttriangle[i].r + 1) * sin(mttriangle[i].angle * PI / 180)), mttriangle[i].x + ((mttriangle[i].r + 1) * cos((mttriangle[i].angle + mttriangle[i].delt1) * PI / 180)), mttriangle[i].y + ((mttriangle[i].r + 1) * sin((mttriangle[i].angle + mttriangle[i].delt1) * PI / 180)), mttriangle[i].x + ((mttriangle[i].r + 1) * cos((mttriangle[i].angle + mttriangle[i].delt2) * PI / 180)), mttriangle[i].y + ((mttriangle[i].r + 1) * sin((mttriangle[i].angle + mttriangle[i].delt2) * PI / 180)), RGB565_GRAY);
-    //		if(mttriangle[i].r>5)
-  }
-}
-
-typedef struct
-{
-  int m_start_x, m_start_y;
-  float m_x, m_y, m_x_factor, m_y_factor, m_size_factor, m_size;
-  uint16_t m_color; //颜色
-} MTSTARWAR;
-
-MTSTARWAR mtstarwar[STARWARMAX];
-
-ANI_STATUS MovStarWar(uint8_t Index)
-{
-  mtstarwar[Index].m_x_factor -= 1;
-  mtstarwar[Index].m_y_factor -= 1;
-  mtstarwar[Index].m_size += mtstarwar[Index].m_size / 30;
-  if(mtstarwar[Index].m_x_factor < 1 || mtstarwar[Index].m_y_factor < 1)
-  {
-    return IDLE;
-  }
-  if(mtstarwar[Index].m_start_x > (SCR_WIDTH / 2) && mtstarwar[Index].m_start_y > (SCR_HEIGHT / 2))
-  {
-    mtstarwar[Index].m_x = (SCR_WIDTH / 2) + (SCR_WIDTH * (mtstarwar[Index].m_start_x - (SCR_WIDTH / 2)) / mtstarwar[Index].m_x_factor);
-    mtstarwar[Index].m_y = (SCR_HEIGHT / 2) + (SCR_HEIGHT * (mtstarwar[Index].m_start_y - (SCR_HEIGHT / 2)) / mtstarwar[Index].m_y_factor);
-  }
-  else if(mtstarwar[Index].m_start_x <= (SCR_WIDTH / 2) && mtstarwar[Index].m_start_y > (SCR_HEIGHT / 2))
-  {
-    mtstarwar[Index].m_x = (SCR_WIDTH / 2) - (SCR_WIDTH * ((SCR_WIDTH / 2) - mtstarwar[Index].m_start_x) / mtstarwar[Index].m_x_factor);
-    mtstarwar[Index].m_y = (SCR_HEIGHT / 2) + (SCR_HEIGHT * (mtstarwar[Index].m_start_y - (SCR_HEIGHT / 2)) / mtstarwar[Index].m_y_factor);
-  }
-  else if(mtstarwar[Index].m_start_x > (SCR_WIDTH / 2) && mtstarwar[Index].m_start_y <= (SCR_HEIGHT / 2))
-  {
-    mtstarwar[Index].m_x = (SCR_WIDTH / 2) + (SCR_WIDTH * (mtstarwar[Index].m_start_x - (SCR_WIDTH / 2)) / mtstarwar[Index].m_x_factor);
-    mtstarwar[Index].m_y = (SCR_HEIGHT / 2) - (SCR_HEIGHT * ((SCR_HEIGHT / 2) - mtstarwar[Index].m_start_y) / mtstarwar[Index].m_y_factor);
-  }
-  else if(mtstarwar[Index].m_start_x <= (SCR_WIDTH / 2) && mtstarwar[Index].m_start_y <= (SCR_HEIGHT / 2))
-  {
-    mtstarwar[Index].m_x = (SCR_WIDTH / 2) - (SCR_WIDTH * ((SCR_WIDTH / 2) - mtstarwar[Index].m_start_x) / mtstarwar[Index].m_x_factor);
-    mtstarwar[Index].m_y = (SCR_HEIGHT / 2) - (SCR_HEIGHT * ((SCR_HEIGHT / 2) - mtstarwar[Index].m_start_y) / mtstarwar[Index].m_y_factor);
-  }
-
-  if(mtstarwar[Index].m_x < 0 || (mtstarwar[Index].m_x + mtstarwar[Index].m_size - 1) >= SCR_WIDTH ||
-      mtstarwar[Index].m_y < 0 || (mtstarwar[Index].m_y + mtstarwar[Index].m_size - 1) >= SCR_HEIGHT)
-  {
-    return IDLE;
-  }
-  return BUSY;
-}
-
-void Motion_StarWarInit(void)
-{
-  int i;
-  for(i = 0; i < STARWARMAX; i++)
-  {
-    mtstarwar[i].m_x = mtstarwar[i].m_start_x = rand() % SCR_WIDTH;
-    mtstarwar[i].m_y = mtstarwar[i].m_start_y = rand() % SCR_HEIGHT;
-    mtstarwar[i].m_size = FACTOR_SIZE;
-    mtstarwar[i].m_x_factor = SCR_WIDTH;
-    mtstarwar[i].m_y_factor = SCR_HEIGHT;
-    mtstarwar[i].m_size_factor = 1;
-    mtstarwar[i].m_color = randomColor();
-  }
-  //	ani_len.Starwar = 5;
-}
-
-void Motion_StarWar(void)
-{
-  int i;
-  //	AniDrawLine(MovSnowflake[0][0],mtstarwar[i].y,mtstarwar[i].dirx,95,15);
-  for(i = 0; i < ani_len.Starwar; i++)
-  {
-    if(MovStarWar(i) == IDLE)
-    {
-      mtstarwar[i].m_x = mtstarwar[i].m_start_x = rand() % SCR_WIDTH;
-      mtstarwar[i].m_y = mtstarwar[i].m_start_y = rand() % SCR_HEIGHT;
-      mtstarwar[i].m_size = FACTOR_SIZE;
-      mtstarwar[i].m_x_factor = SCR_WIDTH;
-      mtstarwar[i].m_y_factor = SCR_HEIGHT;
-      mtstarwar[i].m_size_factor = 1;
-      mtstarwar[i].m_color = randomColor();
-      if(ani_len.Starwar < STARWARMAX)
-      {
-        ani_len.Starwar++;
-      }
-    }
-  }
-  for(i = 0; i < ani_len.Starwar; i++)
-  {
-    if(FACTOR_SHAPE == 0)
-    {
-      AniDrawBox(mtstarwar[i].m_x, mtstarwar[i].m_y, mtstarwar[i].m_x + mtstarwar[i].m_size - 1, mtstarwar[i].m_y + mtstarwar[i].m_size - 1, mtstarwar[i].m_color); // draw star
-    }
-    else if(FACTOR_SHAPE == 1)
-    {
-      AniDrawDisc(mtstarwar[i].m_x, mtstarwar[i].m_y, mtstarwar[i].m_size, mtstarwar[i].m_color, CIRCLE_DRAW_ALL);
-    }
-    else if(FACTOR_SHAPE == 2)
-    {
-      AniDrawDot(mtstarwar[i].m_x, mtstarwar[i].m_y, mtstarwar[i].m_color);
-    }
-  }
-}
-
-typedef struct
-{
-  float x;			// x坐标
-  float y;			// y坐标
-  float dirx;			// x运动差
-  float diry;			// y运动差
-  float size;			//大小
-  float r;			//半径
-  float a;			//角度
-  float maxh;			//高度
-  float radius;		//公转半径
-  float speed;		//速率
-  bool state;			//动画状态
-  double Stime;		//计数器
-  uint16_t linecolor; //线条颜色
-  uint16_t color;		//点位颜色
-} MTGCIRCLE;
-
-MTGCIRCLE GCircle[GCIRCLEMAX];
-void RefresGCircle(int i)
-{
-  GCircle[i].state = true;
-  GCircle[i].speed = 0.01;
-
-  GCircle[i].Stime = 0;
-
-  GCircle[i].r = 1 + rand() % 3;
-
-  GCircle[i].x = GCircle[i].r + rand() % SCR_WIDTH;
-
-  GCircle[i].y = SCR_HEIGHT + GCircle[i].r;
-  GCircle[i].dirx = 0;
-  GCircle[i].diry = 0;
-  GCircle[i].maxh = (SCR_HEIGHT / 2) + rand() % (SCR_HEIGHT / 2);
-  GCircle[i].color = randomColor();
-}
-
-void Motion_GCFireworksInit()
-{
-  for(int i = 0; i < GCIRCLEMAX; i++)
-  {
-    RefresGCircle(i);
-  }
-}
-
-/*烟花动画*/
-void Motion_GCFireworks(void)
-{
-  for(int i = 0; i < ani_len.Circle; i++)
-  {
-    if(GCircle[i].state == true && SCR_HEIGHT - GCircle[i].y < GCircle[i].maxh / 2)
-    {
-
-      GCircle[i].Stime++;
-
-      GCircle[i].diry = GCircle[i].Stime * GCircle[i].Stime * GCircle[i].speed;
-
-      GCircle[i].y -= GCircle[i].diry;
-
-      int s = 1;
-
-      for(double a = 0; a < GCircle[i].diry; a++)
-      {
-        AniDrawDisc(GCircle[i].x, GCircle[i].y + a * 5, GCircle[i].r - s, RGB565_GRAY, CIRCLE_DRAW_ALL); //半空
-        s++;
-      }
-    }
-    else if(GCircle[i].state == true && SCR_HEIGHT - GCircle[i].y > GCircle[i].maxh / 2)
-    {
-			if(GCircle[i].Stime > 0)
-				GCircle[i].Stime--;
-
-
-      GCircle[i].diry = GCircle[i].Stime * GCircle[i].Stime * GCircle[i].speed;
-
-      GCircle[i].y -= GCircle[i].diry;
-
-      int s = 1;
-
-      for(double a = 0; a < GCircle[i].diry - 1; a++)
-      {
-        AniDrawDisc(GCircle[i].x, GCircle[i].y + a, GCircle[i].r - s, GCircle[i].color, CIRCLE_DRAW_ALL);
-        s++;
-      }
-    }
-    if(GCircle[i].state == true && SCR_HEIGHT - GCircle[i].y >= GCircle[i].maxh)
-    {
-      GCircle[i].Stime = 0;
-      GCircle[i].state = false;
-    }
-    else if(GCircle[i].state == false)
-    {
-      if(GCircle[i].dirx + GCircle[i].r > SCR_HEIGHT || GCircle[i].diry + GCircle[i].r > SCR_WIDTH)
-      {
-        RefresGCircle(i);
-        if(ani_len.Circle < GCIRCLEMAX)
+        if (st.rain[i].y - (float)st.rain[i].len > (float)H)
         {
-          ani_len.Circle++;
+            st.rain[i].y = -rndf(0.0f, 6.0f);
+            st.rain[i].sp = rndf(0.35f, 0.9f);
+            st.rain[i].len = (uint8_t)(3 + rand() % 6);
         }
-        continue;
-      }
-      GCircle[i].Stime += 12;
-      GCircle[i].dirx = GCircle[i].x + cos(PI / 2 + PI / 4) * GCircle[i].Stime;
-      GCircle[i].diry = GCircle[i].y + sin(PI / 2 + PI / 4) * GCircle[i].Stime;
     }
-  }
-}
-#define FIREWORKFLASHL 20
-#define FIREWORKMAX 1
-
-#define FIREWORKSINGLE 20
-#define FIREWORKTUOYING 10
-
-uint8_t FireworkNum = 1;
-
-typedef struct
-{
-    float spd[FIREWORKSINGLE];
-    float xspd[FIREWORKSINGLE];
-    float yspd[FIREWORKSINGLE];
-    float x[FIREWORKSINGLE][FIREWORKTUOYING];
-    float y[FIREWORKSINGLE][FIREWORKTUOYING];
-    float yup[FIREWORKTUOYING];
-
-    int states; 
-    int runtimes;
-    int upruntimes;
-
-    uint16_t color[FIREWORKSINGLE];
-
-} MTFIREWORK;
-
-typedef struct
-{
-    int ange;
-    int r[FIREWORKSINGLE];
-    uint16_t color[FIREWORKSINGLE];
-
-} MTFIREWORKC;
-
-MTFIREWORK mtfirework[FIREWORKMAX];
-MTFIREWORKC mtfireworkc[FIREWORKMAX];
-
-
-
-/* =========================
-   颜色渐变函数
-   ========================= */
-
-static inline uint16_t colorFade(uint16_t color, int step)
-{
-    uint8_t red = (color >> 4) & 0x07;
-    uint8_t blue = color & 0x07;
-
-    if(red)
-    {
-        if(red > step)
-            red -= step;
-        else
-            red = 0;
-    }
-
-    if(blue)
-    {
-        if(blue > step)
-            blue -= step;
-        else
-            blue = 0;
-    }
-
-    return (red << 4) | blue;
 }
 
-
-
-ANI_STATUS Firework(uint8_t Index)
+static void rain_draw(void)
 {
-    if (mtfirework[Index].states == 2)
+    for (int i = 0; i < RAIN_N; i++)
     {
-        for (int i = 0; i < FIREWORKSINGLE; i++)
+        int x = i * 2;
+        int head = (int)st.rain[i].y;
+
+        for (int k = 0; k < st.rain[i].len; k++)
         {
-            for (int j = FIREWORKTUOYING - 2; j >= 0; j--)
+            int y = head - k;
+
+            if (y < 0 || y >= H)
+                continue;
+
+            if (k == 0)
+                px(x, y, White, 7);
+            else
+                px(x, y, Cyan, 6 - k);
+        }
+    }
+}
+
+/* ============================================================
+ *  4  心电：横向滚动波形
+ * ============================================================ */
+
+static int8_t ecg_sample(uint16_t t)
+{
+    uint8_t p = (uint8_t)(t % 34);
+
+    if (p >= 5 && p < 9)
+        return 2;
+    if (p == 16)
+        return -2;
+    if (p == 18)
+        return -4;
+    if (p == 19)
+        return 9;
+    if (p == 20)
+        return -5;
+    if (p == 21)
+        return 1;
+    if (p >= 26 && p < 31)
+        return 3;
+
+    return 0;
+}
+
+static void ecg_init(void)
+{
+    memset(st.ecg.b, 0, W);
+    st.ecg.t = 0;
+}
+
+static void ecg_step(void)
+{
+    memmove(st.ecg.b, st.ecg.b + 1, W - 1);
+    st.ecg.b[W - 1] = ecg_sample(st.ecg.t++);
+}
+
+static void ecg_draw(void)
+{
+    const int base = 11;
+
+    for (int i = 0; i < W; i++)
+    {
+        int y1 = base - st.ecg.b[i];
+        int y0 = (i > 0) ? base - st.ecg.b[i - 1] : y1;
+        int lo = (y0 < y1) ? y0 : y1;
+        int hi = (y0 > y1) ? y0 : y1;
+
+        for (int y = lo; y <= hi; y++)
+            px(i, y, Cyan, 4);
+    }
+
+    for (int i = W - 10; i < W; i++)
+        if (st.ecg.b[i] >= 8)
+            px(i, base - st.ecg.b[i], Red, 7);
+
+    px(W - 1, base - st.ecg.b[W - 1], White, 7);
+}
+
+/* ============================================================
+ *  5  天际线：滚动城市
+ * ============================================================ */
+
+static uint32_t city_hash(int x, int y, int seed)
+{
+    uint32_t h = (uint32_t)x * 73856093u ^ (uint32_t)y * 19349663u ^ (uint32_t)seed * 83492791u;
+
+    h ^= h >> 13;
+    h *= 2654435761u;
+    h ^= h >> 16;
+
+    return h;
+}
+
+static void city_init(void)
+{
+    int x = 0;
+
+    for (int i = 0; i < CITY_N; i++)
+    {
+        st.city.b[i].w = (uint8_t)(3 + rand() % 7);
+        st.city.b[i].h = (uint8_t)(2 + rand() % 9);
+        st.city.b[i].x = (int16_t)x;
+        st.city.b[i].seed = (uint8_t)(rand() % 97);
+        x += st.city.b[i].w + 1 + rand() % 3;
+    }
+
+    st.city.total = (int16_t)x;
+    st.city.off = 0.0f;
+
+    for (int i = 0; i < STAR_N; i++)
+    {
+        st.city.st[i].x = (uint8_t)(rand() % W);
+        st.city.st[i].y = (uint8_t)(rand() % 10);
+        st.city.st[i].ph = (uint8_t)(rand() % 64);
+    }
+}
+
+static void city_step(void)
+{
+    st.city.off += 0.35f;
+
+    if (st.city.off >= (float)st.city.total)
+        st.city.off -= (float)st.city.total;
+
+    for (int i = 0; i < STAR_N; i++)
+        st.city.st[i].ph++;
+}
+
+static void city_draw(void)
+{
+    /* 地面 */
+    for (int x = 0; x < W; x++)
+        px(x, H - 1, White, 1);
+
+    /* 星星 */
+    for (int i = 0; i < STAR_N; i++)
+        px(st.city.st[i].x, st.city.st[i].y, White,
+           2 + ((st.city.st[i].ph >> 4) & 1));
+
+    /* 建筑 */
+    for (int i = 0; i < CITY_N; i++)
+    {
+        for (int rep = 0; rep < 2; rep++)
+        {
+            int bx = (int)((float)st.city.b[i].x - st.city.off + 0.5f) + rep * st.city.total;
+            int top, bw = st.city.b[i].w;
+
+            if (bx > W || bx + bw < 0)
+                continue;
+
+            top = H - 1 - st.city.b[i].h;
+
+            for (int dx = 0; dx < bw; dx++)
             {
-                mtfirework[Index].x[i][j + 1] = mtfirework[Index].x[i][j];
-                mtfirework[Index].y[i][j + 1] = mtfirework[Index].y[i][j];
+                int x = bx + dx;
+
+                if (x < 0 || x >= W)
+                    continue;
+
+                for (int y = top; y < H - 1; y++)
+                    px(x, y, White, (y == top) ? 2 : 1);
+
+                for (int wy = top + 2; wy < H - 2; wy += 3)
+                    for (int wx = 1; wx < bw - 1; wx += 2)
+                        if (city_hash(wx, wy, st.city.b[i].seed) & 0x20)
+                            px(bx + wx, wy, Cyan, 5);
             }
 
-            mtfirework[Index].x[i][0] += mtfirework[Index].xspd[i];
-            mtfirework[Index].y[i][0] += mtfirework[Index].yspd[i];
-
-            mtfirework[Index].yspd[i] = mtfirework[Index].yspd[i] + 0.015f * mtfirework[Index].runtimes;
+            if (st.city.b[i].h > 7 && (((anim_frame >> 4) + st.city.b[i].seed) & 1))
+                px(bx + bw / 2, top - 1, Red, 7);
         }
+    }
+}
 
-        if (mtfirework[Index].runtimes++ > 80)
+/* ============================================================
+ *  6  星空穿越：从中心向外的星轨
+ * ============================================================ */
+
+static void warp_init(void)
+{
+    for (int i = 0; i < WARP_N; i++)
+    {
+        st.warp[i].a = rndf(0.0f, 6.2832f);
+        st.warp[i].d = rndf(0.0f, 1.0f);
+    }
+}
+
+static void warp_step(void)
+{
+    for (int i = 0; i < WARP_N; i++)
+    {
+        st.warp[i].d += 0.012f + st.warp[i].d * 0.045f;
+
+        if (st.warp[i].d > 1.0f)
         {
-            return IDLE;
+            st.warp[i].d = 0.03f;
+            st.warp[i].a = rndf(0.0f, 6.2832f);
         }
+    }
+}
+
+static void warp_draw(void)
+{
+    for (int i = 0; i < WARP_N; i++)
+    {
+        float r = st.warp[i].d;
+        float pr = r - (0.05f + r * 0.16f);
+        float ca = cosf(st.warp[i].a);
+        float sa = sinf(st.warp[i].a);
+
+        if (pr < 0.02f)
+            pr = 0.02f;
+
+        draw_line((int)((float)(W / 2) + ca * pr * 55.0f + 0.5f),
+                  (int)((float)(H / 2) + sa * pr * 8.6f + 0.5f),
+                  (int)((float)(W / 2) + ca * r * 55.0f + 0.5f),
+                  (int)((float)(H / 2) + sa * r * 8.6f + 0.5f),
+                  White, (int)(2.0f + r * 5.0f));
+    }
+}
+
+/* ============================================================
+ *  7  气泡：上浮 + 摇摆
+ * ============================================================ */
+
+static void bub_init(void)
+{
+    for (int i = 0; i < BUB_N; i++)
+    {
+        st.bub[i].x = rndf(0.0f, (float)W);
+        st.bub[i].y = rndf(0.0f, (float)H);
+        st.bub[i].ph = rndf(0.0f, 6.2832f);
+        st.bub[i].sp = rndf(0.2f, 0.55f);
+        st.bub[i].r = (uint8_t)(1 + rand() % 2);
+    }
+}
+
+static void bub_step(void)
+{
+    for (int i = 0; i < BUB_N; i++)
+    {
+        st.bub[i].y -= st.bub[i].sp;
+        st.bub[i].ph += 0.07f;
+        st.bub[i].x += sinf(st.bub[i].ph) * 0.22f;
+
+        if (st.bub[i].y < -2.0f)
+        {
+            st.bub[i].y = (float)H + 1.0f + rndf(0.0f, 3.0f);
+            st.bub[i].x = rndf(0.0f, (float)W);
+            st.bub[i].r = (uint8_t)(1 + rand() % 2);
+        }
+    }
+}
+
+static void bub_draw(void)
+{
+    for (int i = 0; i < BUB_N; i++)
+    {
+        int x = (int)(st.bub[i].x + 0.5f);
+        int y = (int)(st.bub[i].y + 0.5f);
+
+        if (y < -2 || y > H + 1)
+            continue;
+
+        if (st.bub[i].r < 2)
+        {
+            px(x, y, Cyan, 4);
+            px(x, y - 1, Cyan, 3);
+        }
+        else
+        {
+            px(x - 1, y, Cyan, 4);
+            px(x + 1, y, Cyan, 4);
+            px(x, y - 1, Cyan, 3);
+            px(x, y + 1, Cyan, 3);
+            px(x - 1, y - 1, Cyan, 2);
+            px(x + 1, y - 1, Cyan, 2);
+            px(x - 1, y + 1, Cyan, 2);
+            px(x + 1, y + 1, Cyan, 2);
+        }
+
+        px(x, y - 1, White, 7);
+    }
+}
+
+/* ============================================================
+ *  8  烟花：升空 -> 爆炸 -> 重力拖尾
+ * ============================================================ */
+
+static void fw_init(void)
+{
+    st.fw.n = 0;
+    st.fw.rk_on = 0;
+    st.fw.burst = 0;
+    st.fw.timer = 0;
+}
+
+static void fw_launch(void)
+{
+    st.fw.rk.x = rndf(14.0f, (float)(W - 14));
+    st.fw.rk.y = (float)(H - 1);
+    st.fw.rk.vy = -rndf(1.5f, 2.2f);
+    st.fw.rk.ty = rndf(2.0f, 6.0f);
+    st.fw.rk_on = 1;
+}
+
+static void fw_add(float x, float y, float vx, float vy, uint8_t life, uint8_t c)
+{
+    if (st.fw.n >= FW_P_N)
+        return;
+
+    st.fw.p[st.fw.n].x = x;
+    st.fw.p[st.fw.n].y = y;
+    st.fw.p[st.fw.n].vx = vx;
+    st.fw.p[st.fw.n].vy = vy;
+    st.fw.p[st.fw.n].life = life;
+    st.fw.p[st.fw.n].c = c;
+    st.fw.n++;
+}
+
+static void fw_step(void)
+{
+    if (!st.fw.rk_on)
+    {
+        if (--st.fw.timer <= 0)
+            fw_launch();
     }
     else
     {
-        for (int j = FIREWORKTUOYING - 2; j >= 0; j--)
+        st.fw.rk.y += st.fw.rk.vy;
+        st.fw.rk.vy += 0.012f;
+
+        if (st.fw.rk.y <= st.fw.rk.ty)
         {
-            mtfirework[Index].yup[j + 1] = mtfirework[Index].yup[j];
-        }
+            uint8_t c = (st.fw.burst++ & 1) ? Red : Cyan;
 
-        mtfirework[Index].yup[0] -= (mtfirework[Index].yup[0] - mtfirework[Index].y[0][0]) * 0.08f + 0.08f;
+            for (int i = 0; i < 26; i++)
+            {
+                float a = (float)i * 6.2832f / 26.0f + rndf(0.0f, 0.12f);
+                float sp = rndf(0.45f, 1.5f);
 
-        if (mtfirework[Index].yup[0] < mtfirework[Index].y[0][0])
-            mtfirework[Index].states = 2;
+                fw_add(st.fw.rk.x, st.fw.rk.y,
+                       cosf(a) * sp, sinf(a) * sp * 0.85f,
+                       (uint8_t)(16 + rand() % 12), c);
+            }
 
-        if (mtfirework[Index].upruntimes++ > 100)
-        {
-            return IDLE;
+            for (int i = 0; i < 7; i++)
+            {
+                float a = rndf(0.0f, 6.2832f);
+                float sp = rndf(0.2f, 0.8f);
+
+                fw_add(st.fw.rk.x, st.fw.rk.y,
+                       cosf(a) * sp, sinf(a) * sp,
+                       (uint8_t)(10 + rand() % 8), White);
+            }
+
+            st.fw.rk_on = 0;
+            st.fw.timer = (int16_t)(14 + rand() % 20);
         }
     }
 
-    return BUSY;
-}
-
-
-
-void Motion_FireworkInit(void)
-{
-    for (int p = 0; p < FIREWORKMAX; p++)
+    for (uint8_t i = 0; i < st.fw.n;)
     {
-        int x = rand() % (SCR_WIDTH / 2) + SCR_WIDTH / 4;
-        int y = rand() % (SCR_HEIGHT / 2) + SCR_HEIGHT / 6;
+        st.fw.p[i].vy += 0.055f;
+        st.fw.p[i].vx *= 0.992f;
+        st.fw.p[i].x += st.fw.p[i].vx;
+        st.fw.p[i].y += st.fw.p[i].vy;
 
-        for (int i = 0; i < FIREWORKSINGLE; i++)
+        if (st.fw.p[i].life > 0)
+            st.fw.p[i].life--;
+
+        if (st.fw.p[i].life == 0 || st.fw.p[i].y > (float)H + 3.0f)
         {
-            for (int j = 1; j < FIREWORKTUOYING; j++)
-            {
-                mtfirework[p].x[i][j] = 0;
-                mtfirework[p].y[i][j] = 0;
-            }
-
-            mtfirework[p].x[i][0] = x;
-            mtfirework[p].y[i][0] = y;
-
-            mtfirework[p].yup[i] = SCR_HEIGHT;
-
-            mtfireworkc[p].r[i] = rand() % 1 + 1;
-            mtfireworkc[p].color[i] = randomColor();
-
-            mtfireworkc[p].ange = rand() % 360;
-
-            mtfirework[p].spd[i] = (rand() % 600) * 0.005 + 0.02;
-
-            mtfirework[p].xspd[i] = cos(mtfireworkc[p].ange) * mtfirework[p].spd[i];
-            mtfirework[p].yspd[i] = sin(mtfireworkc[p].ange) * mtfirework[p].spd[i];
+            st.fw.n--;
+            st.fw.p[i] = st.fw.p[st.fw.n];
+            continue;
         }
-
-        mtfirework[p].states = 0;
-        mtfirework[p].runtimes = 0;
-        mtfirework[p].upruntimes = 0;
+        i++;
     }
 }
 
-
-
-void Motion_Firework(void)
+static void fw_draw(void)
 {
-    for (int p = 0; p < FireworkNum; p++)
+    if (st.fw.rk_on)
     {
-        if (Firework(p) == IDLE)
-        {
-            int x = rand() % (SCR_WIDTH / 2) + SCR_WIDTH / 4;
-            int y = rand() % (SCR_HEIGHT / 2) + SCR_HEIGHT / 6;
+        for (int i = 0; i < 4; i++)
+            px((int)(st.fw.rk.x + 0.5f), (int)(st.fw.rk.y + 0.5f) + i,
+               i == 0 ? White : Red, 7 - i * 2);
+    }
 
-            for (int i = 0; i < FIREWORKSINGLE; i++)
-            {
-                for (int j = 1; j < FIREWORKTUOYING; j++)
-                {
-                    mtfirework[p].x[i][j] = 0;
-                    mtfirework[p].y[i][j] = 0;
-                }
+    for (uint8_t i = 0; i < st.fw.n; i++)
+    {
+        int g = (int)((float)st.fw.p[i].life * 0.45f);
 
-                mtfirework[p].x[i][0] = x;
-                mtfirework[p].y[i][0] = y;
+        if (g > 7)
+            g = 7;
 
-                mtfirework[p].yup[i] = SCR_HEIGHT;
-
-                mtfireworkc[p].r[i] = rand() % 1 + 1;
-                mtfireworkc[p].color[i] = randomColor();
-
-                mtfireworkc[p].ange = rand() % 360;
-
-                mtfirework[p].spd[i] = (rand() % 600) * 0.005 + 0.02;
-
-                mtfirework[p].xspd[i] = cos(mtfireworkc[p].ange) * mtfirework[p].spd[i];
-                mtfirework[p].yspd[i] = sin(mtfireworkc[p].ange) * mtfirework[p].spd[i];
-            }
-
-            mtfirework[p].states = 0;
-            mtfirework[p].runtimes = 0;
-            mtfirework[p].upruntimes = 0;
-
-            if (FireworkNum < FIREWORKMAX)
-            {
-                FireworkNum++;
-            }
-        }
-
-
-
-        /* =====================
-           爆炸阶段
-           ===================== */
-
-        if (mtfirework[p].states == 2)
-        {
-            for (int i = 0; i < FIREWORKSINGLE; i++)
-            {
-                for (int j = FIREWORKTUOYING - 1; j > 0; j--)
-                {
-                    if(rand()%FIREWORKFLASHL)
-                    {
-                        uint16_t fadeColor = colorFade(mtfireworkc[p].color[i], j);
-
-                        if(j < (FIREWORKTUOYING/2))
-                            AniDrawDisc(mtfirework[p].x[i][j], mtfirework[p].y[i][j],
-                                        mtfireworkc[p].r[i],
-                                        fadeColor,
-                                        CIRCLE_DRAW_ALL);
-                        else
-                            AniDrawDisc(mtfirework[p].x[i][j], mtfirework[p].y[i][j],
-                                        0,
-                                        fadeColor,
-                                        CIRCLE_DRAW_ALL);
-                    }
-                }
-            }
-        }
-
-
-        /* =====================
-           上升阶段
-           ===================== */
-
-        else
-        {
-            for (int j = FIREWORKTUOYING - 1; j > 0; j--)
-            {
-                uint16_t fadeRed  = colorFade(0x70, j);
-                uint16_t fadeBlue = colorFade(0x07, j);
-
-                if(rand()%FIREWORKFLASHL)
-                    AniDrawDisc(mtfirework[p].x[0][0],
-                                mtfirework[p].yup[j],
-                                1,
-                                fadeRed,
-                                CIRCLE_DRAW_ALL);
-
-                if(rand()%FIREWORKFLASHL)
-                    AniDrawDisc(mtfirework[p].x[0][0],
-                                mtfirework[p].yup[j],
-                                1,
-                                fadeBlue,
-                                CIRCLE_DRAW_ALL);
-            }
-        }
+        px((int)(st.fw.p[i].x + 0.5f), (int)(st.fw.p[i].y + 0.5f),
+           (Color)st.fw.p[i].c, g);
+        px((int)(st.fw.p[i].x - st.fw.p[i].vx + 0.5f),
+           (int)(st.fw.p[i].y - st.fw.p[i].vy + 0.5f),
+           (Color)st.fw.p[i].c, g - 3);
     }
 }
-#ifdef __cplusplus
+
+/* ============================================================
+ *  调度
+ * ============================================================ */
+
+typedef struct
+{
+    void (*init)(void);
+    void (*step)(void);
+    void (*draw)(void);
+} Anim_t;
+
+static const Anim_t anims[ANIM_COUNT] = {
+    {fly_init, fly_step, fly_draw},   /* 0 Firefly */
+    {rip_init, rip_step, rip_draw},   /* 1 Ripple */
+    {rain_init, rain_step, rain_draw},/* 2 Matrix */
+    {ecg_init, ecg_step, ecg_draw},   /* 3 ECG */
+    {city_init, city_step, city_draw},/* 4 Skyline */
+    {warp_init, warp_step, warp_draw},/* 5 Warp */
+    {bub_init, bub_step, bub_draw},   /* 6 Bubble */
+    {fw_init, fw_step, fw_draw},      /* 7 Firework */
+};
+
+void Motion_Init(void)
+{
+    srand(HAL_GetTick());
+    anim_cur = 0xFF; /* 下一帧自动初始化 0 号 */
+    anim_frame = 0;
 }
-#endif
+
+void Motion_Run(uint8_t id)
+{
+    if (id >= ANIM_COUNT)
+        id = 0;
+
+    if (id != anim_cur)
+    {
+        anim_cur = id;
+        anim_frame = 0;
+        anims[id].init();
+    }
+
+    anims[id].step();
+    anims[id].draw();
+    anim_frame++;
+}

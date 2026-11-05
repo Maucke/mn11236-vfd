@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MN11236 VFD · 动画重做方案预览</title>
+<style>
+  :root{
+    --bg:#0b0d10; --card:#12161b; --line:#232b33;
+    --txt:#d8e2ea; --dim:#7d8f9c; --red:#ff4a3d; --blue:#35b6ff;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:26px 30px 60px;
+    background:radial-gradient(1200px 500px at 50% -10%,#16202a 0%,var(--bg) 60%);
+    color:var(--txt);
+    font:14px/1.6 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+  }
+  h1{font-size:20px;margin:0 0 4px;letter-spacing:.5px}
+  .sub{color:var(--dim);font-size:13px;margin-bottom:18px}
+  .bar{
+    display:flex;flex-wrap:wrap;gap:10px;align-items:center;
+    padding:12px 14px;margin-bottom:22px;
+    background:var(--card);border:1px solid var(--line);border-radius:12px;
+  }
+  .bar button{
+    background:#1b232c;color:var(--txt);border:1px solid #2c3843;
+    padding:7px 14px;border-radius:8px;cursor:pointer;font-size:13px;
+  }
+  .bar button:hover{background:#243039;border-color:#3b4b59}
+  .bar button.on{background:#123243;border-color:#1f6f96;color:#8fd8ff}
+  .bar .sep{width:1px;height:22px;background:var(--line);margin:0 4px}
+  .bar label{color:var(--dim);font-size:13px}
+  .grid{
+    display:grid;gap:20px;
+    grid-template-columns:repeat(auto-fit,minmax(430px,1fr));
+  }
+  body.big .grid{grid-template-columns:repeat(auto-fit,minmax(760px,1fr))}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:14px 16px 12px;overflow:hidden;
+  }
+  .head{display:flex;align-items:baseline;gap:10px;margin-bottom:10px}
+  .idx{
+    font:600 12px/1 ui-monospace,Consolas,monospace;color:#0b0d10;
+    background:var(--txt);border-radius:5px;padding:4px 6px;
+  }
+  .head h2{font-size:15px;margin:0;font-weight:600}
+  .head .en{color:var(--dim);font-size:12px;letter-spacing:.4px}
+  .head .cost{
+    margin-left:auto;font:11px/1 ui-monospace,Consolas,monospace;
+    color:#8fb6c9;background:#0e1a22;border:1px solid #1c3040;
+    padding:4px 7px;border-radius:6px;white-space:nowrap;
+  }
+  .screen{
+    position:relative;width:100%;aspect-ratio:112/18;
+    background:#05080a;border:1px solid #101a20;border-radius:6px;
+    overflow:hidden;
+    box-shadow:inset 0 0 26px #000, 0 0 18px rgba(40,120,170,.10);
+  }
+  .screen canvas{
+    position:absolute;inset:0;width:100%;height:100%;
+    image-rendering:pixelated;image-rendering:crisp-edges;
+    display:block;
+  }
+  .screen canvas.glow{
+    filter:blur(3px) saturate(1.25);opacity:.55;
+    transform:scale(1.012);transform-origin:center;
+  }
+  .desc{margin:10px 0 0;color:var(--dim);font-size:12.5px;line-height:1.55}
+  .desc b{color:#a9c3d2;font-weight:600}
+  .note{
+    margin-top:26px;padding:14px 16px;border-radius:12px;
+    background:#0e1419;border:1px solid #1d262e;color:var(--dim);font-size:12.5px;
+  }
+  .note b{color:#a9c3d2}
+  .kbd{
+    font:11px/1 ui-monospace,Consolas,monospace;color:#9fd0e6;
+    background:#101c24;border:1px solid #1e3542;border-radius:4px;padding:2px 5px;
+  }
+</style>
+</head>
+<body>
+
+<h1>MN11236 VFD · 动画全部重做</h1>
+<div class="sub">8 个新动画，和 FFT Style 一样改成单选：<code>motion</code> 一个字节存编号，菜单里是一条进度条，MOTION 界面长按上键循环切换。画面按 112×18、双通道 8 级灰度逐像素模拟。</div>
+
+<div class="bar">
+  <button id="btnPause">⏸ 暂停</button>
+  <div class="sep"></div>
+  <label>速度</label>
+  <button class="spd" data-spd="0.5">0.5×</button>
+  <button class="spd on" data-spd="1">1×</button>
+  <button class="spd" data-spd="2">2×</button>
+  <div class="sep"></div>
+  <button id="btnReplay">↻ 全部重播</button>
+  <button id="btnBig">⤢ 放大</button>
+  <div class="sep"></div>
+  <label>帧 <span id="fps" style="color:#a9c3d2">—</span></label>
+</div>
+
+<div class="grid" id="grid"></div>
+
+<div class="note">
+  <b>单选，不再是 9 个开关：</b><span class="kbd">UserInfo_t</span> 里原来的 10 字节 <span class="kbd">EffectSwitch_t</span>
+  换成一个 <span class="kbd">motion</span> 编号（0..7）+ 9 字节占位，总长度和字段偏移都不变，
+  <span class="kbd">config.proj</span> 和老配置都不用迁移。<br>
+  <b>切换方式：</b>菜单里是一条 <span class="kbd">Animation</span> 进度条；在 MOTION 界面长按上键（<span class="kbd">opnExit</span>）直接循环下一个，
+  和 FFT Style 的操作完全一致，切换后自动 <span class="kbd">UserInfo_AutoSave()</span>。<br>
+  <b>颜色：</b>固定配色（红 / 蓝 / 白），不跟随时钟主题。<br>
+  <b>RAM：</b>8 个动画的状态共用一块 union，实际只占最大的那个 824 B；旧动画模块 4.5 KB
+  （<span class="kbd">mtfirework</span> 一个就 1932 B）删掉后净省约 3.7 KB。<br>
+  <b>节奏：</b>MOTION 分支加了 <span class="kbd">osDelay(25)</span>，把帧率锁在 30 fps 左右——原来没有延时，跑得太快才糊成一片。
+</div>
+
+<script>
+"use strict";
+/* ============================================================
+ *  112 x 18 画布，双通道 8 级灰度
+ *  color: 1 = 蓝通道, 2 = 红通道, 3 = 两通道(白/品红)
+ * ============================================================ */
+const W = 112, H = 18;
+const BLUE = 1, RED = 2, WHITE = 3;
+
+const buf = () => ({ r: new Float32Array(W * H), b: new Float32Array(W * H) });
+function clr(B){ B.r.fill(0); B.b.fill(0); }
+function P(B, x, y, c, g){
+  x = Math.round(x); y = Math.round(y);
+  if (x < 0 || x >= W || y < 0 || y >= H || g <= 0) return;
+  if (g > 7) g = 7;
+  const i = y * W + x;
+  if (c & 1) B.b[i] = Math.max(B.b[i], g);
+  if (c & 2) B.r[i] = Math.max(B.r[i], g);
+}
+function line(B, x0, y0, x1, y1, c, g){
+  x0 = Math.round(x0); y0 = Math.round(y0);
+  x1 = Math.round(x1); y1 = Math.round(y1);
+  const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+  const n = Math.max(dx, dy) || 1;
+  for (let i = 0; i <= n; i++){
+    P(B, x0 + (x1 - x0) * i / n, y0 + (y1 - y0) * i / n, c, g);
+  }
+}
+const rnd = (a, b) => a + Math.random() * (b - a);
+
+/* ============================================================
+ *  1  萤火虫 —— 慢速游荡 + 呼吸闪烁
+ * ============================================================ */
+const Firefly = {
+  init(){
+    this.f = [];
+    for (let i = 0; i < 10; i++)
+      this.f.push({ x: Math.random() * W, y: Math.random() * H,
+                    ph: Math.random() * 6.28, w: rnd(.03, .07),
+                    c: i < 6 ? RED : BLUE });
+  },
+  step(){
+    for (const f of this.f){
+      f.ph += f.w;
+      f.x += Math.cos(f.ph * 1.7) * .5;
+      f.y += Math.sin(f.ph * 2.3) * .18;
+      if (f.x < 0) f.x += W; else if (f.x >= W) f.x -= W;
+      if (f.y < 0) f.y += H; else if (f.y >= H) f.y -= H;
+    }
+  },
+  draw(B){
+    for (const f of this.f){
+      const g = Math.round(3 + 4 * Math.sin(f.ph * 2.4));
+      const x = Math.round(f.x), y = Math.round(f.y);
+      P(B, x, y, f.c, g);
+      const h = Math.max(1, Math.round(g * .45));
+      P(B, x - 1, y, f.c, h); P(B, x + 1, y, f.c, h);
+      P(B, x, y - 1, f.c, h); P(B, x, y + 1, f.c, h);
+    }
+  }
+};
+
+/* ============================================================
+ *  2  涟漪 —— 椭圆水波，扩散到边缘消失
+ * ============================================================ */
+const Ripple = {
+  init(){
+    this.r = [];
+    for (let i = 0; i < 3; i++)
+      this.r.push({ x: rnd(12, W - 12), y: rnd(7, 12), r: Math.random() * 32 });
+  },
+  step(){
+    for (const r of this.r){
+      r.r += .55;
+      if (r.r > 34){ r.r = 0; r.x = rnd(12, W - 12); r.y = rnd(7, 12); }
+    }
+  },
+  draw(B){
+    for (const r of this.r){
+      const g = Math.round(7 * (1 - r.r / 34));
+      if (g <= 0) continue;
+      const n = Math.max(14, Math.round(r.r * 9));
+      for (let i = 0; i < n; i++){
+        const a = i / n * 6.2832;
+        P(B, r.x + Math.cos(a) * r.r, r.y + Math.sin(a) * r.r * .5, BLUE, g);
+      }
+      P(B, r.x, r.y, RED, Math.max(1, Math.round(g * .5)));
+    }
+  }
+};
+
+/* ============================================================
+ *  3  数字雨 —— 56 列下落光柱，头亮尾暗
+ * ============================================================ */
+const Rain = {
+  init(){
+    this.c = [];
+    for (let i = 0; i < 56; i++)
+      this.c.push({ y: -Math.random() * H * 1.6, sp: rnd(.35, .9), len: (rnd(3, 9)) | 0 });
+  },
+  step(){
+    for (const c of this.c){
+      c.y += c.sp;
+      if (c.y - c.len > H){ c.y = -Math.random() * 6; c.sp = rnd(.35, .9); c.len = (rnd(3, 9)) | 0; }
+    }
+  },
+  draw(B){
+    for (let i = 0; i < 56; i++){
+      const c = this.c[i], x = i * 2, h = Math.floor(c.y);
+      for (let k = 0; k < c.len; k++){
+        const y = h - k;
+        if (y < 0 || y >= H) continue;
+        if (k === 0) P(B, x, y, WHITE, 7);
+        else P(B, x, y, BLUE, Math.max(0, 6 - k));
+      }
+    }
+  }
+};
+
+/* ============================================================
+ *  5  心电 —— 横向滚动的心跳波形
+ * ============================================================ */
+const Ecg = {
+  init(){ this.b = new Int8Array(W); this.t = 0; },
+  sample(t){
+    const p = t % 34;
+    if (p >= 5 && p < 9) return 2;        // P
+    if (p === 16) return -2;              // Q
+    if (p === 18) return -4;
+    if (p === 19) return 9;               // R
+    if (p === 20) return -5;              // S
+    if (p === 21) return 1;
+    if (p >= 26 && p < 31) return 3;      // T
+    return 0;
+  },
+  step(){ this.b.copyWithin(0, 1); this.b[W - 1] = this.sample(this.t++); },
+  draw(B){
+    const base = 11;
+    for (let i = 0; i < W; i++){
+      const y1 = base - this.b[i];
+      const y0 = i > 0 ? base - this.b[i - 1] : y1;
+      const lo = Math.min(y0, y1), hi = Math.max(y0, y1);
+      for (let y = lo; y <= hi; y++) P(B, i, y, BLUE, 4);
+    }
+    /* 尖峰用红色再加亮一档 */
+    for (let i = W - 10; i < W; i++)
+      if (this.b[i] >= 8) P(B, i, base - this.b[i], RED, 7);
+    P(B, W - 1, base - this.b[W - 1], WHITE, 7);
+  }
+};
+
+/* ============================================================
+ *  6  天际线 —— 滚动城市 + 星星 + 航空灯
+ * ============================================================ */
+const City = {
+  init(){
+    this.off = 0; this.bs = [];
+    let x = 0;
+    for (let i = 0; i < 26; i++){
+      const w = (rnd(3, 9)) | 0, h = (rnd(2, 10)) | 0;
+      this.bs.push({ x, w, h, seed: Math.random() * 97 });
+      x += w + 1 + ((Math.random() * 3) | 0);
+    }
+    this.total = x;
+    this.st = [];
+    for (let i = 0; i < 30; i++)
+      this.st.push({ x: Math.random() * W, y: (Math.random() * 10) | 0, ph: Math.random() * 6.28 });
+  },
+  step(){
+    this.off += .35;
+    if (this.off >= this.total) this.off -= this.total;
+    for (const s of this.st) s.ph += .05;
+  },
+  draw(B, frame){
+    /* 星星 */
+    for (const s of this.st){
+      const g = 2 + Math.round(2 * (0.5 + 0.5 * Math.sin(s.ph)));
+      P(B, s.x, s.y, WHITE, g);
+    }
+    /* 建筑 */
+    for (const b of this.bs){
+      for (let rep = 0; rep < 2; rep++){
+        const bx = Math.round(b.x - this.off + rep * this.total);
+        if (bx > W || bx + b.w < 0) continue;
+        const top = H - 1 - b.h;
+        for (let dx = 0; dx < b.w; dx++){
+          const x = bx + dx;
+          if (x < 0 || x >= W) continue;
+          for (let y = top; y < H - 1; y++)
+            P(B, x, y, WHITE, y === top ? 2 : 1);
+          /* 窗户：3 行 2 列一个单元，约一半亮 */
+          for (let y = top + 2; y < H - 2; y += 3)
+            for (let wx = 1; wx < b.w - 1; wx += 2){
+              const h = Math.sin((x * 12.9898 + y * 78.233 + b.seed) * 43758.5453);
+              if ((h - Math.floor(h)) < .45) P(B, x, y, BLUE, 5);
+            }
+        }
+        /* 高楼顶上的红色航空灯（慢闪） */
+        if (b.h > 7 && (((frame >> 4) + (b.seed | 0)) & 1))
+          P(B, bx + ((b.w / 2) | 0), top - 1, RED, 7);
+      }
+    }
+  }
+};
+
+/* ============================================================
+ *  7  星空穿越 —— 从中心向外加速的星轨
+ * ============================================================ */
+const Warp = {
+  init(){
+    this.s = [];
+    for (let i = 0; i < 46; i++)
+      this.s.push({ a: Math.random() * 6.2832, d: Math.random() });
+  },
+  step(){
+    for (const s of this.s){
+      s.d += .012 + s.d * .045;
+      if (s.d > 1){ s.d = .03; s.a = Math.random() * 6.2832; }
+    }
+  },
+  draw(B){
+    for (const s of this.s){
+      const r = s.d, pr = Math.max(.02, r - (.05 + r * .16));
+      const x0 = 56 + Math.cos(s.a) * pr * 55, y0 = 9 + Math.sin(s.a) * pr * 8.6;
+      const x1 = 56 + Math.cos(s.a) * r * 55,  y1 = 9 + Math.sin(s.a) * r * 8.6;
+      line(B, x0, y0, x1, y1, WHITE, Math.round(2 + r * 5));
+    }
+  }
+};
+
+/* ============================================================
+ *  8  气泡 —— 上浮 + 左右摇摆
+ * ============================================================ */
+const Bubble = {
+  init(){
+    this.b = [];
+    for (let i = 0; i < 15; i++)
+      this.b.push({ x: Math.random() * W, y: Math.random() * H,
+                    r: 1 + ((Math.random() * 2) | 0), ph: Math.random() * 6.28,
+                    sp: rnd(.2, .55) });
+  },
+  step(){
+    for (const b of this.b){
+      b.y -= b.sp; b.ph += .07; b.x += Math.sin(b.ph) * .22;
+      if (b.y < -2){
+        b.y = H + 1 + Math.random() * 3;
+        b.x = Math.random() * W;
+        b.r = 1 + ((Math.random() * 2) | 0);
+      }
+    }
+  },
+  draw(B){
+    for (const b of this.b){
+      const x = Math.round(b.x), y = Math.round(b.y);
+      if (y < -2 || y > H + 1) continue;
+      if (b.r < 1.5){
+        P(B, x, y, BLUE, 4); P(B, x, y - 1, BLUE, 3);
+      } else {
+        P(B, x - 1, y, BLUE, 4); P(B, x + 1, y, BLUE, 4);
+        P(B, x, y - 1, BLUE, 3); P(B, x, y + 1, BLUE, 3);
+        P(B, x - 1, y - 1, BLUE, 2); P(B, x + 1, y - 1, BLUE, 2);
+        P(B, x - 1, y + 1, BLUE, 2); P(B, x + 1, y + 1, BLUE, 2);
+      }
+      P(B, x, y - 1, WHITE, 7);
+    }
+  }
+};
+
+/* ============================================================
+ *  9  烟花 —— 升空 + 爆炸 + 重力拖尾
+ * ============================================================ */
+const Firework = {
+  init(){ this.rk = null; this.ps = []; this.timer = 0; this.burst = 0; },
+  step(){
+    if (!this.rk && --this.timer <= 0){
+      this.rk = { x: rnd(14, W - 14), y: H - 1, vy: -rnd(1.5, 2.2), ty: rnd(2, 6) };
+    }
+    if (this.rk){
+      const r = this.rk;
+      r.y += r.vy; r.vy += .012;
+      if (r.y <= r.ty){
+        const c = (this.burst++ & 1) ? RED : BLUE;
+        for (let i = 0; i < 26; i++){
+          const a = i / 26 * 6.2832 + Math.random() * .12;
+          const sp = rnd(.45, 1.5);
+          this.ps.push({ x: r.x, y: r.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * .85,
+                         life: 16 + ((Math.random() * 12) | 0), c });
+        }
+        for (let i = 0; i < 7; i++){
+          const a = Math.random() * 6.2832, sp = rnd(.2, .8);
+          this.ps.push({ x: r.x, y: r.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+                         life: 10 + ((Math.random() * 8) | 0), c: WHITE });
+        }
+        this.rk = null;
+        this.timer = 14 + ((Math.random() * 20) | 0);
+      }
+    }
+    for (let i = this.ps.length - 1; i >= 0; i--){
+      const p = this.ps[i];
+      p.vy += .055; p.vx *= .992; p.x += p.vx; p.y += p.vy; p.life--;
+      if (p.life <= 0 || p.y > H + 3) this.ps.splice(i, 1);
+    }
+  },
+  draw(B){
+    if (this.rk){
+      const r = this.rk;
+      for (let i = 0; i < 4; i++) P(B, r.x, r.y + i, i === 0 ? WHITE : RED, 7 - i * 2);
+    }
+    for (const p of this.ps){
+      const g = Math.round(Math.min(7, p.life * .45));
+      P(B, p.x, p.y, p.c, g);
+      P(B, p.x - p.vx, p.y - p.vy, p.c, Math.max(0, g - 3));
+    }
+  }
+};
+
+/* ============================================================
+ *  面板注册
+ * ============================================================ */
+const PANELS = [
+  { key:'Firefly',  name:'萤火虫',    en:'FIREFLY',   cost:'RAM 200 B',
+    desc:'10 只慢速游荡的光点，亮度按呼吸节奏起伏，边缘环绕。冷色 4 只、暖色 6 只，<b>适合长时间当背景</b>。',
+    anim: Firefly },
+  { key:'Ripple',   name:'涟漪',      en:'RIPPLE',    cost:'RAM 36 B',
+    desc:'从随机点扩散的椭圆水波，越往外越暗，扩到边缘重新开始。<b>三个相位错开</b>，像雨点落在水面上。',
+    anim: Ripple },
+  { key:'Rain',     name:'数字雨',    en:'MATRIX',    cost:'RAM 672 B',
+    desc:'56 列下落光柱，头部白亮、尾部 6 级渐隐。<b>纵向流动</b>，密度留了一半空列，不会糊成一片。',
+    anim: Rain },
+  { key:'Ecg',      name:'心电',      en:'ECG',       cost:'RAM 116 B',
+    desc:'横向滚动的心电图，P-QRS-T 完整波形，1.1 秒一跳。<b>R 尖峰用红色提亮</b>，最右侧是白色扫描点。',
+    anim: Ecg },
+  { key:'City',     name:'天际线',    en:'SKYLINE',   cost:'RAM 252 B',
+    desc:'滚动城市剪影 + 会闪的窗户 + 顶部红色航空灯，上方有星点。<b>最像"场景"</b>的一种，适合当氛围。',
+    anim: City },
+  { key:'Warp',     name:'星空穿越',  en:'WARP',      cost:'RAM 368 B',
+    desc:'46 颗星从画面中心向外加速，拖出星轨，越远越亮。<b>经典曲速效果</b>，爆发感最强。',
+    anim: Warp },
+  { key:'Bubble',   name:'气泡',      en:'BUBBLE',    cost:'RAM 300 B',
+    desc:'15 个气泡一边上浮一边左右摇摆，大小两种，左上角一个白色高光。<b>到顶后从底部重新冒出来</b>。',
+    anim: Bubble },
+  { key:'Firework', name:'烟花',      en:'FIREWORK',  cost:'RAM 824 B',
+    desc:'火箭从底部升空、到顶炸开，26 颗粒子 + 7 点白火星，带重力和空气阻力。<b>红蓝交替</b>，间歇约 1 秒。',
+    anim: Firework },
+];
+
+/* ============================================================
+ *  渲染
+ * ============================================================ */
+const CR = [255, 74, 61], CB = [54, 182, 255], BG = [5, 8, 10];
+
+function paint(cv, B){
+  const ctx = cv.getContext('2d');
+  const img = ctx.createImageData(W, H);
+  const d = img.data;
+  for (let i = 0, j = 0; i < W * H; i++, j += 4){
+    const r = B.r[i] / 7, b = B.b[i] / 7;
+    d[j]     = BG[0] + CR[0] * r + CB[0] * b;
+    d[j + 1] = BG[1] + CR[1] * r + CB[1] * b;
+    d[j + 2] = BG[2] + CR[2] * r + CB[2] * b;
+    d[j + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+const grid = document.getElementById('grid');
+const cards = [];
+
+for (let i = 0; i < PANELS.length; i++){
+  const p = PANELS[i];
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML =
+    '<div class="head"><span class="idx">' + (i + 1) + '</span>' +
+      '<h2>' + p.name + '</h2><span class="en">' + p.en + '</span>' +
+      '<span class="cost">#' + i + ' · ' + p.cost + '</span></div>' +
+    '<div class="screen">' +
+      '<canvas class="glow" width="112" height="18"></canvas>' +
+      '<canvas class="sharp" width="112" height="18"></canvas>' +
+    '</div>' +
+    '<p class="desc">' + p.desc + '</p>';
+  grid.appendChild(card);
+
+  const sharp = card.querySelector('canvas.sharp');
+  const glow  = card.querySelector('canvas.glow');
+  p.anim.init();
+  cards.push({ anim: p.anim, sharp, glow, B: buf() });
+}
+
+let frameNo = 0;
+function renderAll(){
+  for (const c of cards){
+    clr(c.B);
+    c.anim.draw(c.B, frameNo);
+    paint(c.sharp, c.B);
+    paint(c.glow, c.B);
+  }
+}
+
+/* ============================================================
+ *  主循环：固定 30 fps 步进，和固件一帧一次对应
+ * ============================================================ */
+const DT = 1 / 30;
+let acc = 0, last = performance.now(), paused = false, speed = 1, fpsT = 0, fpsN = 0;
+
+function loop(now){
+  requestAnimationFrame(loop);
+  if (paused){ last = now; return; }
+  let d = (now - last) / 1000;
+  last = now;
+  if (d > .25) d = .25;
+  acc += d * speed;
+  let n = 0;
+  while (acc >= DT && n < 4){
+    acc -= DT;
+    for (const c of cards) c.anim.step();
+    frameNo++; n++;
+  }
+  if (n){
+    renderAll();
+    fpsN += n; fpsT += d;
+    if (fpsT >= .5){
+      document.getElementById('fps').textContent = Math.round(fpsN / fpsT) + ' fps';
+      fpsT = 0; fpsN = 0;
+    }
+  }
+}
+requestAnimationFrame(loop);
+
+/* ---------- 控件 ---------- */
+const btnPause = document.getElementById('btnPause');
+btnPause.onclick = () => {
+  paused = !paused;
+  btnPause.textContent = paused ? '▶ 继续' : '⏸ 暂停';
+  btnPause.classList.toggle('on', paused);
+};
+document.getElementById('btnReplay').onclick = () => {
+  for (const c of cards){ c.anim.init(); }
+  frameNo = 0; acc = 0; renderAll();
+};
+document.getElementById('btnBig').onclick = (e) => {
+  document.body.classList.toggle('big');
+  e.currentTarget.classList.toggle('on', document.body.classList.contains('big'));
+};
+document.querySelectorAll('.spd').forEach(btn => {
+  btn.onclick = () => {
+    speed = parseFloat(btn.dataset.spd);
+    document.querySelectorAll('.spd').forEach(b => b.classList.toggle('on', b === btn));
+  };
+});
+
+/* ---------- 离屏截图 / 调试接口 ---------- */
+window.__animPanels = PANELS.map(p => p.key);
+window.__animStep = function(n){
+  n = n || 60;
+  for (let k = 0; k < n; k++){
+    for (const c of cards) c.anim.step();
+    frameNo++;
+  }
+  renderAll();
+  return frameNo;
+};
+window.__animRender = renderAll;
+renderAll();
+</script>
+</body>
+</html>
