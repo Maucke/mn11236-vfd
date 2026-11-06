@@ -699,6 +699,18 @@ const MusicTheme_t musicTheme[FFT_COLOR_COUNT] = {
     {White, Cyan},
 };
 
+/* 频谱换风格转场：黑场里把新风格的第一帧画好（滑入时用这张快照）
+ * 和 MOTION 的 motion_build_first_frame 一样，这里只画不送屏 */
+static void fft_build_first_frame(void)
+{
+  const MusicTheme_t *mt = &musicTheme[pUserInfo->musiccolor % FFT_COLOR_COUNT];
+
+  clear_gram(White);
+  set_g_maxGray(pUserInfo->clockdimming + 3);
+  draw_fft(lBufMagArray, NPT / 2, 20,
+           (uint8_t)(pUserInfo->musictheme % FFT_STYLE_COUNT), mt->bar, mt->dot);
+}
+
 extern char timeStr[10];
 extern char date[10];
 extern char week[10];
@@ -1320,9 +1332,13 @@ void AppGUI_Loop(uint8_t timer)
     {
       if (disp_mode == DISP_MODE_FFT)
       {
+        /* 换频谱风格：和换动画共用同一套滑屏转场
+         * 旧画面滑走 -> 黑场里换风格 + 落盘 -> 新风格滑进来 */
+        motion_switch_anim_out();
         pUserInfo->musictheme = (pUserInfo->musictheme + 1) % FFT_STYLE_COUNT;
-        fft_style_reset(); /* 清掉上一种风格残留的瀑布/粒子 */
-        UserInfo_AutoSave();
+        fft_style_reset();   /* 清掉上一种风格残留的瀑布/粒子 */
+        UserInfo_AutoSave(); /* 黑屏时存档 */
+        motion_switch_anim_in(fft_build_first_frame);
       }
       else if (disp_mode == DISP_MODE_MOTION)
       {
