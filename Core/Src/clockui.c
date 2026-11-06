@@ -5406,6 +5406,19 @@ static struct
     uint8_t hold;
 } fft_vu;
 
+/* ---------------- 频谱自动增益 ----------------
+ * 外接音源一响，所有柱子一起顶到天花板，就只剩一片满了。
+ * 这里每帧取第 2 高的频点当"响度"，把整屏增益调到让那根柱子落在
+ * FFT_AGC_TARGET 高：
+ *   突然变响 -> 50ms 内把增益压下去（只顶一两帧，不会长时间满屏）
+ *   变轻     -> 约 22dB/s 慢慢放回来（太快会一抽一抽地喘）
+ * 基本没声音（峰值不到 1 根柱子）时增益保持不变，否则会把底噪放大到满屏。 */
+#define FFT_AGC_TARGET 13.0f /* 目标柱高，满格是 BAR_MAX-1 = 17 */
+#define FFT_AGC_MIN 0.01f    /* 最多压 100 倍 */
+#define FFT_AGC_MAX 4.0f     /* 最多放大 4 倍（约 12dB），再多就是把底噪撑起来了 */
+
+static float fft_agc = 1.0f;
+
 /* VU 刻度弧：相对 (cx, cy) 的偏移，-62° ~ +62° 分 21 档 */
 static const int8_t fft_vu_arc[21][2] = {
     {-13, -7}, {-13, -9}, {-12, -10}, {-10, -11}, {-9, -12},
@@ -5815,9 +5828,87 @@ void draw_fft(long *fft_result, int len, int delta, uint8_t style, Color bar, Co
         delta = 1;
 
     if (dt <= 0.0f || dt > 0.5f)
+    {
         dt = 0.05f;
+        fft_agc = 1.0f; /* 隔了很久才回到频谱页：别拿上次的增益开始 */
+    }
 
     cols = (style == 1) ? (BAR_COUNT / 2) : BAR_COUNT;
+
+    /* ---- 自动增益：把"响度"拉回 FFT_AGC_TARGET 根柱子高 ---- */
+    {
+        long top[2] = {0, 0};
+        float peak;
+
+        /* 第 2 高的频点当响度：比取最大值抗尖峰，单根毛刺不会把整屏压暗 */
+        for (int i = 1; i < len - 1; i++)
+        {
+            long v = fft_result[i];
+
+            if (v <= top[1])
+                continue;
+
+            top[1] = v;
+
+            if (top[1] > top[0])
+            {
+                long t = top[0];
+
+                top[0] = top[1];
+                top[1] = t;
+            }
+        }
+
+        peak = (float)top[1] / (float)delta; /* 换算成柱高 */
+
+        if (peak < 1.0f)
+        {
+            /* 基本没声音：不再往上加，否则底噪会被放大到满屏；
+             * 之前压下去的增益也慢慢回到 1.0 */
+            if (fft_agc > 1.0f)
+            {
+                fft_agc *= (1.0f - dt * 2.5f);
+
+                if (fft_agc < 1.0f)
+                    fft_agc = 1.0f;
+            }
+        }
+        else
+        {
+            float want = FFT_AGC_TARGET / peak;
+
+            if (want < FFT_AGC_MIN)
+                want = FFT_AGC_MIN;
+            else if (want > FFT_AGC_MAX)
+                want = FFT_AGC_MAX;
+
+            if (want < fft_agc)
+            {
+                float k = dt * 20.0f; /* 太响：约 50ms 收住 */
+
+                if (k > 1.0f)
+                    k = 1.0f;
+
+                fft_agc += (want - fft_agc) * k;
+            }
+            else if (want > fft_agc)
+            {
+                fft_agc *= (1.0f + dt * 2.5f); /* 变轻：约 22dB/s 放回来 */
+
+                if (fft_agc > want)
+                    fft_agc = want;
+            }
+        }
+
+        /* 兜底：增益压到底也不许最高那根贴着 17 不放 */
+        if (top[0] > 0)
+        {
+            float cap = (float)(BAR_MAX - 1) * (float)delta / (float)top[0];
+
+            if (fft_agc > cap)
+                fft_agc = cap;
+        }
+    }
 
     for (int i = 0; i < cols; i++)
     {
@@ -5835,7 +5926,7 @@ void draw_fft(long *fft_result, int len, int delta, uint8_t style, Color bar, Co
         if (frac && (idx + 1 < len - 1))
             v = (v * (16 - frac) + fft_result[idx + 1] * frac) / 16;
 
-        update_display(&bars[i], (float)(v / delta), dt);
+        update_display(&bars[i], ((float)v / (float)delta) * fft_agc, dt);
     }
 
     switch (style)
