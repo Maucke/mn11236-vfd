@@ -624,8 +624,8 @@ static void motion_build_first_frame(void)
  * 列表框里的高亮框宽度由标题长度决定，太长会压到右边的高亮边框上）
  * motionNames 的顺序必须和 animation.c 里的 anims[] 一一对应 */
 static const char *const motionNames[ANIM_COUNT] = {
-    "Glow", "Ripple", "Matrix", "ECG", "City", "Warp", "Bubble", "Burst",
-    "Helix", "Cube", "Tunnel", "Gears", "Radar", "Scope", "Pong", "Sky",
+    "Glow", "Ripple", "Matrix", "Aurora", "City", "Warp", "Bubble", "Burst",
+    "Helix", "Harbor", "Tunnel", "Runway", "Radar", "Scope", "Bridge", "Sky",
 };
 
 /* 0 = 贪吃蛇 1 = 俄罗斯方块 2 = 坦克大战 */

@@ -65,6 +65,11 @@ static void draw_line(int x0, int y0, int x1, int y1, Color c, int g)
 #define WARP_N 46
 #define BUB_N 15
 #define FW_P_N 40
+#define AU_STAR_N 24
+#define HB_STAR_N 16
+#define HB_BOX_N 5
+#define RW_STAR_N 26
+#define BR_CAR_N 4
 
 static union
 {
@@ -87,9 +92,13 @@ static union
 
     struct
     {
-        int8_t b[W];
-        uint16_t t;
-    } ecg;
+        int8_t mt[W];
+        struct
+        {
+            uint8_t x, y, ph;
+        } st[AU_STAR_N];
+        float t;
+    } aurora;
 
     struct
     {
@@ -141,8 +150,16 @@ static union
 
     struct
     {
-        float ax, ay;
-    } cube;
+        struct
+        {
+            uint8_t x, y, ph;
+        } st[HB_STAR_N];
+        struct
+        {
+            uint8_t x, h, c;
+        } box[HB_BOX_N];
+        float t;
+    } harbor;
 
 #define TUN_N 10
     struct
@@ -151,17 +168,15 @@ static union
         float t;
     } tun;
 
-#define GEAR_N 8
     struct
     {
+        int8_t hw[H];
         struct
         {
-            float x, r, sp;
-            uint8_t n;
-            int8_t dir;
-        } g[GEAR_N];
-        float a;
-    } gears;
+            uint8_t x, y, ph;
+        } st[RW_STAR_N];
+        float t;
+    } runway;
 
 #define RADAR_N 7
     struct
@@ -178,16 +193,16 @@ static union
         float t;
     } laser;
 
-#define PONG_TR 10
     struct
     {
-        float bx, by, vx, vy, p1, p2;
-        uint8_t n;
+        int8_t cable[W];
         struct
         {
-            int8_t x, y;
-        } tr[PONG_TR];
-    } pong;
+            float x, sp;
+            uint8_t c;
+        } car[BR_CAR_N];
+        float t;
+    } bridge;
 
 #define SKY_N 20
     struct
@@ -362,63 +377,110 @@ static void rain_draw(void)
 }
 
 /* ============================================================
- *  4  心电：横向滚动波形
+ *  4  极光：两层帘幕在山脊上方摆动
+ *
+ *  设备只有红/蓝两个通道，没有绿色，所以极光做成"蓝白帘幕 + 红色顶边"。
+ *  横向按 sin 分成明暗相间的带子，竖向按 sin 分成射线，向下线性变暗。
  * ============================================================ */
 
-static int8_t ecg_sample(uint16_t t)
+static void aur_init(void)
 {
-    uint8_t p = (uint8_t)(t % 34);
+    /* 山脊：四个三角峰取最大值，比正弦叠加更像山 */
+    static const int8_t pk[4][3] = {{14, 7, 15}, {40, 5, 13}, {66, 9, 19}, {96, 6, 15}};
 
-    if (p >= 5 && p < 9)
-        return 2;
-    if (p == 16)
-        return -2;
-    if (p == 18)
-        return -4;
-    if (p == 19)
-        return 9;
-    if (p == 20)
-        return -5;
-    if (p == 21)
-        return 1;
-    if (p >= 26 && p < 31)
-        return 3;
-
-    return 0;
-}
-
-static void ecg_init(void)
-{
-    memset(st.ecg.b, 0, W);
-    st.ecg.t = 0;
-}
-
-static void ecg_step(void)
-{
-    memmove(st.ecg.b, st.ecg.b + 1, W - 1);
-    st.ecg.b[W - 1] = ecg_sample(st.ecg.t++);
-}
-
-static void ecg_draw(void)
-{
-    const int base = 11;
-
-    for (int i = 0; i < W; i++)
+    for (int x = 0; x < W; x++)
     {
-        int y1 = base - st.ecg.b[i];
-        int y0 = (i > 0) ? base - st.ecg.b[i - 1] : y1;
-        int lo = (y0 < y1) ? y0 : y1;
-        int hi = (y0 > y1) ? y0 : y1;
+        int h = 1;
 
-        for (int y = lo; y <= hi; y++)
-            px(i, y, Cyan, 4);
+        for (int i = 0; i < 4; i++)
+        {
+            int d = x - pk[i][0];
+
+            if (d < 0)
+                d = -d;
+
+            if (d < pk[i][2])
+            {
+                int v = (pk[i][1] * (pk[i][2] - d) + pk[i][2] / 2) / pk[i][2];
+
+                if (v > h)
+                    h = v;
+            }
+        }
+
+        st.aurora.mt[x] = (int8_t)h;
     }
 
-    for (int i = W - 10; i < W; i++)
-        if (st.ecg.b[i] >= 8)
-            px(i, base - st.ecg.b[i], Red, 7);
+    for (int i = 0; i < AU_STAR_N; i++)
+    {
+        st.aurora.st[i].x = (uint8_t)(rand() % W);
+        st.aurora.st[i].y = (uint8_t)(rand() % 8);
+        st.aurora.st[i].ph = (uint8_t)(rand() % 64);
+    }
 
-    px(W - 1, base - st.ecg.b[W - 1], White, 7);
+    st.aurora.t = 0.0f;
+}
+
+static void aur_step(void)
+{
+    st.aurora.t += 0.0333f;
+}
+
+/* 一条极光带：y0 顶边基准，amp 波动幅度，len 高度，g0 亮度，c 颜色，ph 带子相位 */
+static void aur_band(float t, float y0, float amp, float len, float g0, Color c, float ph)
+{
+    for (int x = 0; x < W; x++)
+    {
+        float patch = sinf((float)x * 0.045f + t * 0.35f + ph) * 0.5f + 0.5f;
+        float k, ytop, ray, l, xf = (float)x;
+
+        if (patch < 0.34f)
+            continue;
+
+        k = (patch - 0.34f) / 0.66f;
+        ytop = y0 + amp * sinf(xf * 0.075f + t * 0.55f)
+                  + amp * 0.4f * sinf(xf * 0.19f - t * 0.31f);
+        ray = 0.45f + 0.55f * (0.5f + 0.5f * sinf(xf * 0.7f + t * 2.2f));
+        l = len * (0.5f + 0.5f * k);
+
+        for (int i = 0; i < (int)l; i++)
+        {
+            int g = (int)((1.0f - (float)i / l) * g0 * k * ray);
+
+            if (g < 1)
+                continue;
+
+            if (i == 0)
+                px(x, (int)(ytop + 0.5f), Red, (g * 85) / 100);
+            else
+                px(x, (int)(ytop + 0.5f) + i, c, g);
+        }
+    }
+}
+
+static void aur_draw(void)
+{
+    float t = st.aurora.t;
+
+    /* 星星 */
+    for (int i = 0; i < AU_STAR_N; i++)
+        px(st.aurora.st[i].x, st.aurora.st[i].y, White,
+           1 + ((sinf(t * 1.9f + (float)st.aurora.st[i].ph) > 0.5f) ? 1 : 0));
+
+    /* 远（暗蓝）→ 近（亮白） */
+    aur_band(t * 0.85f, 4.5f, 1.2f, 4.0f, 5.5f, Cyan, 0.0f);
+    aur_band(t * 1.15f, 3.2f, 1.6f, 5.0f, 10.0f, White, 2.1f);
+
+    /* 山脊（挡住帘幕底部） */
+    for (int x = 0; x < W; x++)
+    {
+        int top = H - 1 - st.aurora.mt[x];
+
+        for (int y = top; y < H; y++)
+            px(x, y, White, 2);
+
+        px(x, top, White, (st.aurora.mt[x] >= 5) ? 4 : 3);
+    }
 }
 
 /* ============================================================
@@ -812,61 +874,129 @@ static void hel_draw(void)
 }
 
 /* ============================================================
- *  10  旋转立方体：线框 3D，前后棱亮度不同
+ *  10  港口吊机：两台龙门吊，小车沿吊臂往返、吊钩上下取箱
  * ============================================================ */
 
-static void cube_init(void)
+static void hb_crane(float t, int x0, int k)
 {
-    st.cube.ax = 0.32f;
-    st.cube.ay = 0.55f;
-}
+    const int deck = 12, top = 3, half = 13;
+    float ph = k ? 2.6f : 0.0f;
+    float p;
+    int tx, hl, by;
 
-static void cube_step(void)
-{
-    st.cube.ax += 0.012f;
-    st.cube.ay += 0.021f;
-}
+    /* 两条腿 */
+    for (int s = -1; s <= 1; s += 2)
+        for (int y = top + 2; y <= deck; y++)
+            px(x0 + 5 * s, y, White, 2);
 
-static void cube_draw(void)
-{
-    static const uint8_t E[12][2] = {
-        {0, 1}, {1, 3}, {3, 2}, {2, 0}, {4, 5}, {5, 7},
-        {7, 6}, {6, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
-    const float s = 3.8f, f = 20.0f, K = 1.6f, cx = 56.0f, cy = 9.0f;
-    const float sa = sinf(st.cube.ax), ca = cosf(st.cube.ax);
-    const float sb = sinf(st.cube.ay), cb = cosf(st.cube.ay);
-    float vx[8], vy[8], vz[8];
-
-    for (int i = 0; i < 8; i++)
+    /* X 形斜撑 */
+    for (int y = top + 3; y < deck - 1; y += 3)
     {
-        float x = (i & 1) ? s : -s, y = (i & 2) ? s : -s, z = (i & 4) ? s : -s;
-        float y1 = y * ca - z * sa, z1 = y * sa + z * ca;
-        float x1 = x * cb + z1 * sb, z2 = -x * sb + z1 * cb;
-        float p = f / (f + z2 + 8.0f);
-
-        vx[i] = cx + x1 * p * K;
-        vy[i] = cy + y1 * p * K;
-        vz[i] = z2;
+        draw_line(x0 - 5, y, x0 + 5, y + 2, White, 1);
+        draw_line(x0 + 5, y, x0 - 5, y + 2, White, 1);
     }
 
-    for (int i = 0; i < 12; i++)
+    /* 吊臂 */
+    for (int x = x0 - half; x <= x0 + half; x++)
+        px(x, top + 2, White, 3);
+
+    /* 塔尖 + 闪红灯（两台错开） */
+    px(x0, top, White, 3);
+    px(x0, top + 1, White, 3);
+
+    if ((((int)(t * 1.5f) + k) & 1) == 0)
+        px(x0, top - 1, Red, 7);
+
+    /* 小车沿吊臂往返 */
+    p = 0.5f + 0.5f * sinf(t * 0.55f + ph);
+    tx = x0 - half + 2 + (int)((float)(2 * half - 4) * p + 0.5f);
+    px(tx, top + 3, White, 5);
+
+    /* 吊钩上下 */
+    hl = 1 + (int)(3.0f * (0.5f + 0.5f * sinf(t * 1.1f + ph)) + 0.5f);
+
+    for (int y = top + 4; y <= top + 3 + hl; y++)
+        px(tx, y, White, 1);
+
+    /* 集装箱 */
+    by = top + 4 + hl;
+
+    if (by < deck)
     {
-        int a = E[i][0], b = E[i][1];
-        float z = (vz[a] + vz[b]) * 0.5f;
-        int g = 1 + (int)(6.0f * (1.0f - (z + s) / (2.0f * s)));
+        Color c = k ? Cyan : Red;
 
-        if (g < 1)
-            g = 1;
-        else if (g > 7)
-            g = 7;
+        px(tx - 1, by, c, 5);
+        px(tx, by, c, 5);
+        px(tx + 1, by, c, 5);
+    }
+}
 
-        draw_line((int)(vx[a] + 0.5f), (int)(vy[a] + 0.5f),
-                  (int)(vx[b] + 0.5f), (int)(vy[b] + 0.5f),
-                  z < 0.0f ? White : Cyan, g);
+static void hb_init(void)
+{
+    for (int i = 0; i < HB_STAR_N; i++)
+    {
+        st.harbor.st[i].x = (uint8_t)(rand() % W);
+        st.harbor.st[i].y = (uint8_t)(rand() % 5);
+        st.harbor.st[i].ph = (uint8_t)(rand() % 64);
     }
 
-    for (int i = 0; i < 8; i++)
-        px((int)(vx[i] + 0.5f), (int)(vy[i] + 0.5f), White, 7);
+    for (int i = 0; i < HB_BOX_N; i++)
+    {
+        st.harbor.box[i].x = (uint8_t)(44 + i * 4);
+        st.harbor.box[i].h = (uint8_t)(1 + (city_hash(i, 0, 2) & 1));
+        st.harbor.box[i].c = (city_hash(i, 1, 2) & 1) ? Cyan : Red;
+    }
+
+    st.harbor.t = 0.0f;
+}
+
+static void hb_step(void)
+{
+    st.harbor.t += 0.0333f;
+}
+
+static void hb_draw(void)
+{
+    const int deck = 12;
+    float t = st.harbor.t;
+
+    /* 星星 */
+    for (int i = 0; i < HB_STAR_N; i++)
+        px(st.harbor.st[i].x, st.harbor.st[i].y, White,
+           1 + (sinf(t * 2.1f + (float)st.harbor.st[i].ph) > 0.6f ? 1 : 0));
+
+    /* 水面 */
+    for (int y = deck + 2; y < H; y++)
+    {
+        if (y == H - 1)
+        {
+            for (int x = 0; x < W; x++)
+                px(x, y, Cyan, 2);
+
+            continue;
+        }
+
+        for (int x = 0; x < W; x++)
+            if (((x + (int)(t * 4.0f)) % 11) < 6)
+                px(x, y, Cyan, 1);
+    }
+
+    /* 码头面 */
+    for (int x = 0; x < W; x++)
+    {
+        px(x, deck, White, 4);
+        px(x, deck + 1, White, 1);
+    }
+
+    /* 堆场集装箱 */
+    for (int i = 0; i < HB_BOX_N; i++)
+        for (int k = 0; k < st.harbor.box[i].h; k++)
+            for (int x = st.harbor.box[i].x; x < st.harbor.box[i].x + 3; x++)
+                px(x, deck - 1 - k, (Color)st.harbor.box[i].c, 3);
+
+    /* 两台龙门吊 */
+    hb_crane(t, 24, 0);
+    hb_crane(t, 74, 1);
 }
 
 /* ============================================================
@@ -932,80 +1062,98 @@ static void tun_draw(void)
 }
 
 /* ============================================================
- *  12  齿轮组：一排互相咬合的齿轮，转速和半径成反比
+ *  12  机场跑道灯：透视跑道，追光从远端一路压过来
  * ============================================================ */
 
-static const float gear_r[GEAR_N] = {6.0f, 4.6f, 5.8f, 4.4f, 5.8f, 4.6f, 5.9f, 4.7f};
-static const uint8_t gear_n[GEAR_N] = {9, 7, 9, 7, 9, 7, 9, 7};
-static const float gear_sp[GEAR_N] = {1.00f, 1.30f, 1.03f, 1.36f, 1.03f, 1.30f, 1.02f, 1.28f};
-
-static void ger_init(void)
+static void rw_init(void)
 {
-    float x = 20.0f;
+    const int vy = 5;
+    const float span = (float)(H - 1 - vy);
 
-    for (int i = 0; i < GEAR_N; i++)
+    for (int y = 0; y < H; y++)
     {
-        if (i)
-            x += gear_r[i - 1] + gear_r[i];
-
-        st.gears.g[i].x = x;
-        st.gears.g[i].r = gear_r[i];
-        st.gears.g[i].sp = gear_sp[i];
-        st.gears.g[i].n = gear_n[i];
-        st.gears.g[i].dir = (i & 1) ? -1 : 1;
+        if (y <= vy)
+            st.runway.hw[y] = 0;
+        else
+            st.runway.hw[y] = (int8_t)(2.0f + 48.0f * powf((float)(y - vy) / span, 1.55f));
     }
 
-    st.gears.a = 0.0f;
-}
-
-static void ger_step(void)
-{
-    st.gears.a += 0.017f;
-}
-
-static void ger_one(int i)
-{
-    const float body = st.gears.g[i].r - 1.9f;
-    const float ang = st.gears.a * st.gears.g[i].sp * (float)st.gears.g[i].dir;
-    const float stepA = 6.2831853f / (float)st.gears.g[i].n;
-    const float cx = st.gears.g[i].x, cy = 9.0f;
-    int steps = (int)(body * 8.0f);
-
-    if (steps < 16)
-        steps = 16;
-
-    /* 轮盘：一圈暗蓝，别抢齿的亮度 */
-    for (int k = 0; k < steps; k++)
+    for (int i = 0; i < RW_STAR_N; i++)
     {
-        float t = (float)k / (float)steps * 6.2831853f;
-
-        px((int)(cx + cosf(t) * body + 0.5f), (int)(cy + sinf(t) * body + 0.5f), Cyan, 2);
+        st.runway.st[i].x = (uint8_t)(rand() % W);
+        st.runway.st[i].y = (uint8_t)(rand() % 5);
+        st.runway.st[i].ph = (uint8_t)(rand() % 64);
     }
 
-    /* 齿：一颗齿两根挨着的短线，撑出约 2 px 宽 */
-    for (int k = 0; k < st.gears.g[i].n; k++)
-    {
-        float t = ang + (float)k * stepA;
-
-        for (int d = 0; d < 2; d++)
-        {
-            float a = t + (d ? 0.16f : 0.0f) * stepA;
-
-            draw_line((int)(cx + cosf(a) * (body - 0.2f) + 0.5f),
-                      (int)(cy + sinf(a) * (body - 0.2f) + 0.5f),
-                      (int)(cx + cosf(a) * (st.gears.g[i].r + 0.7f) + 0.5f),
-                      (int)(cy + sinf(a) * (st.gears.g[i].r + 0.7f) + 0.5f),
-                      White, 5);
-        }
-    }
-
-    px((int)(cx + 0.5f), (int)(cy + 0.5f), Red, 6);
+    st.runway.t = 0.0f;
 }
 
-static void ger_draw(void)
+static void rw_step(void)
 {
-    for (int i = 0; i < GEAR_N; i++)
-        ger_one(i);
+    st.runway.t += 0.0333f;
+}
+
+static void rw_draw(void)
+{
+    const int vx = 56, vy = 5;
+    const float span = (float)(H - 1 - vy);
+    float t = st.runway.t;
+    float ph = t * 0.55f;
+    int iy;
+
+    ph -= (float)(int)ph; /* 0..1 */
+
+    /* 星星 + 远处城市微光 */
+    for (int i = 0; i < RW_STAR_N; i++)
+        px(st.runway.st[i].x, st.runway.st[i].y, White,
+           1 + (sinf(t * 1.7f + (float)st.runway.st[i].ph) > 0.5f ? 1 : 0));
+
+    for (int x = 0; x < W; x++)
+        if ((x % 7) < 3)
+            px(x, vy, Cyan, 1);
+
+    /* 远端跑道头一对红灯 */
+    px(vx - 3, vy + 1, Red, 4);
+    px(vx + 3, vy + 1, Red, 4);
+
+    /* 道面（压得很暗）+ 两条边灯：越近越亮，追光扫过时 +3 */
+    for (int y = vy + 1; y < H; y++)
+    {
+        float u = (float)(y - vy) / span;
+        int hw = st.runway.hw[y];
+        int g0 = 2 + (int)(4.0f * u);
+
+        if (fabsf(u - ph) < 0.09f)
+            g0 += 3;
+
+        for (int x = vx - hw + 1; x <= vx + hw - 1; x++)
+            px(x, y, White, 1);
+
+        px(vx - hw, y, White, g0);
+        px(vx + hw, y, White, g0);
+    }
+
+    /* 中线虚线：往观察者方向流，越近越宽 */
+    for (int y = vy + 2; y < H; y++)
+    {
+        float u = (float)(y - vy) / span;
+        int w;
+
+        if (((y + (int)(t * 10.0f)) % 3) != 0)
+            continue;
+
+        w = (int)(u * 2.4f + 0.5f);
+
+        if (w < 1)
+            w = 1;
+
+        for (int x = vx - w; x <= vx + w; x++)
+            px(x, y, Cyan, 3 + (int)(u * 4.0f));
+    }
+
+    /* 近端门槛灯：红白相间 */
+    for (iy = 6; iy < W - 6; iy += 4)
+        px(iy, H - 1, ((iy >> 2) & 1) ? Red : White, 5);
 }
 
 /* ============================================================
@@ -1154,120 +1302,138 @@ static void las_draw(void)
 }
 
 /* ============================================================
- *  15  乒乓：自己跟自己打的复古球局，带拖尾
+ *  15  跨海大桥：主缆下垂，桥面车灯对向行驶，水面反光
  * ============================================================ */
 
-static void pon_init(void)
+static void br_init(void)
 {
-    st.pong.bx = 56.0f;
-    st.pong.by = 9.0f;
-    st.pong.vx = 1.15f;
-    st.pong.vy = 0.42f;
-    st.pong.p1 = 7.0f;
-    st.pong.p2 = 7.0f;
-    st.pong.n = 0;
-}
+    const int deck = 12, tx1 = 30, tx2 = 82, top = 3;
 
-static void pon_step(void)
-{
-    float t1, d;
-
-    st.pong.bx += st.pong.vx;
-    st.pong.by += st.pong.vy;
-
-    if (st.pong.by < 1.4f)
+    /* 主缆曲线一次算好，画的时候直接查表 */
+    for (int x = 0; x < W; x++)
     {
-        st.pong.by = 1.4f;
-        st.pong.vy = fabsf(st.pong.vy);
-    }
-    else if (st.pong.by > 16.6f)
-    {
-        st.pong.by = 16.6f;
-        st.pong.vy = -fabsf(st.pong.vy);
-    }
+        float y;
 
-    /* 两只拍子都追着球，右边的稍快一点 */
-    t1 = st.pong.by - 2.0f;
-
-    d = (t1 - st.pong.p1) * 0.30f;
-    st.pong.p1 += (d > 1.0f) ? 1.0f : (d < -1.0f ? -1.0f : d);
-
-    d = (t1 - st.pong.p2) * 0.34f;
-    st.pong.p2 += (d > 1.0f) ? 1.0f : (d < -1.0f ? -1.0f : d);
-
-    if (st.pong.bx < 5.0f)
-    {
-        if (fabsf(st.pong.by - (st.pong.p1 + 2.0f)) < 2.6f)
+        if (x >= tx1 && x <= tx2)
         {
-            st.pong.bx = 5.0f;
-            st.pong.vx = fabsf(st.pong.vx) * 1.015f;
-            st.pong.vy += (st.pong.by - (st.pong.p1 + 2.0f)) * 0.10f;
+            float u = (float)(x - tx1) / (float)(tx2 - tx1);
+
+            y = (float)(top + 1) + (float)(deck - top - 2) * 4.0f * u * (1.0f - u);
+        }
+        else if (x < tx1)
+        {
+            float u = 1.0f - (float)x / (float)tx1;
+
+            y = (float)(top + 1) + (float)(deck - top - 1) * powf(u, 1.35f);
         }
         else
         {
-            st.pong.bx = 56.0f;
-            st.pong.by = rndf(4.0f, 14.0f);
-            st.pong.vx = 1.15f;
-            st.pong.vy = rndf(-0.5f, 0.5f);
-            st.pong.n = 0;
+            float u = (float)(x - tx2) / (float)(W - 1 - tx2);
+
+            y = (float)(top + 1) + (float)(deck - top - 1) * powf(u, 1.35f);
         }
-    }
-    else if (st.pong.bx > 107.0f)
-    {
-        if (fabsf(st.pong.by - (st.pong.p2 + 2.0f)) < 2.6f)
-        {
-            st.pong.bx = 107.0f;
-            st.pong.vx = -fabsf(st.pong.vx) * 1.015f;
-            st.pong.vy += (st.pong.by - (st.pong.p2 + 2.0f)) * 0.10f;
-        }
-        else
-        {
-            st.pong.bx = 56.0f;
-            st.pong.by = rndf(4.0f, 14.0f);
-            st.pong.vx = -1.15f;
-            st.pong.vy = rndf(-0.5f, 0.5f);
-            st.pong.n = 0;
-        }
+
+        st.bridge.cable[x] = (int8_t)(y + 0.5f);
     }
 
-    if (st.pong.vy > 1.15f)
-        st.pong.vy = 1.15f;
-    else if (st.pong.vy < -1.15f)
-        st.pong.vy = -1.15f;
+    st.bridge.car[0].x = 10.0f;
+    st.bridge.car[0].sp = 0.9f;
+    st.bridge.car[0].c = Red;
+    st.bridge.car[1].x = 48.0f;
+    st.bridge.car[1].sp = 0.9f;
+    st.bridge.car[1].c = White;
+    st.bridge.car[2].x = 70.0f;
+    st.bridge.car[2].sp = -0.7f;
+    st.bridge.car[2].c = White;
+    st.bridge.car[3].x = 95.0f;
+    st.bridge.car[3].sp = -0.7f;
+    st.bridge.car[3].c = Red;
 
-    /* 拖尾 */
-    if (st.pong.n < PONG_TR)
-        st.pong.n++;
-    else
-    {
-        for (int i = 1; i < PONG_TR; i++)
-            st.pong.tr[i - 1] = st.pong.tr[i];
-    }
-
-    st.pong.tr[st.pong.n - 1].x = (int8_t)(st.pong.bx + 0.5f);
-    st.pong.tr[st.pong.n - 1].y = (int8_t)(st.pong.by + 0.5f);
+    st.bridge.t = 0.0f;
 }
 
-static void pon_draw(void)
+static void br_step(void)
 {
-    /* 中线 */
-    for (int y = 0; y < H; y += 3)
-        px(56, y, Cyan, 1);
+    st.bridge.t += 0.0333f;
 
-    /* 球拍 */
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < BR_CAR_N; i++)
     {
-        px(3, (int)(st.pong.p1 + 0.5f) + i, White, 6);
-        px(108, (int)(st.pong.p2 + 0.5f) + i, White, 6);
+        st.bridge.car[i].x += st.bridge.car[i].sp;
+
+        if (st.bridge.car[i].x > (float)(W + 2))
+            st.bridge.car[i].x = -2.0f;
+        else if (st.bridge.car[i].x < -2.0f)
+            st.bridge.car[i].x = (float)(W + 2);
+    }
+}
+
+static void br_draw(void)
+{
+    const int deck = 12, tx1 = 30, tx2 = 82, top = 3;
+    float t = st.bridge.t;
+
+    /* 水面 */
+    for (int y = deck + 2; y < H; y++)
+    {
+        if (y == H - 1)
+        {
+            for (int x = 0; x < W; x++)
+                px(x, y, Cyan, 2);
+
+            continue;
+        }
+
+        for (int x = 0; x < W; x++)
+            if (((x + (int)(t * 5.0f)) % 9) < 5)
+                px(x, y, Cyan, 1);
     }
 
-    /* 球的拖尾 */
-    for (int i = 0; i < st.pong.n; i++)
+    /* 桥面 */
+    for (int x = 0; x < W; x++)
     {
-        int g = (int)(5.0f * (float)(i + 1) / (float)st.pong.n);
+        px(x, deck, White, 4);
+        px(x, deck + 1, White, 2);
+    }
 
-        px(st.pong.tr[i].x, st.pong.tr[i].y,
-           (i == st.pong.n - 1) ? White : Red, g);
+    /* 两座桥塔 + 塔顶红灯 */
+    for (int i = 0; i < 2; i++)
+    {
+        int tx = i ? tx2 : tx1;
+
+        for (int y = top; y <= deck; y++)
+        {
+            px(tx, y, White, 5);
+            px(tx + 1, y, White, 4);
+        }
+
+        if (((int)(t * 2.0f) & 1) == 0)
+            px(tx, top - 1, Red, 7);
+
+        px(tx, top + 3, White, 3);
+        px(tx + 1, top + 3, White, 3);
+    }
+
+    /* 主缆 + 吊索 */
+    for (int x = 0; x < W; x++)
+    {
+        int y = st.bridge.cable[x];
+
+        px(x, y, White, 2);
+
+        if (((x - tx1) % 6) == 0 && x > tx1 && x < tx2)
+            for (int yy = y + 1; yy < deck; yy++)
+                px(x, yy, White, 1);
+    }
+
+    /* 车灯 + 水里倒影 */
+    for (int i = 0; i < BR_CAR_N; i++)
+    {
+        int cx = (int)(st.bridge.car[i].x + 0.5f);
+        Color c = (Color)st.bridge.car[i].c;
+
+        px(cx, deck - 1, c, 7);
+        px(cx - ((st.bridge.car[i].sp > 0.0f) ? 1 : -1), deck - 1, c, 3);
+        px(cx, deck + 3, c, 2);
     }
 }
 
@@ -1364,18 +1530,18 @@ static const Anim_t anims[ANIM_COUNT] = {
     {fly_init, fly_step, fly_draw},   /* 0 Firefly */
     {rip_init, rip_step, rip_draw},   /* 1 Ripple */
     {rain_init, rain_step, rain_draw},/* 2 Matrix */
-    {ecg_init, ecg_step, ecg_draw},   /* 3 ECG */
+    {aur_init, aur_step, aur_draw},   /* 3 Aurora */
     {city_init, city_step, city_draw},/* 4 Skyline */
     {warp_init, warp_step, warp_draw},/* 5 Warp */
     {bub_init, bub_step, bub_draw},   /* 6 Bubble */
     {fw_init, fw_step, fw_draw},      /* 7 Firework */
     {hel_init, hel_step, hel_draw},   /* 8 Helix */
-    {cube_init, cube_step, cube_draw},/* 9 Cube */
+    {hb_init, hb_step, hb_draw},      /* 9 Harbor */
     {tun_init, tun_step, tun_draw},   /* 10 Tunnel */
-    {ger_init, ger_step, ger_draw},   /* 11 Gears */
+    {rw_init, rw_step, rw_draw},      /* 11 Runway */
     {rad_init, rad_step, rad_draw},   /* 12 Radar */
     {las_init, las_step, las_draw},   /* 13 Lissajous */
-    {pon_init, pon_step, pon_draw},   /* 14 Pong */
+    {br_init, br_step, br_draw},      /* 14 Bridge */
     {sky_init, sky_step, sky_draw},   /* 15 Constellation */
 };
 
