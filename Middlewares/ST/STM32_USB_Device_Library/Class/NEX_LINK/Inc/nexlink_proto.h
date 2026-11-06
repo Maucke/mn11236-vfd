@@ -8,7 +8,7 @@
 
 #define NL_VERSION_MAJOR  1
 #define NL_VERSION_MINOR  2
-#define NL_VERSION_PATCH  3
+#define NL_VERSION_PATCH  4
 #define NL_VERSION_BUILD  0
 
 /* CMD */
@@ -20,6 +20,9 @@ typedef enum
     CMD_GET_VERSION         = 0x0002,
     CMD_SYNC_TIME           = 0x0003,
     CMD_LOOPBACK            = 0x0004,
+    /* 请求复位进 Bootloader：空 payload，回 RESP 后 ~100ms 设备就重启
+     * 进 Boot（USB 变成 MSC 升级盘），下次断电重启自动回到 APP */
+    CMD_ENTER_BOOT          = 0x0005,
     CMD_KEY                 = 0x0010,
     CMD_GET_DISPLAY_INFO    = 0x0011,
 

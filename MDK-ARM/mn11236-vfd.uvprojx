@@ -412,6 +412,11 @@
               <FilePath>..\Core\Src\stmflash.c</FilePath>
             </File>
             <File>
+              <FileName>bootreq.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\bootreq.c</FilePath>
+            </File>
+            <File>
               <FileName>clockui.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Core\Src\clockui.c</FilePath>
@@ -1497,6 +1502,11 @@
               <FileName>stmflash.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Core\Src\stmflash.c</FilePath>
+            </File>
+            <File>
+              <FileName>bootreq.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\bootreq.c</FilePath>
             </File>
             <File>
               <FileName>clockui.c</FileName>
