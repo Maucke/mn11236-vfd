@@ -5943,11 +5943,33 @@ static inline float fft_soft_top(float t)
     return knee + span * x / (x + span * 0.6f);
 }
 
+/* ---------------- 高频抬升（频谱斜率） ----------------
+ * 音乐能量天然集中在低频，右半边（约 1k~5k）经常只剩贴着底线的 1~2 根，
+ * 看起来像右边没波形。这里在 AGC 之后乘一条只抬高频的曲线：
+ * 最左 1 倍，最右 FFT_TILT_MAX 倍，越靠右抬得越多。
+ * AGC 仍按原始峰值工作，所以低音该顶格还是顶格，不会因为抬高频而整体变暗。
+ * 曲线用 t^2：左边保持原样，右三分之一抬到 3~6 倍。
+ *
+ * 另外加一道门限：安静环境 / 只有低频嗡声时，禁止抬高频，否则会把底噪
+ * 放大成一排柱子。门限只看 150Hz 以上（跳过 bin 0~3），这样 50Hz 工频
+ * 再大也不会误开。 */
+#define FFT_TILT_MAX 6.0f
+#define FFT_TILT_GATE_OFF 2.0f /* 150Hz 以上峰值不到 2 根柱子：完全不抬 */
+#define FFT_TILT_GATE_ON 7.0f  /* 超过 7 根柱子：完全打开 */
+
+static inline float fft_band_gain(int i, float gate)
+{
+    float t = (float)i / (float)(BAR_COUNT - 1);
+
+    return 1.0f + (FFT_TILT_MAX - 1.0f) * t * t * gate;
+}
+
 void draw_fft(long *fft_result, int len, int delta, uint8_t style, Color bar, Color dot)
 {
     static uint32_t last_time = 0;
     uint32_t current_time = clock_anim_tick();
     float dt = (current_time - last_time) / 1000.0f;
+    float tilt_gate = 0.0f;
     int cols;
 
     last_time = current_time;
@@ -5970,16 +5992,34 @@ void draw_fft(long *fft_result, int len, int delta, uint8_t style, Color bar, Co
     /* ---- 自动增益：只压不放 ---- */
     {
         long top = 0;
+        long gate_top = 0;
         float peak, want = 1.0f;
 
-        /* 用最高那个频点当响度 */
+        /* 用最高那个频点当响度；gate_top 跳过低频，专门判断
+         * "是不是只有底噪/工频"，用来开关高频抬升。 */
         for (int i = 1; i < len - 1; i++)
         {
-            if (fft_result[i] > top)
-                top = fft_result[i];
+            long v = fft_result[i];
+
+            if (v > top)
+                top = v;
+            if (i >= 4 && v > gate_top)
+                gate_top = v;
         }
 
         peak = (float)top / (float)delta; /* 换算成柱高 */
+
+        {
+            float gate_peak = (float)gate_top / (float)delta;
+
+            if (gate_peak <= FFT_TILT_GATE_OFF)
+                tilt_gate = 0.0f;
+            else if (gate_peak >= FFT_TILT_GATE_ON)
+                tilt_gate = 1.0f;
+            else
+                tilt_gate = (gate_peak - FFT_TILT_GATE_OFF) /
+                            (FFT_TILT_GATE_ON - FFT_TILT_GATE_OFF);
+        }
 
         if (peak > FFT_AGC_ON)
         {
@@ -6010,7 +6050,8 @@ void draw_fft(long *fft_result, int len, int delta, uint8_t style, Color bar, Co
 
     for (int i = 0; i < cols; i++)
     {
-        int pos16 = fft_bin_x16[(style == 1) ? (i * 2) : i];
+        int bi = (style == 1) ? (i * 2) : i;
+        int pos16 = fft_bin_x16[bi];
         int idx = pos16 >> 4;
         int frac = pos16 & 15;
         long v;
@@ -6024,7 +6065,10 @@ void draw_fft(long *fft_result, int len, int delta, uint8_t style, Color bar, Co
         if (frac && (idx + 1 < len - 1))
             v = (v * (16 - frac) + fft_result[idx + 1] * frac) / 16;
 
-        update_display(&bars[i], fft_soft_top(((float)v / (float)delta) * fft_agc), dt);
+        update_display(&bars[i],
+                       fft_soft_top(((float)v / (float)delta) * fft_agc *
+                                    fft_band_gain(bi, tilt_gate)),
+                       dt);
     }
 
     switch (style)
