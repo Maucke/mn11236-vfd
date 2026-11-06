@@ -26,6 +26,7 @@ void EasyUIAddItem(EasyUIPage_t *page, EasyUIItem_t *item, char *_title, EasyUII
   *item->param = 0;
   item->paramDefault = 0;
   item->paramBackup = 0;
+  item->labels = NULL;
   item->pageId = 0;
   item->Event = NULL;
 
@@ -51,6 +52,16 @@ void EasyUIAddItem(EasyUIPage_t *page, EasyUIItem_t *item, char *_title, EasyUII
     item->paramDefault = *item->param;
     item->paramMax = va_arg(variableArg, int);
     item->Event = va_arg(variableArg, void (*)(EasyUIItem_t *));
+    break;
+  case ITEM_PROGRESS_LABEL:
+    item->param = va_arg(variableArg, paramType *);
+    item->paramBackup = *item->param;
+    item->paramDefault = *item->param;
+    item->paramMax = va_arg(variableArg, int);
+    item->labels = va_arg(variableArg, const char *const *);
+    item->Event = va_arg(variableArg, void (*)(EasyUIItem_t *));
+    if (item->labels != NULL && *item->param > item->paramMax)
+      *item->param = item->paramMax;
     break;
   case ITEM_MESSAGE:
     item->msg = va_arg(variableArg, char *);
@@ -310,6 +321,19 @@ void EasyUIDrawProgressBar(EasyUIPage_t *page, EasyUIItem_t *item)
 
   barWidth = width - 2 * page->font.width - 0 - 8;
 
+  /* 有名字表就右边留出文字的位置，进度条相应缩短（至少留 12px） */
+  const char *valStr = NULL;
+  int16_t valW = 0;
+
+  if (item->labels != NULL && *item->param <= item->paramMax)
+    valStr = item->labels[*item->param];
+
+  if (valStr != NULL)
+  {
+    valW = (int16_t)(strlen(valStr) * page->font.width);
+    barWidth = (width > valW + 21) ? (width - 9 - valW) : 12;
+  }
+
   EasyUIDrawFrame(x - 1, y - 1, width + 2, height + 2, GUI_penColor);
   EasyUIDrawBox(x, y, width, height, GUI_backgroundColor);
   EasyUIDisplayStr(x + 3, y + itemHeightOffset, item->title);
@@ -317,13 +341,16 @@ void EasyUIDrawProgressBar(EasyUIPage_t *page, EasyUIItem_t *item)
   EasyUIDrawFrame(x + 3, y + page->rowheight + itemHeightOffset, barWidth, page->font.height, GUI_penColor);
   EasyUIDrawBox(x + 5, y + page->rowheight + itemHeightOffset + 2, (float)*item->param / item->paramMax * barWidth - 4,
                 page->font.height - 4, GUI_penColor);
-#if 0
-  EasyUIDisplayFloat(x + width - 5 * page->font.width - 4, y + page->rowheight + itemHeightOffset, *item->param, 3, 2);
-#else
-	snprintf(tempstr, sizeof tempstr, "%d", *item->param);
-	EasyUIDisplayStr(x + width - 2 * page->font.width - 2, y + page->rowheight + itemHeightOffset,
-										 tempstr); 
-#endif
+  if (valStr != NULL)
+  {
+    EasyUIDisplayStr(x + width - 2 - valW, y + page->rowheight + itemHeightOffset, (char *)valStr);
+  }
+  else
+  {
+    snprintf(tempstr, sizeof tempstr, "%d", *item->param);
+    EasyUIDisplayStr(x + width - 2 * page->font.width - 2, y + page->rowheight + itemHeightOffset,
+                     tempstr);
+  }
   EasyUISendBuffer();
 }
 
@@ -523,6 +550,21 @@ void EasyUIDisplayItem(EasyUIPage_t *page, EasyUIItem_t *item)
                          tempstr); 
 		}
     break;
+  case ITEM_PROGRESS_LABEL:
+    EasyUIDisplayStr(2, item->position, "-");
+    EasyUIDisplayStr(5 + page->font.width, item->position, item->title);
+    if (item->labels != NULL && *item->param <= item->paramMax)
+    {
+      const char *lab = item->labels[*item->param];
+
+      if (lab != NULL)
+      {
+        int16_t labW = (int16_t)(strlen(lab) * page->font.width);
+
+        EasyUIDisplayStr(SCREEN_WIDTH - SCROLL_BAR_WIDTH - labW, item->position, (char *)lab);
+      }
+    }
+    break;
   case ITEM_DETAIL:
     EasyUIDisplayStr(5 + page->font.width, item->position, item->title);
     break;
@@ -669,6 +711,7 @@ void EasyUIItemOperationResponse(EasyUIPage_t *page, EasyUIItem_t *item, uint8_t
     *item->flag = !*item->flag;
     break;
   case ITEM_PROGRESS_BAR:
+  case ITEM_PROGRESS_LABEL:
   case ITEM_CHANGE_VALUE:
     functionIsRunning = true;
     EasyUIBackgroundBlur();
@@ -1106,6 +1149,7 @@ void EasyUIEventResetSettings(EasyUIItem_t *item)
         *itemTmp->flag = itemTmp->flagDefault;
         break;
       case ITEM_PROGRESS_BAR:
+      case ITEM_PROGRESS_LABEL:
       case ITEM_CHANGE_VALUE:
         *itemTmp->param = itemTmp->paramDefault;
       default:
@@ -1233,6 +1277,7 @@ void EasyUIEvent(uint8_t timer)
       switch (item->funcType)
       {
       case ITEM_PROGRESS_BAR:
+      case ITEM_PROGRESS_LABEL:
         EasyUIDrawProgressBar(page, item);
         item->Event(item);
         break;
