@@ -29,6 +29,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "bootloader.h"
+#include "bootreq.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -96,10 +97,16 @@ int main(void)
   MX_TIM3_Init();
   MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
-    if(HAL_GPIO_ReadPin(KEY_SW1_GPIO_Port, KEY_SW1_Pin) && HAL_GPIO_ReadPin(KEY_SW2_GPIO_Port, KEY_SW2_Pin))
-		{
+  /* APP 通过 NexLink CMD_ENTER_BOOT 下发了“进 Boot”请求就留下来，读完立刻清标志，
+   * 下次断电重启自动回 APP；没有请求时保持原来的逻辑：按住 SW1/SW2 上电才进 Boot。 */
+  if (BootReq_IsSet())
+  {
+    BootReq_Clear();
+  }
+  else if (HAL_GPIO_ReadPin(KEY_SW1_GPIO_Port, KEY_SW1_Pin) && HAL_GPIO_ReadPin(KEY_SW2_GPIO_Port, KEY_SW2_Pin))
+  {
     JumpToApplication();
-		}
+  }
 	  HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream4_IRQn);
   /* USER CODE END 2 */
