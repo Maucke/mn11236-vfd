@@ -131,6 +131,72 @@ static union
         uint8_t n, rk_on, burst;
         int16_t timer;
     } fw;
+
+    /* ---- 第二批 ---- */
+
+    struct
+    {
+        float t;
+    } helix;
+
+    struct
+    {
+        float ax, ay;
+    } cube;
+
+#define TUN_N 10
+    struct
+    {
+        float z[TUN_N];
+        float t;
+    } tun;
+
+#define GEAR_N 8
+    struct
+    {
+        struct
+        {
+            float x, r, sp;
+            uint8_t n;
+            int8_t dir;
+        } g[GEAR_N];
+        float a;
+    } gears;
+
+#define RADAR_N 7
+    struct
+    {
+        float a;
+        struct
+        {
+            float a, d, life;
+        } bl[RADAR_N];
+    } radar;
+
+    struct
+    {
+        float t;
+    } laser;
+
+#define PONG_TR 10
+    struct
+    {
+        float bx, by, vx, vy, p1, p2;
+        uint8_t n;
+        struct
+        {
+            int8_t x, y;
+        } tr[PONG_TR];
+    } pong;
+
+#define SKY_N 20
+    struct
+    {
+        struct
+        {
+            float x, y, vx, vy, ph, w;
+        } s[SKY_N];
+    } sky;
 } st;
 
 /* ============================================================
@@ -683,6 +749,607 @@ static void fw_draw(void)
 }
 
 /* ============================================================
+ *  9  双螺旋：两条正弦链反向缠绕，碱基对跟着向左滚
+ * ============================================================ */
+
+static void hel_init(void)
+{
+    st.helix.t = 0.0f;
+}
+
+static void hel_step(void)
+{
+    st.helix.t += 0.055f;
+}
+
+static void hel_draw(void)
+{
+    const float cy = 9.0f, A = 6.0f, kw = 6.2831853f / 30.0f;
+    const float shift = st.helix.t * 3.0f;
+    float off;
+
+    /* 两条主链：cos > 0 的那条算"在前面"，亮一档 */
+    for (int x = 0; x < W; x++)
+    {
+        float ph = (float)x * kw - shift;
+        float s = sinf(ph), c = cosf(ph);
+        int y1 = (int)(cy + A * s + 0.5f);
+        int y2 = (int)(cy - A * s + 0.5f);
+        int g1 = 2 + (int)(5.0f * (c > 0.0f ? c : 0.0f));
+        int g2 = 2 + (int)(5.0f * (-c > 0.0f ? -c : 0.0f));
+
+        px(x, y1, White, g1);
+        px(x, y2, White, g2);
+
+        if (c > 0.6f)
+            px(x, y1 - 1, White, 2);
+        else if (c < -0.6f)
+            px(x, y2 + 1, White, 2);
+    }
+
+    /* 碱基对：每 5 px 一根，跟着螺旋一起向左滚 */
+    off = fmodf(shift / kw, 5.0f);
+
+    for (float xx = -off; xx < (float)W; xx += 5.0f)
+    {
+        float ph = xx * kw - shift;
+        float s = sinf(ph);
+        int x = (int)(xx + 0.5f);
+        int y1, y2, top, bot, g;
+
+        if (fabsf(s) < 0.45f)
+            continue;
+
+        y1 = (int)(cy + A * s + 0.5f);
+        y2 = (int)(cy - A * s + 0.5f);
+        top = y1 < y2 ? y1 : y2;
+        bot = y1 > y2 ? y1 : y2;
+        g = fabsf(cosf(ph)) > 0.65f ? 3 : 2;
+
+        for (int y = top + 1; y < bot; y += 2)
+            px(x, y, Red, g);
+    }
+}
+
+/* ============================================================
+ *  10  旋转立方体：线框 3D，前后棱亮度不同
+ * ============================================================ */
+
+static void cube_init(void)
+{
+    st.cube.ax = 0.32f;
+    st.cube.ay = 0.55f;
+}
+
+static void cube_step(void)
+{
+    st.cube.ax += 0.012f;
+    st.cube.ay += 0.021f;
+}
+
+static void cube_draw(void)
+{
+    static const uint8_t E[12][2] = {
+        {0, 1}, {1, 3}, {3, 2}, {2, 0}, {4, 5}, {5, 7},
+        {7, 6}, {6, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
+    const float s = 3.8f, f = 20.0f, K = 1.6f, cx = 56.0f, cy = 9.0f;
+    const float sa = sinf(st.cube.ax), ca = cosf(st.cube.ax);
+    const float sb = sinf(st.cube.ay), cb = cosf(st.cube.ay);
+    float vx[8], vy[8], vz[8];
+
+    for (int i = 0; i < 8; i++)
+    {
+        float x = (i & 1) ? s : -s, y = (i & 2) ? s : -s, z = (i & 4) ? s : -s;
+        float y1 = y * ca - z * sa, z1 = y * sa + z * ca;
+        float x1 = x * cb + z1 * sb, z2 = -x * sb + z1 * cb;
+        float p = f / (f + z2 + 8.0f);
+
+        vx[i] = cx + x1 * p * K;
+        vy[i] = cy + y1 * p * K;
+        vz[i] = z2;
+    }
+
+    for (int i = 0; i < 12; i++)
+    {
+        int a = E[i][0], b = E[i][1];
+        float z = (vz[a] + vz[b]) * 0.5f;
+        int g = 1 + (int)(6.0f * (1.0f - (z + s) / (2.0f * s)));
+
+        if (g < 1)
+            g = 1;
+        else if (g > 7)
+            g = 7;
+
+        draw_line((int)(vx[a] + 0.5f), (int)(vy[a] + 0.5f),
+                  (int)(vx[b] + 0.5f), (int)(vy[b] + 0.5f),
+                  z < 0.0f ? White : Cyan, g);
+    }
+
+    for (int i = 0; i < 8; i++)
+        px((int)(vx[i] + 0.5f), (int)(vy[i] + 0.5f), White, 7);
+}
+
+/* ============================================================
+ *  11  透视隧道：方框环由远及近，整体轻微摆动
+ * ============================================================ */
+
+static void tun_init(void)
+{
+    for (int i = 0; i < TUN_N; i++)
+        st.tun.z[i] = 0.34f + (float)i * 0.5f;
+
+    st.tun.t = 0.0f;
+}
+
+static void tun_step(void)
+{
+    st.tun.t += 0.05f;
+
+    for (int i = 0; i < TUN_N; i++)
+    {
+        st.tun.z[i] -= 0.020f;
+
+        if (st.tun.z[i] < 0.32f)
+            st.tun.z[i] += (float)TUN_N * 0.5f;
+    }
+}
+
+static void tun_draw(void)
+{
+    for (int i = 0; i < TUN_N; i++)
+    {
+        float z = st.tun.z[i], kk = 1.0f / z;
+        float hh = 2.55f * kk, hw = hh * 6.2f;
+        float oy;
+        int x0, x1, y0, y1, g;
+        Color c;
+
+        if (hw > 92.0f)
+            continue;
+
+        g = (int)(8.0f - z * 1.35f);
+
+        if (g < 1)
+            g = 1;
+        else if (g > 7)
+            g = 7;
+
+        c = (z < 0.62f) ? White : Cyan;
+        oy = 9.0f + sinf(z * 0.75f + st.tun.t * 1.2f) * 2.2f;
+
+        x0 = (int)(56.0f - hw + 0.5f);
+        x1 = (int)(56.0f + hw + 0.5f);
+        y0 = (int)(oy - hh + 0.5f);
+        y1 = (int)(oy + hh + 0.5f);
+
+        draw_line(x0, y0, x1, y0, c, g);
+        draw_line(x0, y1, x1, y1, c, g);
+        draw_line(x0, y0, x0, y1, c, g);
+        draw_line(x1, y0, x1, y1, c, g);
+    }
+
+    px(56, 9, White, 3);
+}
+
+/* ============================================================
+ *  12  齿轮组：一排互相咬合的齿轮，转速和半径成反比
+ * ============================================================ */
+
+static const float gear_r[GEAR_N] = {6.0f, 4.6f, 5.8f, 4.4f, 5.8f, 4.6f, 5.9f, 4.7f};
+static const uint8_t gear_n[GEAR_N] = {9, 7, 9, 7, 9, 7, 9, 7};
+static const float gear_sp[GEAR_N] = {1.00f, 1.30f, 1.03f, 1.36f, 1.03f, 1.30f, 1.02f, 1.28f};
+
+static void ger_init(void)
+{
+    float x = 20.0f;
+
+    for (int i = 0; i < GEAR_N; i++)
+    {
+        if (i)
+            x += gear_r[i - 1] + gear_r[i];
+
+        st.gears.g[i].x = x;
+        st.gears.g[i].r = gear_r[i];
+        st.gears.g[i].sp = gear_sp[i];
+        st.gears.g[i].n = gear_n[i];
+        st.gears.g[i].dir = (i & 1) ? -1 : 1;
+    }
+
+    st.gears.a = 0.0f;
+}
+
+static void ger_step(void)
+{
+    st.gears.a += 0.017f;
+}
+
+static void ger_one(int i)
+{
+    const float body = st.gears.g[i].r - 1.9f;
+    const float ang = st.gears.a * st.gears.g[i].sp * (float)st.gears.g[i].dir;
+    const float stepA = 6.2831853f / (float)st.gears.g[i].n;
+    const float cx = st.gears.g[i].x, cy = 9.0f;
+    int steps = (int)(body * 8.0f);
+
+    if (steps < 16)
+        steps = 16;
+
+    /* 轮盘：一圈暗蓝，别抢齿的亮度 */
+    for (int k = 0; k < steps; k++)
+    {
+        float t = (float)k / (float)steps * 6.2831853f;
+
+        px((int)(cx + cosf(t) * body + 0.5f), (int)(cy + sinf(t) * body + 0.5f), Cyan, 2);
+    }
+
+    /* 齿：一颗齿两根挨着的短线，撑出约 2 px 宽 */
+    for (int k = 0; k < st.gears.g[i].n; k++)
+    {
+        float t = ang + (float)k * stepA;
+
+        for (int d = 0; d < 2; d++)
+        {
+            float a = t + (d ? 0.16f : 0.0f) * stepA;
+
+            draw_line((int)(cx + cosf(a) * (body - 0.2f) + 0.5f),
+                      (int)(cy + sinf(a) * (body - 0.2f) + 0.5f),
+                      (int)(cx + cosf(a) * (st.gears.g[i].r + 0.7f) + 0.5f),
+                      (int)(cy + sinf(a) * (st.gears.g[i].r + 0.7f) + 0.5f),
+                      White, 5);
+        }
+    }
+
+    px((int)(cx + 0.5f), (int)(cy + 0.5f), Red, 6);
+}
+
+static void ger_draw(void)
+{
+    for (int i = 0; i < GEAR_N; i++)
+        ger_one(i);
+}
+
+/* ============================================================
+ *  13  雷达：椭圆扫描屏，扫描线带余晖，目标点亮后衰减
+ * ============================================================ */
+
+static void rad_init(void)
+{
+    st.radar.a = 0.0f;
+
+    for (int i = 0; i < RADAR_N; i++)
+    {
+        st.radar.bl[i].a = rndf(0.0f, 6.2832f);
+        st.radar.bl[i].d = rndf(0.25f, 0.95f);
+        st.radar.bl[i].life = 0.0f;
+    }
+}
+
+static void rad_step(void)
+{
+    st.radar.a += 0.085f;
+
+    if (st.radar.a > 6.2832f)
+        st.radar.a -= 6.2832f;
+
+    for (int i = 0; i < RADAR_N; i++)
+    {
+        float diff = st.radar.a - st.radar.bl[i].a;
+
+        if (diff < 0.0f)
+            diff += 6.2832f;
+
+        if (diff < 0.10f)
+            st.radar.bl[i].life = 1.0f;
+        else
+            st.radar.bl[i].life *= 0.988f;
+
+        if (st.radar.bl[i].life < 0.03f && rndf(0.0f, 1.0f) < 0.006f)
+        {
+            st.radar.bl[i].a = rndf(0.0f, 6.2832f);
+            st.radar.bl[i].d = rndf(0.25f, 0.95f);
+        }
+    }
+}
+
+static void rad_draw(void)
+{
+    const float cx = 56.0f, cy = 9.0f, RX = 27.0f, RY = 7.6f;
+
+    /* 三圈刻度 */
+    for (int r = 1; r <= 3; r++)
+    {
+        float fr = (float)r / 3.0f;
+        int n = 44 + r * 16;
+
+        for (int i = 0; i < n; i++)
+        {
+            float t = (float)i / (float)n * 6.2832f;
+
+            px((int)(cx + cosf(t) * RX * fr + 0.5f),
+               (int)(cy + sinf(t) * RY * fr + 0.5f), Cyan, 1);
+        }
+    }
+
+    /* 十字 */
+    draw_line((int)(cx - RX), (int)cy, (int)(cx + RX), (int)cy, Cyan, 1);
+    draw_line((int)cx, (int)(cy - RY), (int)cx, (int)(cy + RY), Cyan, 1);
+
+    /* 扫描线 + 余晖 */
+    for (int k = 0; k < 16; k++)
+    {
+        float t = st.radar.a - (float)k * 0.055f;
+        int g = 6 - (int)((float)k * 0.42f);
+
+        if (g < 1)
+            g = 1;
+
+        draw_line((int)cx, (int)cy,
+                  (int)(cx + cosf(t) * RX + 0.5f),
+                  (int)(cy + sinf(t) * RY + 0.5f),
+                  k == 0 ? White : Cyan, g);
+    }
+
+    /* 目标 */
+    for (int i = 0; i < RADAR_N; i++)
+    {
+        float life = st.radar.bl[i].life;
+        int x, y, g;
+
+        if (life < 0.06f)
+            continue;
+
+        x = (int)(cx + cosf(st.radar.bl[i].a) * RX * st.radar.bl[i].d + 0.5f);
+        y = (int)(cy + sinf(st.radar.bl[i].a) * RY * st.radar.bl[i].d + 0.5f);
+        g = (int)(7.0f * life);
+
+        px(x, y, White, g);
+        px(x + 1, y, Red, g / 2);
+    }
+}
+
+/* ============================================================
+ *  14  利萨茹：示波器曲线，频率比缓慢漂移，一直在变形
+ * ============================================================ */
+
+static void las_init(void)
+{
+    st.laser.t = 0.0f;
+}
+
+static void las_step(void)
+{
+    st.laser.t += 0.011f;
+}
+
+static void las_draw(void)
+{
+    const float cx = 56.0f, cy = 9.0f, A = 53.0f, Bv = 7.8f;
+    const float a = 3.0f + 1.15f * sinf(st.laser.t * 0.37f);
+    const float b = 4.0f + 1.05f * cosf(st.laser.t * 0.29f);
+    const float ph = st.laser.t * 2.3f;
+    float lx = 0.0f, ly = 0.0f;
+    float hu, hx, hy;
+
+    for (int i = 0; i <= 280; i++)
+    {
+        float u = (float)i / 280.0f * 6.2832f;
+        float x = cx + A * sinf(a * u + ph);
+        float y = cy + Bv * sinf(b * u);
+
+        if (i)
+            draw_line((int)(lx + 0.5f), (int)(ly + 0.5f),
+                      (int)(x + 0.5f), (int)(y + 0.5f), Cyan, 2);
+
+        lx = x;
+        ly = y;
+    }
+
+    /* 扫描头 */
+    hu = fmodf(st.laser.t * 3.1f, 6.2832f);
+    hx = cx + A * sinf(a * hu + ph);
+    hy = cy + Bv * sinf(b * hu);
+
+    px((int)(hx + 0.5f), (int)(hy + 0.5f), White, 7);
+    px((int)(hx + 0.5f), (int)(hy + 0.5f) - 1, White, 3);
+}
+
+/* ============================================================
+ *  15  乒乓：自己跟自己打的复古球局，带拖尾
+ * ============================================================ */
+
+static void pon_init(void)
+{
+    st.pong.bx = 56.0f;
+    st.pong.by = 9.0f;
+    st.pong.vx = 1.15f;
+    st.pong.vy = 0.42f;
+    st.pong.p1 = 7.0f;
+    st.pong.p2 = 7.0f;
+    st.pong.n = 0;
+}
+
+static void pon_step(void)
+{
+    float t1, d;
+
+    st.pong.bx += st.pong.vx;
+    st.pong.by += st.pong.vy;
+
+    if (st.pong.by < 1.4f)
+    {
+        st.pong.by = 1.4f;
+        st.pong.vy = fabsf(st.pong.vy);
+    }
+    else if (st.pong.by > 16.6f)
+    {
+        st.pong.by = 16.6f;
+        st.pong.vy = -fabsf(st.pong.vy);
+    }
+
+    /* 两只拍子都追着球，右边的稍快一点 */
+    t1 = st.pong.by - 2.0f;
+
+    d = (t1 - st.pong.p1) * 0.30f;
+    st.pong.p1 += (d > 1.0f) ? 1.0f : (d < -1.0f ? -1.0f : d);
+
+    d = (t1 - st.pong.p2) * 0.34f;
+    st.pong.p2 += (d > 1.0f) ? 1.0f : (d < -1.0f ? -1.0f : d);
+
+    if (st.pong.bx < 5.0f)
+    {
+        if (fabsf(st.pong.by - (st.pong.p1 + 2.0f)) < 2.6f)
+        {
+            st.pong.bx = 5.0f;
+            st.pong.vx = fabsf(st.pong.vx) * 1.015f;
+            st.pong.vy += (st.pong.by - (st.pong.p1 + 2.0f)) * 0.10f;
+        }
+        else
+        {
+            st.pong.bx = 56.0f;
+            st.pong.by = rndf(4.0f, 14.0f);
+            st.pong.vx = 1.15f;
+            st.pong.vy = rndf(-0.5f, 0.5f);
+            st.pong.n = 0;
+        }
+    }
+    else if (st.pong.bx > 107.0f)
+    {
+        if (fabsf(st.pong.by - (st.pong.p2 + 2.0f)) < 2.6f)
+        {
+            st.pong.bx = 107.0f;
+            st.pong.vx = -fabsf(st.pong.vx) * 1.015f;
+            st.pong.vy += (st.pong.by - (st.pong.p2 + 2.0f)) * 0.10f;
+        }
+        else
+        {
+            st.pong.bx = 56.0f;
+            st.pong.by = rndf(4.0f, 14.0f);
+            st.pong.vx = -1.15f;
+            st.pong.vy = rndf(-0.5f, 0.5f);
+            st.pong.n = 0;
+        }
+    }
+
+    if (st.pong.vy > 1.15f)
+        st.pong.vy = 1.15f;
+    else if (st.pong.vy < -1.15f)
+        st.pong.vy = -1.15f;
+
+    /* 拖尾 */
+    if (st.pong.n < PONG_TR)
+        st.pong.n++;
+    else
+    {
+        for (int i = 1; i < PONG_TR; i++)
+            st.pong.tr[i - 1] = st.pong.tr[i];
+    }
+
+    st.pong.tr[st.pong.n - 1].x = (int8_t)(st.pong.bx + 0.5f);
+    st.pong.tr[st.pong.n - 1].y = (int8_t)(st.pong.by + 0.5f);
+}
+
+static void pon_draw(void)
+{
+    /* 中线 */
+    for (int y = 0; y < H; y += 3)
+        px(56, y, Cyan, 1);
+
+    /* 球拍 */
+    for (int i = 0; i < 5; i++)
+    {
+        px(3, (int)(st.pong.p1 + 0.5f) + i, White, 6);
+        px(108, (int)(st.pong.p2 + 0.5f) + i, White, 6);
+    }
+
+    /* 球的拖尾 */
+    for (int i = 0; i < st.pong.n; i++)
+    {
+        int g = (int)(5.0f * (float)(i + 1) / (float)st.pong.n);
+
+        px(st.pong.tr[i].x, st.pong.tr[i].y,
+           (i == st.pong.n - 1) ? White : Red, g);
+    }
+}
+
+/* ============================================================
+ *  16  星座：星星缓慢漂移，近的连线，各自闪烁
+ * ============================================================ */
+
+static void sky_init(void)
+{
+    for (int i = 0; i < SKY_N; i++)
+    {
+        st.sky.s[i].x = rndf(2.0f, (float)W - 2.0f);
+        st.sky.s[i].y = rndf(1.0f, (float)H - 2.0f);
+        st.sky.s[i].vx = rndf(-0.10f, 0.10f);
+        st.sky.s[i].vy = rndf(-0.05f, 0.05f);
+        st.sky.s[i].ph = rndf(0.0f, 6.2832f);
+        st.sky.s[i].w = rndf(0.02f, 0.05f);
+    }
+}
+
+static void sky_step(void)
+{
+    for (int i = 0; i < SKY_N; i++)
+    {
+        st.sky.s[i].x += st.sky.s[i].vx;
+        st.sky.s[i].y += st.sky.s[i].vy;
+        st.sky.s[i].ph += st.sky.s[i].w;
+
+        if (st.sky.s[i].x < 1.0f)
+            st.sky.s[i].x += (float)W - 2.0f;
+        else if (st.sky.s[i].x > (float)W - 1.0f)
+            st.sky.s[i].x -= (float)W - 2.0f;
+
+        if (st.sky.s[i].y < 1.0f)
+            st.sky.s[i].y += (float)H - 2.0f;
+        else if (st.sky.s[i].y > (float)H - 1.0f)
+            st.sky.s[i].y -= (float)H - 2.0f;
+    }
+}
+
+static void sky_draw(void)
+{
+    /* 连线：越近越亮 */
+    for (int i = 0; i < SKY_N; i++)
+    {
+        for (int j = i + 1; j < SKY_N; j++)
+        {
+            float dx = st.sky.s[i].x - st.sky.s[j].x;
+            float dy = (st.sky.s[i].y - st.sky.s[j].y) * 2.2f;
+            float d = sqrtf(dx * dx + dy * dy);
+            int g;
+
+            if (d > 24.0f)
+                continue;
+
+            g = (int)(3.0f * (1.0f - d / 24.0f)) + 1;
+
+            draw_line((int)(st.sky.s[i].x + 0.5f), (int)(st.sky.s[i].y + 0.5f),
+                      (int)(st.sky.s[j].x + 0.5f), (int)(st.sky.s[j].y + 0.5f),
+                      Cyan, g);
+        }
+    }
+
+    /* 星点 */
+    for (int i = 0; i < SKY_N; i++)
+    {
+        int g = 2 + (int)(5.0f * fabsf(sinf(st.sky.s[i].ph)));
+        int x = (int)(st.sky.s[i].x + 0.5f);
+        int y = (int)(st.sky.s[i].y + 0.5f);
+
+        px(x, y, White, g);
+
+        if (g >= 6)
+        {
+            px(x - 1, y, White, 2);
+            px(x + 1, y, White, 2);
+            px(x, y - 1, White, 2);
+        }
+    }
+}
+
+/* ============================================================
  *  调度
  * ============================================================ */
 
@@ -702,6 +1369,14 @@ static const Anim_t anims[ANIM_COUNT] = {
     {warp_init, warp_step, warp_draw},/* 5 Warp */
     {bub_init, bub_step, bub_draw},   /* 6 Bubble */
     {fw_init, fw_step, fw_draw},      /* 7 Firework */
+    {hel_init, hel_step, hel_draw},   /* 8 Helix */
+    {cube_init, cube_step, cube_draw},/* 9 Cube */
+    {tun_init, tun_step, tun_draw},   /* 10 Tunnel */
+    {ger_init, ger_step, ger_draw},   /* 11 Gears */
+    {rad_init, rad_step, rad_draw},   /* 12 Radar */
+    {las_init, las_step, las_draw},   /* 13 Lissajous */
+    {pon_init, pon_step, pon_draw},   /* 14 Pong */
+    {sky_init, sky_step, sky_draw},   /* 15 Constellation */
 };
 
 void Motion_Init(void)

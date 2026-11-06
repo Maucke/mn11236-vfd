@@ -4594,6 +4594,121 @@ void game_switch_anim_in(void)
     shock_in();
 }
 
+/* ============================================================
+ * MOTION 动画之间的转场：整屏横向滑走 -> 黑场（存档）-> 从右侧滑入
+ * 和游戏那套冲击波区分开：这里像机械翻牌，滑到位还会"咔哒"回弹一下。
+ * 同样拆成 out / in 两段，黑场留给调用方写 FLASH。
+ * ============================================================ */
+#define SLIDE_OUT_MS 154 /* 11 帧 × 14ms */
+#define SLIDE_IN_MS 196  /* 14 帧 × 14ms */
+#define SLIDE_BLACK_MS 55
+#define SLIDE_STEP_MS 14
+
+static uint32_t slide_t0;
+
+/*
+ * 把快照按横向偏移铺到显存：
+ *   dx = 画面左边缘在屏幕上的位置（0 = 正好盖满，-112 = 完全滑出左边）
+ *   k  = Q8 亮度系数（256 原样）
+ *   edge = 1 时在画面左边缘点一条白色扫光
+ */
+static void slide_frame(const uint8_t *snap, int32_t dx, uint32_t k, uint8_t edge)
+{
+    uint8_t *buf = mn11236_get_buffer();
+
+    for (int x = 0; x < VFD_WIDTH; x++)
+    {
+        int32_t sx = x - dx;
+        uint8_t *col = &buf[x * VFD_HEIGHT];
+
+        if (sx < 0 || sx >= VFD_WIDTH)
+        {
+            memset(col, 0, VFD_HEIGHT);
+            continue;
+        }
+
+        if (k >= 256u)
+            memcpy(col, &snap[sx * VFD_HEIGHT], VFD_HEIGHT);
+        else
+        {
+            const uint8_t *s = &snap[sx * VFD_HEIGHT];
+
+            for (int y = 0; y < VFD_HEIGHT; y++)
+                col[y] = wipe_scale(s[y], k);
+        }
+    }
+
+    /* 划入时带一条白色扫光，快贴到左边就熄掉 */
+    if (edge && dx >= 4 && dx < VFD_WIDTH)
+    {
+        uint8_t *col = &buf[dx * VFD_HEIGHT];
+
+        for (int y = 0; y < VFD_HEIGHT; y++)
+            col[y] = 0xFF;
+    }
+}
+
+/* 第一段：旧动画加速滑出左边，亮度一起压下去，最后留一块黑屏 */
+void motion_switch_anim_out(void)
+{
+    uint8_t *buf = mn11236_get_buffer();
+
+    slide_t0 = HAL_GetTick();
+    memcpy(g_shatterSnap, buf, sizeof(g_shatterSnap));
+
+    for (uint32_t i = 0; i <= SLIDE_OUT_MS / SLIDE_STEP_MS; i++)
+    {
+        uint32_t p = i * 256u / (SLIDE_OUT_MS / SLIDE_STEP_MS);
+        uint32_t e = p * p / 256u; /* 加速滑走 */
+        int32_t dx = -(int32_t)(e * (VFD_WIDTH + 4) / 256u);
+        uint32_t k = 256u - e * 140u / 256u;
+
+        slide_frame((const uint8_t *)g_shatterSnap, dx, k, 0);
+        mn11236_send_buffer();
+        osDelay(SLIDE_STEP_MS);
+    }
+
+    mn11236_clear_buffers();
+    mn11236_send_buffer();
+    osDelay(SLIDE_BLACK_MS); /* 黑场：调用方在这段时间里存档 */
+}
+
+/* 第三段：黑场里把新动画的第一帧画好，再从右边滑进来 */
+void motion_switch_anim_in(void (*build)(void))
+{
+    uint8_t *buf = mn11236_get_buffer();
+
+    mn11236_clear_buffers();
+    build(); /* 黑屏里画新动画 */
+    memcpy(g_shatterSnap, buf, sizeof(g_shatterSnap));
+
+    for (uint32_t i = 0; i <= SLIDE_IN_MS / SLIDE_STEP_MS; i++)
+    {
+        uint32_t p = i * 256u / (SLIDE_IN_MS / SLIDE_STEP_MS);
+        uint32_t q = 256u - p;
+        uint32_t e = 256u - (q * q >> 8); /* 减速滑入 */
+        int32_t dx = (int32_t)((256u - e) * (VFD_WIDTH + 4) / 256u);
+
+        slide_frame((const uint8_t *)g_shatterSnap, dx, 256u, 1);
+        mn11236_send_buffer();
+        osDelay(SLIDE_STEP_MS);
+    }
+
+    /* 到位后回弹一下，像机械屏"咔哒"停住 */
+    slide_frame((const uint8_t *)g_shatterSnap, -3, 256u, 0);
+    mn11236_send_buffer();
+    osDelay(SLIDE_STEP_MS);
+
+    slide_frame((const uint8_t *)g_shatterSnap, -1, 256u, 0);
+    mn11236_send_buffer();
+    osDelay(SLIDE_STEP_MS);
+
+    memcpy(buf, g_shatterSnap, sizeof(g_shatterSnap));
+    mn11236_send_buffer();
+
+    clock_anim_pause(HAL_GetTick() - slide_t0);
+}
+
 
 /* ---- 扫描线刷屏（时钟换主题） ---- */
 #define WIPE_OUT_MS 130
@@ -5406,6 +5521,20 @@ static struct
     uint8_t hold;
 } fft_vu;
 
+/* ---------------- 频谱自动增益 ----------------
+ * 外接音源音量一大，所有柱子一起顶到天花板，就只剩一片满了。
+ * 但反过来把大音量压成一条线也不行：小音量该小就小，大音量要看着更"满"。
+ * 所以这里只往下压，从不放大：
+ *   峰值不到 FFT_AGC_ON 根柱子 -> 增益 1，画面跟原来一模一样（小音量保持小）
+ *   超过了                     -> 整屏按比例压，让最高那根正好落在 FFT_AGC_ON
+ *   变响 -> 约 50ms 收住；变轻 -> 约 22dB/s 放回来（太快会一抽一抽地喘）
+ * 柱顶另外还有一道软限幅 fft_soft_top()：增益还没来得及收住的那一两帧，
+ * 也不会硬削成一条直线。 */
+#define FFT_AGC_ON 16.0f    /* 超过这个柱高才开始压（满格 BAR_MAX-1 = 17） */
+#define FFT_AGC_MIN 0.002f /* 最多压 500 倍 */
+
+static float fft_agc = 1.0f;
+
 /* VU 刻度弧：相对 (cx, cy) 的偏移，-62° ~ +62° 分 21 档 */
 static const int8_t fft_vu_arc[21][2] = {
     {-13, -7}, {-13, -9}, {-12, -10}, {-10, -11}, {-9, -12},
@@ -5798,6 +5927,22 @@ static void fft_draw_split(Color bar, Color dot)
     }
 }
 
+/* 柱顶软限幅：接近屏幕顶时慢慢收口（渐近 BAR_MAX-1），不硬削成一条直线。
+ * 14 根以下原样返回，所以正常音量下画面不变。 */
+static inline float fft_soft_top(float t)
+{
+    const float knee = 14.0f;
+    const float span = (float)(BAR_MAX - 1) - knee; /* 剩 3 根可用来收口 */
+    float x;
+
+    if (t <= knee)
+        return t;
+
+    x = t - knee;
+
+    return knee + span * x / (x + span * 0.6f);
+}
+
 void draw_fft(long *fft_result, int len, int delta, uint8_t style, Color bar, Color dot)
 {
     static uint32_t last_time = 0;
@@ -5815,9 +5960,53 @@ void draw_fft(long *fft_result, int len, int delta, uint8_t style, Color bar, Co
         delta = 1;
 
     if (dt <= 0.0f || dt > 0.5f)
+    {
         dt = 0.05f;
+        fft_agc = 1.0f; /* 隔了很久才回到频谱页：别拿上次的增益开始 */
+    }
 
     cols = (style == 1) ? (BAR_COUNT / 2) : BAR_COUNT;
+
+    /* ---- 自动增益：只压不放 ---- */
+    {
+        long top = 0;
+        float peak, want = 1.0f;
+
+        /* 用最高那个频点当响度 */
+        for (int i = 1; i < len - 1; i++)
+        {
+            if (fft_result[i] > top)
+                top = fft_result[i];
+        }
+
+        peak = (float)top / (float)delta; /* 换算成柱高 */
+
+        if (peak > FFT_AGC_ON)
+        {
+            /* 太响了：整屏按比例压回来，让最高那根正好落在 FFT_AGC_ON 高 */
+            want = FFT_AGC_ON / peak;
+
+            if (want < FFT_AGC_MIN)
+                want = FFT_AGC_MIN;
+        }
+
+        if (want < fft_agc)
+        {
+            float k = dt * 20.0f; /* 太响：约 50ms 收住 */
+
+            if (k > 1.0f)
+                k = 1.0f;
+
+            fft_agc += (want - fft_agc) * k;
+        }
+        else if (want > fft_agc)
+        {
+            fft_agc *= (1.0f + dt * 2.5f); /* 变轻：约 22dB/s 放回来 */
+
+            if (fft_agc > want)
+                fft_agc = want;
+        }
+    }
 
     for (int i = 0; i < cols; i++)
     {
@@ -5835,7 +6024,7 @@ void draw_fft(long *fft_result, int len, int delta, uint8_t style, Color bar, Co
         if (frac && (idx + 1 < len - 1))
             v = (v * (16 - frac) + fft_result[idx + 1] * frac) / 16;
 
-        update_display(&bars[i], (float)(v / delta), dt);
+        update_display(&bars[i], fft_soft_top(((float)v / (float)delta) * fft_agc), dt);
     }
 
     switch (style)

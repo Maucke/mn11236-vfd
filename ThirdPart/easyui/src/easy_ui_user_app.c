@@ -611,6 +611,15 @@ static uint32_t wake_until_tick = 0; // 临时亮屏截止时间
 
 static SysDisplayMode_e last_disp_mode = DISP_MODE_MOTION;
 SysDisplayMode_e disp_mode = DISP_MODE_MOTION;
+
+/* 动画转场：黑场里把新动画的第一帧画好（滑入时用这张快照） */
+static uint8_t motion_build_id;
+static void motion_build_first_frame(void)
+{
+  clear_gram(White);
+  Motion_Run(motion_build_id);
+}
+
 void AppGUI_Init(UserInfo_t *userinfo)
 {
   InitInfo();
@@ -1306,8 +1315,13 @@ void AppGUI_Loop(uint8_t timer)
       }
       else if (disp_mode == DISP_MODE_MOTION)
       {
+        /* 换动画：整屏横向滑走 -> 黑场里换动画并落盘 -> 新动画从右侧滑进来
+         * FLASH 那几毫秒正好藏在黑屏里 */
         pUserInfo->motion = (pUserInfo->motion + 1) % ANIM_COUNT;
-        UserInfo_AutoSave();
+        motion_build_id = pUserInfo->motion;
+        motion_switch_anim_out();
+        UserInfo_AutoSave(); /* 黑屏时存档 */
+        motion_switch_anim_in(motion_build_first_frame);
       }
       else if (disp_mode == DISP_MODE_CLOCK)
       {

@@ -1,0 +1,768 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MN11236 VFD · 第二批动画 + 转场</title>
+<style>
+  :root{
+    --bg:#0b0d10; --card:#12161b; --line:#232b33;
+    --txt:#d8e2ea; --dim:#7d8f9c; --red:#ff4a3d; --blue:#35b6ff;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:26px 30px 60px;
+    background:radial-gradient(1200px 500px at 50% -10%,#16202a 0%,var(--bg) 60%);
+    color:var(--txt);
+    font:14px/1.6 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+  }
+  h1{font-size:20px;margin:0 0 4px;letter-spacing:.5px}
+  .sub{color:var(--dim);font-size:13px;margin-bottom:18px}
+  .sub b{color:#a9c3d2}
+  .bar{
+    display:flex;flex-wrap:wrap;gap:10px;align-items:center;
+    padding:12px 14px;margin-bottom:22px;
+    background:var(--card);border:1px solid var(--line);border-radius:12px;
+  }
+  .bar button{
+    background:#1b232c;color:var(--txt);border:1px solid #2c3843;
+    padding:7px 14px;border-radius:8px;cursor:pointer;font-size:13px;
+  }
+  .bar button:hover{background:#243039;border-color:#3b4b59}
+  .bar button.on{background:#123243;border-color:#1f6f96;color:#8fd8ff}
+  .bar .sep{width:1px;height:22px;background:var(--line);margin:0 4px}
+  .bar label{color:var(--dim);font-size:13px}
+  .grid{
+    display:grid;gap:20px;
+    grid-template-columns:repeat(auto-fit,minmax(430px,1fr));
+  }
+  body.big .grid{grid-template-columns:repeat(auto-fit,minmax(760px,1fr))}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:14px 16px 12px;overflow:hidden;
+  }
+  .head{display:flex;align-items:baseline;gap:10px;margin-bottom:10px}
+  .idx{
+    font:600 12px/1 ui-monospace,Consolas,monospace;color:#0b0d10;
+    background:var(--txt);border-radius:5px;padding:4px 6px;
+  }
+  .head h2{font-size:15px;margin:0;font-weight:600}
+  .head .en{color:var(--dim);font-size:12px;letter-spacing:.4px}
+  .head .cost{
+    margin-left:auto;font:11px/1 ui-monospace,Consolas,monospace;
+    color:#8fb6c9;background:#0e1a22;border:1px solid #1c3040;
+    padding:4px 7px;border-radius:6px;white-space:nowrap;
+  }
+  .screen{
+    position:relative;width:100%;aspect-ratio:112/18;
+    background:#05080a;border:1px solid #101a20;border-radius:6px;
+    overflow:hidden;
+    box-shadow:inset 0 0 26px #000, 0 0 18px rgba(40,120,170,.10);
+  }
+  .screen canvas{
+    position:absolute;inset:0;width:100%;height:100%;
+    image-rendering:pixelated;image-rendering:crisp-edges;
+    display:block;
+  }
+  .screen canvas.glow{
+    filter:blur(3px) saturate(1.25);opacity:.55;
+    transform:scale(1.012);transform-origin:center;
+  }
+  .desc{margin:10px 0 0;color:var(--dim);font-size:12.5px;line-height:1.55}
+  .desc b{color:#a9c3d2;font-weight:600}
+  .note{
+    margin-top:26px;padding:14px 16px;border-radius:12px;
+    background:#0e1419;border:1px solid #1d262e;color:var(--dim);font-size:12.5px;
+  }
+  .note b{color:#a9c3d2}
+  .kbd{
+    font:11px/1 ui-monospace,Consolas,monospace;color:#9fd0e6;
+    background:#101c24;border:1px solid #1e3542;border-radius:4px;padding:2px 5px;
+  }
+</style>
+</head>
+<body>
+
+<h1>MN11236 VFD · 第二批动画 + 转场</h1>
+<div class="sub">
+  这一批走 <b>几何 / 机械 / 仪表</b> 路线，和现有 8 个（萤火虫、涟漪、数字雨、心电、天际线、星空穿越、气泡、烟花）不重样。
+  仍然是 112×18、双通道 8 级灰度、30 fps 逐像素模拟。<b>8~15 已经全部移植进 animation.c</b>，最后一张是动画之间新加的转场。
+</div>
+
+<div class="bar">
+  <button id="btnPause">⏸ 暂停</button>
+  <div class="sep"></div>
+  <label>速度</label>
+  <button class="spd" data-spd="0.5">0.5×</button>
+  <button class="spd on" data-spd="1">1×</button>
+  <button class="spd" data-spd="2">2×</button>
+  <div class="sep"></div>
+  <button id="btnReplay">↻ 全部重播</button>
+  <button id="btnBig">⤢ 放大</button>
+  <div class="sep"></div>
+  <label>帧 <span id="fps" style="color:#a9c3d2">—</span></label>
+</div>
+
+<div class="grid" id="grid"></div>
+
+<div class="note">
+  <b>状态：</b>8 个已经全部写进 <span class="kbd">animation.c</span>（<span class="kbd">ANIM_COUNT</span> 8 → 16），菜单进度条、MOTION 长按循环都自动跟上了。<br>
+  <b>内存：</b>所有动画共用一块 union，最大的还是烟花（824 B），新加的状态都没超，所以 <b>RAM 没涨</b>（ZI 57712 → 57708）。<br>
+  <b>转场：</b>长按上键换动画时，旧画面滑出 → <b>黑场里 UserInfo_AutoSave()</b> → 新画面滑入。时长 150 / 55 / 190 ms，
+  和游戏切换的冲击波不是同一套。上面演示卡放慢了约 3 倍。实际 154 / 55 / 196 ms。<br>
+  <b>颜色：</b>固定红 / 蓝 / 白（不跟时钟主题），和现有动画一致。
+</div>
+
+<script>
+"use strict";
+/* ============================================================
+ *  112 x 18 画布，双通道 8 级灰度
+ *  color: 1 = 蓝通道, 2 = 红通道, 3 = 两通道(白)
+ * ============================================================ */
+const W = 112, H = 18;
+const BLUE = 1, RED = 2, WHITE = 3;
+const TAU = Math.PI * 2;
+
+const buf = () => ({ r: new Float32Array(W * H), b: new Float32Array(W * H) });
+function clr(B){ B.r.fill(0); B.b.fill(0); }
+function P(B, x, y, c, g){
+  x = Math.round(x); y = Math.round(y);
+  if (x < 0 || x >= W || y < 0 || y >= H || g <= 0) return;
+  if (g > 7) g = 7;
+  const i = y * W + x;
+  if (c & 1) B.b[i] = Math.max(B.b[i], g);
+  if (c & 2) B.r[i] = Math.max(B.r[i], g);
+}
+function line(B, x0, y0, x1, y1, c, g){
+  x0 = Math.round(x0); y0 = Math.round(y0);
+  x1 = Math.round(x1); y1 = Math.round(y1);
+  const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+  const n = Math.max(dx, dy);
+  if (n <= 0){ P(B, x0, y0, c, g); return; }
+  for (let i = 0; i <= n; i++)
+    P(B, x0 + (x1 - x0) * i / n, y0 + (y1 - y0) * i / n, c, g);
+}
+const rnd = (a, b) => a + Math.random() * (b - a);
+
+/* ============================================================
+ *  8  双螺旋 —— 两条正弦链反向缠绕，碱基对跟着滚
+ * ============================================================ */
+const Helix = {
+  init(){ this.t = 0; },
+  step(){ this.t += 0.055; },
+  draw(B){
+    const cy = 9, A = 6.0, k = TAU / 30, t = this.t;
+    const shift = t * 3.0;
+
+    /* 两条主链：cos > 0 的那条算"在前面"，亮一档 */
+    for (let x = 0; x < W; x++){
+      const ph = x * k - shift;
+      const s = Math.sin(ph), c = Math.cos(ph);
+      const y1 = cy + A * s, y2 = cy - A * s;
+      P(B, x, y1, WHITE, 2 + Math.round(5 * Math.max(0, c)));
+      P(B, x, y2, WHITE, 2 + Math.round(5 * Math.max(0, -c)));
+      if (c > 0.6)  P(B, x, y1 - 1, WHITE, 2);
+      if (c < -0.6) P(B, x, y2 + 1, WHITE, 2);
+    }
+
+    /* 碱基对：每 5 px 一根，跟着螺旋一起向左滚 */
+    const off = (shift / k) % 5;
+    for (let xx = -off; xx < W; xx += 5){
+      const ph = xx * k - shift;
+      const s = Math.sin(ph);
+      if (Math.abs(s) < 0.45) continue;
+      const y1 = Math.round(cy + A * s), y2 = Math.round(cy - A * s);
+      const top = Math.min(y1, y2), bot = Math.max(y1, y2);
+      const g = Math.abs(Math.cos(ph)) > 0.65 ? 3 : 2;
+      for (let y = top + 1; y < bot; y += 2) P(B, xx, y, RED, g);
+    }
+  }
+};
+
+/* ============================================================
+ *  9  旋转立方体 —— 线框 3D，前后棱亮度不同
+ * ============================================================ */
+const Cube = {
+  init(){ this.ax = 0.32; this.ay = 0.55; },
+  step(){ this.ax += 0.012; this.ay += 0.021; },
+  draw(B){
+    const s = 3.8, f = 20, cx = 56, cy = 9, K = 1.6;
+    const sa = Math.sin(this.ax), ca = Math.cos(this.ax);
+    const sb = Math.sin(this.ay), cb = Math.cos(this.ay);
+    const v = [];
+
+    for (let i = 0; i < 8; i++){
+      const x = (i & 1) ? s : -s, y = (i & 2) ? s : -s, z = (i & 4) ? s : -s;
+      const y1 = y * ca - z * sa, z1 = y * sa + z * ca;
+      const x1 = x * cb + z1 * sb, z2 = -x * sb + z1 * cb;
+      const p = f / (f + z2 + 8);
+      v.push({ x: cx + x1 * p * K, y: cy + y1 * p * K, z: z2 });
+    }
+
+    const E = [[0,1],[1,3],[3,2],[2,0],[4,5],[5,7],[7,6],[6,4],[0,4],[1,5],[2,6],[3,7]];
+    for (const e of E){
+      const a = v[e[0]], b = v[e[1]];
+      const z = (a.z + b.z) / 2;
+      const g = Math.max(1, Math.min(7, Math.round(1 + 6 * (1 - (z + s) / (2 * s)))));
+      line(B, a.x, a.y, b.x, b.y, z < 0 ? WHITE : BLUE, g);
+    }
+    for (const p of v) P(B, p.x, p.y, WHITE, 7);
+  }
+};
+
+/* ============================================================
+ *  10  透视隧道 —— 方框环由远及近，整体轻微摆动
+ * ============================================================ */
+const Tunnel = {
+  init(){
+    this.z = [];
+    for (let i = 0; i < 10; i++) this.z.push(0.34 + i * 0.5);
+    this.t = 0;
+  },
+  step(){
+    this.t += 0.05;
+    for (let i = 0; i < this.z.length; i++){
+      this.z[i] -= 0.020;
+      if (this.z[i] < 0.32) this.z[i] += this.z.length * 0.5;
+    }
+  },
+  draw(B){
+    const cx = 56, cy = 9;
+    for (const z of this.z){
+      const k = 1 / z;
+      const hh = 2.55 * k, hw = hh * 6.2;
+      if (hw > 92) continue;
+      const g = Math.max(1, Math.min(7, Math.round(8 - z * 1.35)));
+      const c = z < 0.62 ? WHITE : BLUE;
+      const oy = cy + Math.sin(z * 0.75 + this.t * 1.2) * 2.2;
+      line(B, cx - hw, oy - hh, cx + hw, oy - hh, c, g);
+      line(B, cx - hw, oy + hh, cx + hw, oy + hh, c, g);
+      line(B, cx - hw, oy - hh, cx - hw, oy + hh, c, g);
+      line(B, cx + hw, oy - hh, cx + hw, oy + hh, c, g);
+    }
+    P(B, 56, 9, WHITE, 3);
+  }
+};
+
+/* ============================================================
+ *  11  齿轮组 —— 一排互相咬合的齿轮，转速和半径成反比
+ * ============================================================ */
+const Gears = {
+  init(){
+    /* 半径、齿数、转速系数；圆心按"相切"排开 */
+    this.gs = [];
+    let x = 20;
+    const spec = [[6.0,9,1.00],[4.6,7,1.30],[5.8,9,1.03],[4.4,7,1.36],
+                  [5.8,9,1.03],[4.6,7,1.30],[5.9,9,1.02],[4.7,7,1.28]];
+    for (let i = 0; i < spec.length; i++){
+      const r = spec[i][0];
+      if (i) x += spec[i - 1][0] + r;
+      this.gs.push({ x: x, y: 9, r: r, n: spec[i][1], sp: spec[i][2], dir: i % 2 ? -1 : 1 });
+    }
+    this.a = 0;
+  },
+  step(){ this.a += 0.017; },
+  draw(B){
+    for (const g of this.gs) this.gear(B, g);
+  },
+  gear(B, g){
+    const body = g.r - 1.9;
+    const ang = this.a * g.sp * g.dir;
+
+    /* 轮盘：一圈暗蓝，别抢齿的亮度 */
+    const steps = Math.max(16, Math.round(body * 8));
+    for (let i = 0; i < steps; i++){
+      const t = i / steps * TAU;
+      P(B, g.x + Math.cos(t) * body, g.y + Math.sin(t) * body, BLUE, 2);
+    }
+
+    /* 齿：一颗齿两根挨着的短线，撑出约 2 px 宽 */
+    const stepA = TAU / g.n;
+    for (let k = 0; k < g.n; k++){
+      const t = ang + k * stepA;
+      for (const d of [0, 0.16]){
+        const a = t + d * stepA;
+        line(B, g.x + Math.cos(a) * (body - 0.2), g.y + Math.sin(a) * (body - 0.2),
+                g.x + Math.cos(a) * (g.r + 0.7), g.y + Math.sin(a) * (g.r + 0.7), WHITE, 5);
+      }
+    }
+
+    /* 轴 */
+    P(B, g.x, g.y, RED, 6);
+  }
+};
+
+/* ============================================================
+ *  12  雷达 —— 椭圆扫描屏，扫描线带余晖，目标点亮后衰减
+ * ============================================================ */
+const Radar = {
+  init(){
+    this.a = 0;
+    this.bl = [];
+    for (let i = 0; i < 7; i++)
+      this.bl.push({ a: Math.random() * TAU, d: rnd(0.25, 0.95), life: 0 });
+  },
+  step(){
+    this.a += 0.085;
+    if (this.a > TAU) this.a -= TAU;
+    for (const b of this.bl){
+      let diff = this.a - b.a;
+      if (diff < 0) diff += TAU;
+      if (diff < 0.10) b.life = 1;
+      else b.life *= 0.988;
+      if (b.life < 0.03 && Math.random() < 0.006){
+        b.a = rnd(0, TAU); b.d = rnd(0.25, 0.95);
+      }
+    }
+  },
+  draw(B){
+    const cx = 56, cy = 9, RX = 27, RY = 7.6;
+
+    /* 三圈刻度 */
+    for (let r = 1; r <= 3; r++){
+      const f = r / 3, n = 44 + r * 16;
+      for (let i = 0; i < n; i++){
+        const t = i / n * TAU;
+        P(B, cx + Math.cos(t) * RX * f, cy + Math.sin(t) * RY * f, BLUE, 1);
+      }
+    }
+    /* 十字 */
+    for (let x = -RX; x <= RX; x++) P(B, cx + x, cy, BLUE, 1);
+    for (let y = -RY; y <= RY; y += 1) P(B, cx, cy + y, BLUE, 1);
+
+    /* 扫描线 + 余晖 */
+    for (let k = 0; k < 16; k++){
+      const t = this.a - k * 0.055;
+      const g = 6 - k * 0.42;
+      line(B, cx, cy, cx + Math.cos(t) * RX, cy + Math.sin(t) * RY, k === 0 ? WHITE : BLUE, g);
+    }
+
+    /* 目标 */
+    for (const b of this.bl){
+      if (b.life < 0.06) continue;
+      const x = cx + Math.cos(b.a) * RX * b.d;
+      const y = cy + Math.sin(b.a) * RY * b.d;
+      P(B, x, y, WHITE, Math.round(7 * b.life));
+      P(B, x + 1, y, RED, Math.round(3 * b.life));
+    }
+  }
+};
+
+/* ============================================================
+ *  13  利萨茹 —— 示波器风格的曲线，参数缓慢漂移所以一直在变形
+ * ============================================================ */
+const Laser = {
+  init(){ this.t = 0; },
+  step(){ this.t += 0.011; },
+  draw(B){
+    const cx = 56, cy = 9, A = 53, Bv = 7.8;
+    const a = 3 + 1.15 * Math.sin(this.t * 0.37);
+    const b = 4 + 1.05 * Math.cos(this.t * 0.29);
+    const ph = this.t * 2.3;
+
+    let lx = null, ly = null;
+    for (let i = 0; i <= 280; i++){
+      const u = i / 280 * TAU;
+      const x = cx + A * Math.sin(a * u + ph);
+      const y = cy + Bv * Math.sin(b * u);
+      if (lx !== null) line(B, lx, ly, x, y, BLUE, 2);
+      lx = x; ly = y;
+    }
+
+    /* 扫描头 */
+    const u = (this.t * 3.1) % TAU;
+    const hx = cx + A * Math.sin(a * u + ph);
+    const hy = cy + Bv * Math.sin(b * u);
+    P(B, hx, hy, WHITE, 7);
+    P(B, hx, hy - 1, WHITE, 3);
+  }
+};
+
+/* ============================================================
+ *  14  乒乓 —— 自己跟自己打的复古球局，带拖尾
+ * ============================================================ */
+const Pong = {
+  init(){
+    this.bx = 56; this.by = 9; this.vx = 1.15; this.vy = 0.42;
+    this.p1 = 7; this.p2 = 7; this.tr = []; this.rally = 0;
+  },
+  step(){
+    this.bx += this.vx;
+    this.by += this.vy;
+    if (this.by < 1.4){ this.by = 1.4; this.vy = Math.abs(this.vy); }
+    if (this.by > 16.6){ this.by = 16.6; this.vy = -Math.abs(this.vy); }
+
+    /* 两只拍子都追着球，右边的稍快一点 */
+    const t1 = this.by - 2;
+    this.p1 += Math.max(-1.0, Math.min(1.0, (t1 - this.p1) * 0.30));
+    this.p2 += Math.max(-1.0, Math.min(1.0, (t1 - this.p2) * 0.34));
+
+    if (this.bx < 5){
+      if (Math.abs(this.by - (this.p1 + 2)) < 2.6){
+        this.bx = 5; this.vx = Math.abs(this.vx) * 1.015;
+        this.vy += (this.by - (this.p1 + 2)) * 0.10;
+        this.rally++;
+      } else {
+        this.bx = 56; this.by = rnd(4, 14); this.vx = 1.15; this.vy = rnd(-0.5, 0.5);
+        this.rally = 0;
+      }
+    }
+    if (this.bx > 107){
+      if (Math.abs(this.by - (this.p2 + 2)) < 2.6){
+        this.bx = 107; this.vx = -Math.abs(this.vx) * 1.015;
+        this.vy += (this.by - (this.p2 + 2)) * 0.10;
+        this.rally++;
+      } else {
+        this.bx = 56; this.by = rnd(4, 14); this.vx = -1.15; this.vy = rnd(-0.5, 0.5);
+        this.rally = 0;
+      }
+    }
+    this.vy = Math.max(-1.15, Math.min(1.15, this.vy));
+
+    this.tr.push({ x: this.bx, y: this.by });
+    if (this.tr.length > 10) this.tr.shift();
+  },
+  draw(B){
+    /* 中线 */
+    for (let y = 0; y < H; y += 3) P(B, 56, y, BLUE, 1);
+
+    /* 球拍 */
+    for (let i = 0; i < 5; i++){
+      P(B, 3, this.p1 + i, WHITE, 6);
+      P(B, 108, this.p2 + i, WHITE, 6);
+    }
+
+    /* 球的拖尾 */
+    for (let i = 0; i < this.tr.length; i++){
+      const t = this.tr[i];
+      const g = Math.round(5 * (i + 1) / this.tr.length);
+      P(B, t.x, t.y, i === this.tr.length - 1 ? WHITE : RED, g);
+    }
+  }
+};
+
+/* ============================================================
+ *  15  星座 —— 星星缓慢漂移，近的连线，各自闪烁
+ * ============================================================ */
+const Sky = {
+  init(){
+    this.s = [];
+    for (let i = 0; i < 20; i++)
+      this.s.push({
+        x: rnd(2, W - 2), y: rnd(1, H - 2),
+        vx: rnd(-0.10, 0.10), vy: rnd(-0.05, 0.05),
+        ph: Math.random() * TAU, w: rnd(0.02, 0.05)
+      });
+  },
+  step(){
+    for (const s of this.s){
+      s.x += s.vx; s.y += s.vy; s.ph += s.w;
+      if (s.x < 1) s.x += W - 2; else if (s.x > W - 1) s.x -= W - 2;
+      if (s.y < 1) s.y += H - 2; else if (s.y > H - 1) s.y -= H - 2;
+    }
+  },
+  draw(B){
+    /* 连线 */
+    for (let i = 0; i < this.s.length; i++){
+      for (let j = i + 1; j < this.s.length; j++){
+        const a = this.s[i], b = this.s[j];
+        const dx = a.x - b.x, dy = (a.y - b.y) * 2.2;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d > 24) continue;
+        const g = Math.max(1, Math.round(3 * (1 - d / 24)));
+        line(B, a.x, a.y, b.x, b.y, BLUE, g);
+      }
+    }
+    /* 星点 */
+    for (const s of this.s){
+      const g = 2 + Math.round(5 * Math.abs(Math.sin(s.ph)));
+      P(B, s.x, s.y, WHITE, g);
+      if (g >= 6){
+        P(B, s.x - 1, s.y, WHITE, 2);
+        P(B, s.x + 1, s.y, WHITE, 2);
+        P(B, s.x, s.y - 1, WHITE, 2);
+      }
+    }
+  }
+};
+
+/* ============================================================
+ *  卡片清单
+ * ============================================================ */
+const PANELS = [
+  { key:'Helix',  name:'双螺旋',   en:'HELIX',   cost:'RAM 4 B',
+    desc:'两条正弦链反向缠绕，<b>碱基对跟着一起向左滚</b>，靠前的链亮、靠后的暗。<b>最有辨识度</b>的一个，适合当常驻氛围。',
+    anim: Helix },
+  { key:'Cube',   name:'旋转立方体', en:'CUBE',  cost:'RAM 8 B',
+    desc:'线框立方体双轴自转，透视投影。<b>前面的棱白色、后面的棱蓝色</b>，八个顶点补亮点，纵深感很清楚。',
+    anim: Cube },
+  { key:'Tunnel', name:'透视隧道', en:'TUNNEL',  cost:'RAM 44 B',
+    desc:'一叠方框由远及近冲向镜头，越小越暗、越大越亮，最后化作白框消失。<b>整条隧道还会轻微摆动</b>，不呆板。',
+    anim: Tunnel },
+  { key:'Gears',  name:'齿轮组',   en:'GEARS',   cost:'RAM 132 B',
+    desc:'一排九个互相咬合的齿轮横跨整屏，<b>转速和半径成反比</b>，相邻的转向相反。机械感最强。',
+    anim: Gears },
+  { key:'Radar',  name:'雷达',     en:'RADAR',   cost:'RAM 88 B',
+    desc:'宽屏椭圆扫描盘，扫描线带 <b>16 段余晖</b>，扫到目标就点亮、然后慢慢衰减。VFD 的磷光质感最搭这一种。',
+    anim: Radar },
+  { key:'Laser',  name:'利萨茹',   en:'LASER',   cost:'RAM 4 B',
+    desc:'示波器上的利萨茹图形，频率比缓慢漂移，<b>曲线一直在变形但不会突变</b>，白色扫描头在上面跑。',
+    anim: Laser },
+  { key:'Pong',   name:'乒乓',     en:'PONG',    cost:'RAM 48 B',
+    desc:'自己跟自己打的复古球局：球拍追球、球速越打越快、偶尔漏球重新发球，<b>球后面拖着红色渐隐尾</b>。',
+    anim: Pong },
+  { key:'Sky',    name:'星座',     en:'SKY',     cost:'RAM 480 B',
+    desc:'二十颗星缓慢漂移，<b>距离近的自动连线</b>，亮度随距离衰减，各自按不同频率闪烁。最安静的一个。',
+    anim: Sky },
+];
+
+/* ============================================================
+ *  渲染
+ * ============================================================ */
+const CR = [255, 74, 61], CB = [54, 182, 255], BG = [5, 8, 10];
+
+function paint(cv, B){
+  const ctx = cv.getContext('2d');
+  const img = ctx.createImageData(W, H);
+  const d = img.data;
+  for (let i = 0, j = 0; i < W * H; i++, j += 4){
+    const r = B.r[i] / 7, b = B.b[i] / 7;
+    d[j]     = BG[0] + CR[0] * r + CB[0] * b;
+    d[j + 1] = BG[1] + CR[1] * r + CB[1] * b;
+    d[j + 2] = BG[2] + CR[2] * r + CB[2] * b;
+    d[j + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+const grid = document.getElementById('grid');
+const cards = [];
+
+for (let i = 0; i < PANELS.length; i++){
+  const p = PANELS[i];
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML =
+    '<div class="head"><span class="idx">' + (i + 8) + '</span>' +
+      '<h2>' + p.name + '</h2><span class="en">' + p.en + '</span>' +
+      '<span class="cost">#' + (i + 8) + ' · ' + p.cost + '</span></div>' +
+    '<div class="screen">' +
+      '<canvas class="glow" width="112" height="18"></canvas>' +
+      '<canvas class="sharp" width="112" height="18"></canvas>' +
+    '</div>' +
+    '<p class="desc">' + p.desc + '</p>';
+  grid.appendChild(card);
+
+  const sharp = card.querySelector('canvas.sharp');
+  const glow  = card.querySelector('canvas.glow');
+  p.anim.init();
+  cards.push({ anim: p.anim, sharp, glow, B: buf() });
+}
+
+/* ============================================================
+ *  转场演示：动画之间怎么切
+ *  固件里是 滑出 150ms -> 黑场 55ms(存 FLASH) -> 滑入 190ms，
+ *  这里放慢约 3 倍，否则 30fps 的页面看不清。
+ * ============================================================ */
+const TR_PAIR = [Helix, Gears];
+const TR_HOLD = 2.0, TR_OUT = 0.50, TR_BLACK = 0.14, TR_IN = 0.60, TR_BOUNCE = 0.10;
+
+const tr = {
+  phase: 'hold', t: 0, i: 0,
+  cur: null, nxt: null,
+  Bcur: buf(), Bnext: buf(), B: buf(),
+  init(){
+    this.phase = 'hold'; this.t = 0; this.i = 0;
+    this.cur = TR_PAIR[0];
+    this.nxt = TR_PAIR[1];
+    this.cur.init(); this.nxt.init();
+    this.snap(this.Bcur, this.cur);
+  },
+  snap(dst, anim){
+    clr(dst);
+    anim.draw(dst);
+  },
+  step(dt){
+    this.t += dt;
+
+    if (this.phase === 'hold'){
+      this.cur.step();
+      this.snap(this.Bcur, this.cur);
+      if (this.t >= TR_HOLD){ this.t = 0; this.phase = 'out'; }
+    }
+    else if (this.phase === 'out'){
+      if (this.t >= TR_OUT){ this.t = 0; this.phase = 'black'; }
+    }
+    else if (this.phase === 'black'){
+      if (this.t >= TR_BLACK){
+        this.t = 0; this.phase = 'in';
+        this.cur = this.nxt;
+        this.i = (this.i + 1) % TR_PAIR.length;
+        this.nxt = TR_PAIR[(this.i + 1) % TR_PAIR.length];
+        this.nxt.init();
+        this.snap(this.Bnext, this.cur);
+      }
+    }
+    else if (this.t >= TR_IN + TR_BOUNCE){
+      this.t = 0; this.phase = 'hold';
+    }
+  },
+  /* dx = 画面左边缘在屏幕上的位置；k = 亮度系数；edge = 左边缘白扫光 */
+  blit(dst, src, dx, k, edge){
+    for (let x = 0; x < W; x++){
+      const sx = Math.round(x - dx);
+      if (sx < 0 || sx >= W) continue;
+      for (let y = 0; y < H; y++){
+        const i = y * W + x, j = y * W + sx;
+        dst.r[i] = src.r[j] * k;
+        dst.b[i] = src.b[j] * k;
+      }
+    }
+    if (edge && dx >= 4 && dx < W){
+      const x = Math.round(dx);
+      for (let y = 0; y < H; y++){
+        const i = y * W + x;
+        dst.r[i] = 7; dst.b[i] = 7;
+      }
+    }
+  },
+  draw(){
+    const B = this.B;
+    clr(B);
+
+    if (this.phase === 'hold'){
+      B.r.set(this.Bcur.r); B.b.set(this.Bcur.b);
+    }
+    else if (this.phase === 'out'){
+      const p = Math.min(1, this.t / TR_OUT), e = p * p;
+      this.blit(B, this.Bcur, -e * (W + 4), 1 - e * 140 / 256, false);
+    }
+    else if (this.phase === 'in'){
+      const p = Math.min(1, this.t / TR_IN);
+      const q = 1 - p, e = 1 - q * q;
+      let dx = (1 - e) * (W + 4);
+
+      /* 到位后回弹：-3 -> -1 -> 0 */
+      if (this.t > TR_IN){
+        const bt = (this.t - TR_IN) / TR_BOUNCE;
+        dx += bt < 0.5 ? -3 : -3 + 2 * (bt - 0.5) / 0.5;
+      }
+      this.blit(B, this.Bnext, dx, 1, true);
+    }
+    /* black: 什么都不画 */
+  },
+  label(){
+    switch (this.phase){
+      case 'hold':  return '① 停留 · ' + ['HELIX', 'GEARS'][this.i];
+      case 'out':   return '② 加速滑出 + 压亮度';
+      case 'black': return '③ 黑场 · UserInfo_AutoSave() 在这里写 FLASH';
+      default:      return '④ 从右侧滑入 + 白扫光 + 回弹到位';
+    }
+  }
+};
+
+tr.init();
+
+const trCard = document.createElement('div');
+trCard.className = 'card';
+trCard.innerHTML =
+  '<div class="head"><span class="idx">★</span>' +
+    '<h2>动画之间的转场</h2><span class="en">SLIDE</span>' +
+    '<span class="cost">演示放慢 ×3</span></div>' +
+  '<div class="screen">' +
+    '<canvas class="glow" width="112" height="18"></canvas>' +
+    '<canvas class="sharp" width="112" height="18"></canvas>' +
+  '</div>' +
+  '<p class="desc">旧动画<b>加速横向滑出并压暗</b> → 黑场里换动画、<b>UserInfo_AutoSave() 写 FLASH</b> → 新动画<b>从右侧减速滑入</b>，左边缘带一条白色扫光，到位后<b>回弹 3px 停住</b>。和游戏那套冲击波区分开（实机 154+55+196 ms，下面这场放慢约 3 倍）。</p>' +
+  '<p class="desc tl" style="color:#8fd8ff">① 停留</p>';
+grid.appendChild(trCard);
+
+const trSharp = trCard.querySelector('canvas.sharp');
+const trGlow  = trCard.querySelector('canvas.glow');
+const trLabel = trCard.querySelector('.tl');
+
+let frameNo = 0;
+function renderAll(){
+  for (const c of cards){
+    clr(c.B);
+    c.anim.draw(c.B, frameNo);
+    paint(c.sharp, c.B);
+    paint(c.glow, c.B);
+  }
+  tr.draw();
+  paint(trSharp, tr.B);
+  paint(trGlow, tr.B);
+  trLabel.textContent = tr.label();
+}
+
+/* ============================================================
+ *  主循环：固定 30 fps 步进，和固件一帧一次对应
+ * ============================================================ */
+const DT = 1 / 30;
+let acc = 0, last = performance.now(), paused = false, speed = 1, fpsT = 0, fpsN = 0;
+
+function loop(now){
+  requestAnimationFrame(loop);
+  if (paused){ last = now; return; }
+  let d = (now - last) / 1000;
+  last = now;
+  if (d > 0.25) d = 0.25;
+  acc += d * speed;
+  let n = 0;
+  while (acc >= DT && n < 4){
+    acc -= DT;
+    for (const c of cards) c.anim.step();
+    tr.step(DT);
+    frameNo++; n++;
+  }
+  if (n){
+    renderAll();
+    fpsN += n; fpsT += d;
+    if (fpsT >= 0.5){
+      document.getElementById('fps').textContent = Math.round(fpsN / fpsT) + ' fps';
+      fpsT = 0; fpsN = 0;
+    }
+  }
+}
+requestAnimationFrame(loop);
+
+/* ---------- 控件 ---------- */
+const btnPause = document.getElementById('btnPause');
+btnPause.onclick = () => {
+  paused = !paused;
+  btnPause.textContent = paused ? '▶ 继续' : '⏸ 暂停';
+  btnPause.classList.toggle('on', paused);
+};
+document.getElementById('btnReplay').onclick = () => {
+  for (const c of cards) c.anim.init();
+  tr.init();
+  frameNo = 0; acc = 0; renderAll();
+};
+document.getElementById('btnBig').onclick = (e) => {
+  document.body.classList.toggle('big');
+  e.currentTarget.classList.toggle('on', document.body.classList.contains('big'));
+};
+document.querySelectorAll('.spd').forEach(btn => {
+  btn.onclick = () => {
+    speed = parseFloat(btn.dataset.spd);
+    document.querySelectorAll('.spd').forEach(b => b.classList.toggle('on', b === btn));
+  };
+});
+
+/* ---------- 离屏截图 / 调试接口 ---------- */
+window.__animPanels = PANELS.map(p => p.key);
+window.__animStep = function(n){
+  n = n || 60;
+  for (let k = 0; k < n; k++){
+    for (const c of cards) c.anim.step();
+    tr.step(DT);
+    frameNo++;
+  }
+  renderAll();
+  return frameNo;
+};
+window.__animRender = renderAll;
+renderAll();
+</script>
+</body>
+</html>
