@@ -10,6 +10,7 @@
 #include "stm32_rx8900.h"
 #include "mn11236.h"
 #include "easy_ui_user_app.h"
+#include "bootreq.h"
 
 #define NEXLINK_LOG_MAX_LEN 96
 
@@ -368,6 +369,17 @@ static void handle_cmd(nl_packet_t *pkt)
         break;
     case CMD_PING:
         send_resp_ok(pkt->cmd, pkt->seq, NULL, 0);
+        break;
+
+    case CMD_ENTER_BOOT:
+        /* 先把 RESP 送出去：TX 任务优先级(6)高于 RX 任务(5)，
+         * osDelay 一让出 CPU 就会把包发完；再写 flash 标志（会卡几百毫秒），
+         * 最后复位，下次起来 Bootloader 看到标志就留在 Boot。 */
+        send_resp_ok(pkt->cmd, pkt->seq, NULL, 0);
+				mn11236_scan_stop();
+        BootReq_Request();
+        BootReq_Request();
+        HAL_NVIC_SystemReset();
         break;
 
     case CMD_LOOPBACK:

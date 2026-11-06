@@ -87,6 +87,7 @@ typedef enum
     ITEM_CHECKBOX,
     ITEM_MESSAGE,
     ITEM_DETAIL,
+    ITEM_PROGRESS_LABEL,    /* 和 PROGRESS_BAR 一样，但把数字换成 labels[值] */
 } EasyUIItem_e;
 
 typedef enum
@@ -115,6 +116,7 @@ typedef struct EasyUI_item
     int16_t position;
     char *title;
     char *msg;                                  // ITEM_MESSAGE
+    const char *const *labels;                  // ITEM_PROGRESS_LABEL：值 -> 显示名
     bool *flag;                                 // ITEM_CHECKBOX and ITEM_RADIO_BUTTON and ITEM_SWITCH
     bool flagDefault;                           // Factory default setting
     paramType *param;                           // ITEM_CHANGE_VALUE and ITEM_PROGRESS_BAR

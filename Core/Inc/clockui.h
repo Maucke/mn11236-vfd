@@ -125,6 +125,10 @@ void game_restart(uint8_t id); /* 重开指定游戏：0=贪吃蛇 1=俄罗斯�
 /* 冲击波切游戏，分两段调用：中间是黑屏，可以在里面写 FLASH 存档 */
 void game_switch_anim_out(uint8_t id); /* 炸掉旧游戏 + 留下黑屏 */
 void game_switch_anim_in(void);        /* 黑屏里重开新游戏并涌出来 */
+/* 动画之间切换：整屏横向滑走 -> 黑屏 -> 新动画从右侧滑入（滑到位会回弹一下）
+ * 三段时长约 154 / 55 / 196 ms，黑屏那段留给调用方写 FLASH。 */
+void motion_switch_anim_out(void);          /* 旧动画滑走 + 留下黑屏 */
+void motion_switch_anim_in(void (*build)(void)); /* 黑屏里调 build() 画新动画第一帧，再滑进来 */
 void gradient_flow_frame_clock(void);
 void clock_draw_background(uint8_t bg);
 void clock_shatter_anim(void);   /* 当前画面碎裂落地（进菜单用） */

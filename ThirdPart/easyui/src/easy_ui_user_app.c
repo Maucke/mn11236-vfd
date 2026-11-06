@@ -29,18 +29,17 @@
 #include "iwdg.h"
 
 // Pages
-EasyUIPage_t pageMain, pageUSBForm, pageDialog, pageSensor, pageAnimation, pageSetting, pageDiagnostic, pageAbout, pageSetTime;
+EasyUIPage_t pageMain, pageUSBForm, pageDialog, pageSensor, pageSetting, pageDiagnostic, pageAbout, pageSetTime;
 
 // Items
 EasyUIItem_t itemUSBForm;
 EasyUIItem_t itemDebug;
 EasyUIItem_t itemSensor;
-EasyUIItem_t itemAnimation;
 EasyUIItem_t itemSetting, titleSetting, itemMusicTheme, itemMusicColor, itemClockTheme, itemSetTime, itemDefaultFunc, itemClockDimming;
 EasyUIItem_t itemEspEn;
 EasyUIItem_t itemDiagnostic;
 EasyUIItem_t itemAbout;
-EasyUIItem_t itemMotion, titleAnimation;
+EasyUIItem_t itemMotion;
 EasyUIItem_t itemGame;
 EasyUIItem_t itemScreenOnHour;
 EasyUIItem_t itemScreenOffHour;
@@ -68,6 +67,7 @@ void EasyUIKeyActionMonitor() // Interrupt trigger, No EasyUIDelay_ms(xx)
   else if (keyUp.holdTime > 5000)
   {
     dbmsg("keyUp:holdTime:%d", keyDown.holdTime);
+		HAL_NVIC_SystemReset();
   }
   if (keyDown.isPressed)
   {
@@ -608,6 +608,26 @@ static uint32_t wake_until_tick = 0; // 临时亮屏截止时间
 
 static SysDisplayMode_e last_disp_mode = DISP_MODE_MOTION;
 SysDisplayMode_e disp_mode = DISP_MODE_MOTION;
+
+/* 动画转场：黑场里把新动画的第一帧画好（滑入时用这张快照） */
+static uint8_t motion_build_id;
+static void motion_build_first_frame(void)
+{
+  clear_gram(White);
+  Motion_Run(motion_build_id);
+}
+
+/* 菜单里用文字显示的选项名（6x8 字模，最多 6 个字符：
+ * 列表框里的高亮框宽度由标题长度决定，太长会压到右边的高亮边框上）
+ * motionNames 的顺序必须和 animation.c 里的 anims[] 一一对应 */
+static const char *const motionNames[ANIM_COUNT] = {
+    "Glow", "Ripple", "Matrix", "Aurora", "City", "Warp", "Bubble", "Burst",
+    "Helix", "Harbor", "Tunnel", "Runway", "Radar", "Scope", "Bridge", "Sky",
+};
+
+/* 0 = 贪吃蛇 1 = 俄罗斯方块 2 = 坦克大战 */
+static const char *const gameNames[GAME_COUNT] = {"Snake", "Tetris", "Tanks"};
+
 void AppGUI_Init(UserInfo_t *userinfo)
 {
   InitInfo();
@@ -621,7 +641,6 @@ void AppGUI_Init(UserInfo_t *userinfo)
   //  EasyUIAddPage(&pageUSBForm, GUI_DEFAULT_DISPLAY_FONT, PAGE_CUSTOM, PageUSBForm);
   //  EasyUIAddPage(&pageDialog, GUI_6X8_FONT, PAGE_LIST);
   EasyUIAddPage(&pageSensor, GUI_DEFAULT_DISPLAY_FONT, PAGE_CUSTOM, PageSensor);
-  EasyUIAddPage(&pageAnimation, GUI_DEFAULT_DISPLAY_FONT, PAGE_LIST);
   EasyUIAddPage(&pageDiagnostic, GUI_DEFAULT_DISPLAY_FONT, PAGE_CUSTOM, PageDiagnostic);
   EasyUIAddPage(&pageAbout, GUI_DEFAULT_DISPLAY_FONT, PAGE_CUSTOM, PageAbout);
   EasyUIAddPage(&pageSetTime, GUI_DEFAULT_DISPLAY_FONT, PAGE_CUSTOM, PageSetTime);
@@ -629,7 +648,6 @@ void AppGUI_Init(UserInfo_t *userinfo)
   //  EasyUIAddItem(&pageMain, &itemUSBForm, "USBForm", ITEM_JUMP_PAGE, pageUSBForm.id);
   //  EasyUIAddItem(&pageMain, &itemDebug, "Debug", ITEM_JUMP_PAGE, pageDialog.id);
   EasyUIAddItem(&pageMain, &itemSensor, "Sensor", ITEM_JUMP_PAGE, pageSensor.id);
-  EasyUIAddItem(&pageMain, &itemAnimation, "Animation", ITEM_JUMP_PAGE, pageAnimation.id);
   EasyUIAddItem(&pageMain, &itemSetting, "Setting", ITEM_JUMP_PAGE, pageSetting.id);
   EasyUIAddItem(&pageMain, &itemDiagnostic, "Diagnostic", ITEM_JUMP_PAGE, pageDiagnostic.id);
   EasyUIAddItem(&pageMain, &itemAbout, "<About>", ITEM_JUMP_PAGE, pageAbout.id);
@@ -641,7 +659,9 @@ void AppGUI_Init(UserInfo_t *userinfo)
   EasyUIAddItem(&pageSetting, &itemMusicColor, "FFT Color", ITEM_PROGRESS_BAR, &pUserInfo->musiccolor, FFT_COLOR_COUNT - 1, EventChangeValue);
   EasyUIAddItem(&pageSetting, &itemClockTheme, "Clock Theme", ITEM_PROGRESS_BAR, &pUserInfo->clocktheme, CLOCK_THEME_COUNT - 1, EventChangeValue);
   EasyUIAddItem(&pageSetting, &itemDefaultFunc, "Default Func", ITEM_PROGRESS_BAR, &pUserInfo->defaultfunc, 3, EventChangeValue);
-  EasyUIAddItem(&pageSetting, &itemGame, "Game", ITEM_PROGRESS_BAR, &pUserInfo->game, GAME_COUNT - 1, EventChangeValue);
+  EasyUIAddItem(&pageSetting, &itemGame, "Game", ITEM_PROGRESS_LABEL, &pUserInfo->game, GAME_COUNT - 1, gameNames, EventChangeValue);
+  /* 动画单选：0..ANIM_COUNT-1，长按上键也能在 MOTION 界面里循环切换 */
+  EasyUIAddItem(&pageSetting, &itemMotion, "Animation", ITEM_PROGRESS_LABEL, &pUserInfo->motion, ANIM_COUNT - 1, motionNames, EventChangeValue);
   EasyUIAddItem(&pageSetting, &itemClockDimming, "Clock Dimming", ITEM_PROGRESS_BAR, &pUserInfo->clockdimming, 4, EventChangeValue);
   EasyUIAddItem(&pageSetting, &itemScreenOnHour,
                 "Screen ON", ITEM_PROGRESS_BAR,
@@ -653,9 +673,6 @@ void AppGUI_Init(UserInfo_t *userinfo)
                 &pUserInfo->screen_off_hour, 23,
                 EventChangeValue);
 
-  EasyUIAddItem(&pageAnimation, &titleAnimation, "[Animation]", ITEM_PAGE_DESCRIPTION);
-  /* 单选：0..ANIM_COUNT-1，长按上键也能在 MOTION 界面里循环切换 */
-  EasyUIAddItem(&pageAnimation, &itemMotion, "Animation", ITEM_PROGRESS_BAR, &pUserInfo->motion, ANIM_COUNT - 1, EventChangeValue);
   // Key init
   EasyKeyInit(&keyUp, GPIOB, KEY_SW1_Pin);
   EasyKeyInit(&keyDown, GPIOB, KEY_SW2_Pin);
@@ -677,6 +694,18 @@ const MusicTheme_t musicTheme[FFT_COLOR_COUNT] = {
     {White, Red},
     {White, Cyan},
 };
+
+/* 频谱换风格转场：黑场里把新风格的第一帧画好（滑入时用这张快照）
+ * 和 MOTION 的 motion_build_first_frame 一样，这里只画不送屏 */
+static void fft_build_first_frame(void)
+{
+  const MusicTheme_t *mt = &musicTheme[pUserInfo->musiccolor % FFT_COLOR_COUNT];
+
+  clear_gram(White);
+  set_g_maxGray(pUserInfo->clockdimming + 3);
+  draw_fft(lBufMagArray, NPT / 2, 20,
+           (uint8_t)(pUserInfo->musictheme % FFT_STYLE_COUNT), mt->bar, mt->dot);
+}
 
 extern char timeStr[10];
 extern char date[10];
@@ -1056,7 +1085,9 @@ void AppGUI_Loop(uint8_t timer)
     clock_shatter_rebuild();
   }
 
-  UserInfo_AutoSave();
+  /* 菜单里改的配置不当场写 FLASH：退出菜单时统一存一次（见下面两处退出） */
+  if (disp_mode != DISP_MODE_MENU)
+    UserInfo_AutoSave();
 
   // 菜单超时退出
   if (disp_mode == DISP_MODE_MENU)
@@ -1065,6 +1096,7 @@ void AppGUI_Loop(uint8_t timer)
     {
       /* 超时退出菜单也走碎裂落地过渡 */
       TransitionShatter();
+      UserInfo_AutoSave(); /* 碎屏落地后的黑屏里统一存档 */
       disp_mode = last_disp_mode;
       last_key_tick = HAL_GetTick();
     }
@@ -1109,14 +1141,23 @@ void AppGUI_Loop(uint8_t timer)
     {
       if (disp_mode == DISP_MODE_FFT)
       {
+        /* 换频谱风格：和换动画共用同一套滑屏转场
+         * 旧画面滑走 -> 黑场里换风格 + 落盘 -> 新风格滑进来 */
+        motion_switch_anim_out();
         pUserInfo->musictheme = (pUserInfo->musictheme + 1) % FFT_STYLE_COUNT;
-        fft_style_reset(); /* 清掉上一种风格残留的瀑布/粒子 */
-        UserInfo_AutoSave();
+        fft_style_reset();   /* 清掉上一种风格残留的瀑布/粒子 */
+        UserInfo_AutoSave(); /* 黑屏时存档 */
+        motion_switch_anim_in(fft_build_first_frame);
       }
       else if (disp_mode == DISP_MODE_MOTION)
       {
+        /* 换动画：整屏横向滑走 -> 黑场里换动画并落盘 -> 新动画从右侧滑进来
+         * FLASH 那几毫秒正好藏在黑屏里 */
         pUserInfo->motion = (pUserInfo->motion + 1) % ANIM_COUNT;
-        UserInfo_AutoSave();
+        motion_build_id = pUserInfo->motion;
+        motion_switch_anim_out();
+        UserInfo_AutoSave(); /* 黑屏时存档 */
+        motion_switch_anim_in(motion_build_first_frame);
       }
       else if (disp_mode == DISP_MODE_CLOCK)
       {
@@ -1143,6 +1184,7 @@ void AppGUI_Loop(uint8_t timer)
   {
     /* 从菜单退回原界面：同样用画面碎裂落地过渡 */
     TransitionShatter();
+    UserInfo_AutoSave(); /* 碎屏落地后的黑屏里统一存档 */
     disp_mode = last_disp_mode;
     opnExit = false;
     last_key_tick = HAL_GetTick();
