@@ -20,7 +20,6 @@ void BootReq_Request(void)
   uint32_t sectorError = 0;
   uint32_t i;
 
-  HAL_IWDG_Refresh(&hiwdg);
   HAL_FLASH_Unlock();
 
   /* 擦掉配置扇区（含末尾的 BOOTREQ 字） */
@@ -29,8 +28,6 @@ void BootReq_Request(void)
   erase.NbSectors = 1;
   erase.VoltageRange = FLASH_VOLTAGE_RANGE_3;
   HAL_FLASHEx_Erase(&erase, &sectorError);
-
-  HAL_IWDG_Refresh(&hiwdg);
 
   /* 配置原样写回扇区开头 */
   for (i = 0; i < sizeof(UserInfo_t) / sizeof(uint32_t); i++)

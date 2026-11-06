@@ -376,7 +376,8 @@ static void handle_cmd(nl_packet_t *pkt)
          * osDelay 一让出 CPU 就会把包发完；再写 flash 标志（会卡几百毫秒），
          * 最后复位，下次起来 Bootloader 看到标志就留在 Boot。 */
         send_resp_ok(pkt->cmd, pkt->seq, NULL, 0);
-        osDelay(100);
+				mn11236_scan_stop();
+        BootReq_Request();
         BootReq_Request();
         HAL_NVIC_SystemReset();
         break;
