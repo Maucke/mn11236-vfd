@@ -5534,6 +5534,8 @@ static struct
 #define FFT_AGC_MIN 0.002f /* 最多压 500 倍 */
 
 static float fft_agc = 1.0f;
+/* 安静环境软抑制：0=完全压掉底噪，1=正常显示。带 50ms 平滑，避免闪。 */
+static float fft_squelch = 0.0f;
 
 /* VU 刻度弧：相对 (cx, cy) 的偏移，-62° ~ +62° 分 21 档 */
 static const int8_t fft_vu_arc[21][2] = {
@@ -5553,6 +5555,7 @@ void fft_style_reset(void)
     fft_vu.needle = 0.0f;
     fft_vu.peak = 0.0f;
     fft_vu.hold = 0;
+    fft_squelch = 0.0f; /* 新风格从静音开始，避免切页瞬间把底噪放出来 */
 }
 
 void update_display(FFTDisplay_t *fft, float target, float dt)
@@ -5957,6 +5960,30 @@ static inline float fft_soft_top(float t)
 #define FFT_TILT_GATE_OFF 2.0f /* 150Hz 以上峰值不到 2 根柱子：完全不抬 */
 #define FFT_TILT_GATE_ON 7.0f  /* 超过 7 根柱子：完全打开 */
 
+/* ---------------- 安静环境软抑制 ----------------
+ * 安静时 FFT 底噪会铺成一排 1/3 高度左右的小柱子。这里按 150Hz 以上
+ * 的峰值做一道软静噪：
+ *   峰值 <= 5 根柱子 -> 完全压掉
+ *   峰值 >= 11 根柱子 -> 完全放开
+ * 中间平滑过渡，再乘到高频抬升门上。这样安静时既没有底噪，
+ * 有音乐时右半边该抬的还是抬。 */
+#define FFT_SQUELCH_OFF 5.0f
+#define FFT_SQUELCH_ON 11.0f
+
+static inline float fft_squelch_curve(float peak)
+{
+    float x;
+
+    if (peak <= FFT_SQUELCH_OFF)
+        return 0.0f;
+    if (peak >= FFT_SQUELCH_ON)
+        return 1.0f;
+
+    x = (peak - FFT_SQUELCH_OFF) / (FFT_SQUELCH_ON - FFT_SQUELCH_OFF);
+
+    return x * x * (3.0f - 2.0f * x);
+}
+
 static inline float fft_band_gain(int i, float gate)
 {
     float t = (float)i / (float)(BAR_COUNT - 1);
@@ -5970,6 +5997,7 @@ void draw_fft(long *fft_result, int len, int delta, uint8_t style, Color bar, Co
     uint32_t current_time = clock_anim_tick();
     float dt = (current_time - last_time) / 1000.0f;
     float tilt_gate = 0.0f;
+    float squelch = 1.0f;
     int cols;
 
     last_time = current_time;
@@ -5985,6 +6013,7 @@ void draw_fft(long *fft_result, int len, int delta, uint8_t style, Color bar, Co
     {
         dt = 0.05f;
         fft_agc = 1.0f; /* 隔了很久才回到频谱页：别拿上次的增益开始 */
+        fft_squelch = 0.0f; /* 也先压住底噪，等确认有信号再慢慢放开 */
     }
 
     cols = (style == 1) ? (BAR_COUNT / 2) : BAR_COUNT;
@@ -6011,6 +6040,8 @@ void draw_fft(long *fft_result, int len, int delta, uint8_t style, Color bar, Co
 
         {
             float gate_peak = (float)gate_top / (float)delta;
+            float want_sq;
+            float sq_k;
 
             if (gate_peak <= FFT_TILT_GATE_OFF)
                 tilt_gate = 0.0f;
@@ -6019,6 +6050,18 @@ void draw_fft(long *fft_result, int len, int delta, uint8_t style, Color bar, Co
             else
                 tilt_gate = (gate_peak - FFT_TILT_GATE_OFF) /
                             (FFT_TILT_GATE_ON - FFT_TILT_GATE_OFF);
+
+            /* 安静环境软抑制：按 150Hz 以上的峰值决定压多少。
+             * 有音乐时快速打开；音乐间隙慢一点关，避免一拍一开造成闪烁。 */
+            want_sq = fft_squelch_curve(gate_peak);
+            sq_k = (want_sq > fft_squelch) ? (dt * 20.0f) : (dt * 3.0f);
+            if (sq_k > 1.0f)
+                sq_k = 1.0f;
+            fft_squelch += (want_sq - fft_squelch) * sq_k;
+            squelch = fft_squelch;
+
+            /* 安静时连高频抬升一起关掉，免得把残余底噪放大到右半边 */
+            tilt_gate *= squelch;
         }
 
         if (peak > FFT_AGC_ON)
@@ -6066,7 +6109,7 @@ void draw_fft(long *fft_result, int len, int delta, uint8_t style, Color bar, Co
             v = (v * (16 - frac) + fft_result[idx + 1] * frac) / 16;
 
         update_display(&bars[i],
-                       fft_soft_top(((float)v / (float)delta) * fft_agc *
+                       fft_soft_top(((float)v / (float)delta) * fft_agc * squelch *
                                     fft_band_gain(bi, tilt_gate)),
                        dt);
     }

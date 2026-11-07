@@ -97,9 +97,11 @@ void Error_Handler(void);
     uint8_t motion;
     /* 游戏编号 0=贪吃蛇 1=俄罗斯方块 2=坦克大战（菜单 Game 或游戏界面长按上键切换） */
     uint8_t game;
-    /* 原来 EffectSwitch_t 的 10 字节（motion + game + 8 字节占位），保留占位：
-     * 总长度和字段偏移都不变，旧配置读出来不需要迁移 */
-    uint8_t motionpad[8];
+    /* 自动演示模式：0=关，1=开。放在原来 motionpad 的第一个字节里，
+     * 总长度和后面所有字段偏移都不变，旧配置读出来自动当成“关”。 */
+    uint8_t automode;
+    /* 原来 EffectSwitch_t 的 10 字节（motion + game + 8 字节占位），现在剩 7 字节占位 */
+    uint8_t motionpad[7];
     uint8_t clockdimming;
 		uint8_t screen_on_hour;   
 		uint8_t screen_off_hour;  
