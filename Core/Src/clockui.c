@@ -5501,21 +5501,23 @@ static const uint16_t fft_bin_x16[BAR_COUNT] = {
 
 #define FFT_MATRIX_COLS 28
 #define FFT_BOUNCE_BALLS 14
-#define FFT_FW_MAX 20
-#define FFT_FW_ROCKETS 2
+#define FFT_FW_MAX 24
+#define FFT_FW_ROCKETS 3
+#define FFT_FW_SCALE 256.0f
+#define FFT_FW_GRAVITY 8.0f /* 像素/秒² */
 
 typedef struct
 {
-    int16_t x, y;   /* 1/4 像素 */
-    int8_t vx, vy;  /* 1/4 像素/帧 */
-    uint8_t life;
+    int16_t x, y;   /* 1/256 像素 */
+    int16_t vx, vy; /* 1/256 像素/秒 */
+    uint16_t life;  /* 剩余毫秒 */
     uint8_t col;    /* 0=bar 1=dot 2=white */
 } FFTFireworkParticle_t;
 
 typedef struct
 {
-    int16_t x, y;   /* 1/4 像素 */
-    int8_t vy;      /* 1/4 像素/帧 */
+    int16_t x, y;   /* 1/256 像素 */
+    int16_t vy;     /* 1/256 像素/秒 */
     uint8_t ty;     /* 爆炸高度（像素） */
 } FFTFireworkRocket_t;
 
@@ -5548,7 +5550,7 @@ static union
         FFTFireworkParticle_t p[FFT_FW_MAX];
         FFTFireworkRocket_t r[FFT_FW_ROCKETS];
         uint8_t pn, rn, init;
-        uint32_t last, seed;
+        uint32_t last, seed, tick;
     } fw;
 } fft_ram;
 
@@ -6431,33 +6433,43 @@ static void fft_draw_tunnel(Color bar, Color dot)
 static void fft_draw_fireworks(Color bar, Color dot)
 {
     uint32_t now = clock_anim_tick();
+    uint32_t dt_ms;
+    uint32_t interval;
+    float dt;
     float t = now * 0.001f;
     float bass = fft_band_max(0, 24) / (float)(BAR_MAX - 1);
-    uint32_t interval;
 
     if (!fft_ram.fw.init)
     {
         fft_ram.fw.pn = 0;
         fft_ram.fw.rn = 0;
-        fft_ram.fw.last = now;
+        fft_ram.fw.last = now - 1000u; /* 第一帧就发一枚，别等太久 */
+        fft_ram.fw.tick = now;
         fft_ram.fw.seed = 0x1234567u;
 
-        for (int n = 0; n < 22 && fft_ram.fw.pn < FFT_FW_MAX; n++)
+        for (int n = 0; n < 14 && fft_ram.fw.pn < FFT_FW_MAX; n++)
         {
             uint32_t r = fft_rand(&fft_ram.fw.seed);
             float a = (float)(r % 6283u) * 0.001f;
-            int sp = 2 + (int)((r >> 8) % 5u);
+            float sp = 3.5f + (float)((r >> 8) % 5u); /* 3.5~7.5 px/s */
             FFTFireworkParticle_t *p = &fft_ram.fw.p[fft_ram.fw.pn++];
 
-            p->x = (int16_t)((BAR_COUNT / 2) * 4);
-            p->y = (int16_t)(7 * 4);
-            p->vx = (int8_t)(cosf(a) * (float)sp);
-            p->vy = (int8_t)(sinf(a) * (float)sp);
-            p->life = (uint8_t)(10 + (r >> 16) % 12u);
+            p->x = (int16_t)((BAR_COUNT / 2) * 256);
+            p->y = (int16_t)(7 * 256);
+            p->vx = (int16_t)(cosf(a) * sp * FFT_FW_SCALE);
+            p->vy = (int16_t)(sinf(a) * sp * FFT_FW_SCALE);
+            p->life = (uint16_t)(900 + (r >> 16) % 500u);
             p->col = (n % 5 == 0) ? 2 : 0;
         }
         fft_ram.fw.init = 1;
     }
+
+    /* 所有运动按毫秒计算，避免高刷屏下烟花一闪就没 */
+    dt_ms = now - fft_ram.fw.tick;
+    if (dt_ms > 100u)
+        dt_ms = 100u;
+    fft_ram.fw.tick = now;
+    dt = (float)dt_ms * 0.001f;
 
     /* 背景星点 */
     for (int i = 0; i < 22; i++)
@@ -6472,16 +6484,17 @@ static void fft_draw_fireworks(Color bar, Color dot)
         draw_point_gray(x, y, (i % 6 == 0) ? dot : bar, (uint8_t)lv);
     }
 
-    interval = (uint32_t)(740.0f - bass * 340.0f);
+    /* 低频越强，火箭越密；最多 3 发同时在空中 */
+    interval = (uint32_t)(360.0f - bass * 180.0f);
     if ((uint32_t)(now - fft_ram.fw.last) >= interval &&
         fft_ram.fw.rn < FFT_FW_ROCKETS)
     {
         uint32_t r = fft_rand(&fft_ram.fw.seed);
         FFTFireworkRocket_t *rk = &fft_ram.fw.r[fft_ram.fw.rn++];
 
-        rk->x = (int16_t)((12 + (int)((r >> 16) % (BAR_COUNT - 24))) * 4);
-        rk->y = (int16_t)((MAX_Y - 1) * 4);
-        rk->vy = (int8_t)-(4 + (int)((r >> 8) % 4u));
+        rk->x = (int16_t)((12 + (int)((r >> 16) % (BAR_COUNT - 24))) * 256);
+        rk->y = (int16_t)((MAX_Y - 1) * 256);
+        rk->vy = (int16_t)(-(18 + (int)((r >> 8) % 9u)) * 256);
         rk->ty = (uint8_t)(3 + (int)((r >> 4) % 5u));
         fft_ram.fw.last = now;
     }
@@ -6494,30 +6507,30 @@ static void fft_draw_fireworks(Color bar, Color dot)
         int py;
         int exploded = 0;
 
-        rk->y += rk->vy;
-        rk->vy += 1;
-        if (rk->y <= (int16_t)(rk->ty * 4))
+        rk->y += (int16_t)((float)rk->vy * dt);
+        rk->vy += (int16_t)(FFT_FW_GRAVITY * FFT_FW_SCALE * dt);
+        if (rk->y <= (int16_t)(rk->ty * 256))
             exploded = 1;
 
-        px = rk->x >> 2;
-        py = rk->y >> 2;
+        px = rk->x >> 8;
+        py = rk->y >> 8;
 
         if (exploded)
         {
-            int count = 14 + (int)(fft_rand(&fft_ram.fw.seed) % 8u);
+            int count = 10 + (int)(fft_rand(&fft_ram.fw.seed) % 6u);
 
             for (int n = 0; n < count && fft_ram.fw.pn < FFT_FW_MAX; n++)
             {
                 uint32_t rr = fft_rand(&fft_ram.fw.seed);
                 float a = (float)(rr % 6283u) * 0.001f;
-                int sp = 2 + (int)((rr >> 8) % 5u);
+                float sp = 3.5f + (float)((rr >> 8) % 5u); /* 3.5~7.5 px/s */
                 FFTFireworkParticle_t *p = &fft_ram.fw.p[fft_ram.fw.pn++];
 
                 p->x = rk->x;
                 p->y = rk->y;
-                p->vx = (int8_t)(cosf(a) * (float)sp);
-                p->vy = (int8_t)(sinf(a) * (float)sp);
-                p->life = (uint8_t)(12 + (rr >> 16) % 10u);
+                p->vx = (int16_t)(cosf(a) * sp * FFT_FW_SCALE);
+                p->vy = (int16_t)(sinf(a) * sp * FFT_FW_SCALE);
+                p->life = (uint16_t)(850 + (rr >> 16) % 500u);
                 p->col = (n % 5 == 0) ? 2 : (n % 3 == 0) ? 1 : 0;
             }
 
@@ -6536,7 +6549,7 @@ static void fft_draw_fireworks(Color bar, Color dot)
         i++;
     }
 
-    /* 粒子：重力 + 拖尾 */
+    /* 粒子：慢速扩散 + 轻微重力 + 拖尾 */
     for (int i = 0; i < fft_ram.fw.pn;)
     {
         FFTFireworkParticle_t *p = &fft_ram.fw.p[i];
@@ -6544,19 +6557,19 @@ static void fft_draw_fireworks(Color bar, Color dot)
         int py;
         int dead = 0;
 
-        p->x += p->vx;
-        p->y += p->vy;
-        p->vy += 1;
-        if (p->life > 0)
-            p->life--;
+        p->x += (int16_t)((float)p->vx * dt);
+        p->y += (int16_t)((float)p->vy * dt);
+        p->vy += (int16_t)(FFT_FW_GRAVITY * FFT_FW_SCALE * dt);
 
-        px = p->x >> 2;
-        py = p->y >> 2;
-
-        if (p->life == 0 || px < 0 || px >= BAR_COUNT || py >= MAX_Y)
+        if (p->life <= dt_ms)
             dead = 1;
+        else
+            p->life -= (uint16_t)dt_ms;
 
-        if (dead)
+        px = (p->x < 0) ? -1 : (p->x >> 8);
+        py = (p->y < 0) ? -1 : (p->y >> 8);
+
+        if (dead || px < 0 || px >= BAR_COUNT || py >= MAX_Y)
         {
             fft_ram.fw.p[i] = fft_ram.fw.p[--fft_ram.fw.pn];
             continue;
@@ -6564,13 +6577,15 @@ static void fft_draw_fireworks(Color bar, Color dot)
 
         {
             Color c = fft_fw_color(p->col, bar, dot);
-            int lv = (p->life > 5) ? 7 : (p->life > 2) ? 4 : 2;
+            int lv;
 
-            if (p->life > 8)
+            if (p->life > 700u)
                 c = White;
+            lv = (p->life > 500u) ? 7 : (p->life > 200u) ? 4 : 2;
+
             if (py >= 0)
                 draw_point_gray(px, py, c, (uint8_t)lv);
-            if (px - 1 >= 0 && p->life > 4)
+            if (px - 1 >= 0 && p->life > 300u)
                 draw_point_gray(px - 1, py, c, 2);
         }
         i++;

@@ -186,7 +186,7 @@ void EasyUIKeyActionMonitor() // Interrupt trigger, No EasyUIDelay_ms(xx)
 #endif
 }
 
-char *EasyUIVersion = "Ver. 3.6.0";
+char *EasyUIVersion = "Ver. 3.6.1";
 void PageAbout(EasyUIPage_t *page)
 {
   static uint8_t pageIndex = 0;
