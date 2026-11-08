@@ -664,21 +664,42 @@ void EventChangeValue(EasyUIItem_t *item)
   opnEnter = opnUp = opnDown = false;
 }
 
+static UserInfo_t userinfoLast;
+static bool userinfoLastInited = false;
+
+static void UserInfo_CacheSync(void)
+{
+  memcpy(&userinfoLast, pUserInfo, sizeof(UserInfo_t));
+  userinfoLastInited = true;
+}
+
+/* 强制落盘：不走“和上次缓存比较”的路径。
+ * 开启自动模式这种必须立刻保存的状态用它，避免第一次调用
+ * UserInfo_AutoSave() 只建缓存、不写 FLASH 的问题。 */
+static void UserInfo_SaveNow(void)
+{
+  if (pUserInfo == NULL)
+    return;
+
+  UserInfo_CacheSync();
+  HAL_IWDG_Refresh(&hiwdg);
+  SaveInfo();
+}
+
 bool UserInfo_AutoSave()
 {
-  static UserInfo_t last;
-  static bool inited = false;
+  if (pUserInfo == NULL)
+    return false;
 
-  if (!inited)
+  if (!userinfoLastInited)
   {
-    memcpy(&last, pUserInfo, sizeof(UserInfo_t));
-    inited = true;
+    UserInfo_CacheSync();
     return false;
   }
 
-  if (memcmp(&last, pUserInfo, sizeof(UserInfo_t)) != 0)
+  if (memcmp(&userinfoLast, pUserInfo, sizeof(UserInfo_t)) != 0)
   {
-    memcpy(&last, pUserInfo, sizeof(UserInfo_t));
+    UserInfo_CacheSync();
 		HAL_IWDG_Refresh(&hiwdg);
     SaveInfo();
     return true;
@@ -699,9 +720,11 @@ SysDisplayMode_e disp_mode = DISP_MODE_MOTION;
 /* ---------------- 自动演示模式 ---------------- */
 #define AUTO_SWITCH_PERIOD_MS (3U * 60U * 1000U) /* 3 分钟换一次动画/频谱风格 */
 #define AUTO_MUSIC_TIMEOUT_MS 10000U             /* 10 秒没音乐回 MOTION */
-#define AUTO_MUSIC_CONFIRM_VOTES 20              /* 100ms 采样一次，连续 2 秒确认 */
+#define AUTO_MUSIC_CONFIRM_VOTES 8               /* 100ms 采样一次，连续 0.8 秒确认 */
 #define AUTO_DETECT_PERIOD_MS 100U
-#define AUTO_MUSIC_MIN_LEVEL 40U /* 安静房间的底噪不会超过这个值 */
+#define AUTO_MUSIC_MIN_LEVEL 120U  /* 三个频段峰值之和的下限 */
+#define AUTO_MUSIC_BAND_MIN 80U    /* 中频至少要有约 4 根柱子的峰值 */
+#define AUTO_MUSIC_STRONG_LEVEL 300U /* 响度足够大时的快速确认门限 */
 #define AUTO_MUSIC_VOTE_MAX 30
 
 static uint32_t auto_switch_tick = 0;
@@ -767,6 +790,8 @@ void AppGUI_Init(UserInfo_t *userinfo)
     auto_music_on = 0;
     auto_styles_left = FFT_STYLE_COUNT;
     auto_osd_req = 1; /* 上电就是自动模式：也提示一次 AUTO ON */
+    /* 上电自动模式也直接从黑场进入 AUTO ON，不要先闪一帧 MOTION */
+    mn11236_hold_send(1);
   }
   else
   {
@@ -986,52 +1011,58 @@ static void TransitionShatter(void)
 static uint8_t auto_music_detected(void)
 {
   uint32_t low_max = 0, mid_max = 0, high_max = 0;
-  uint64_t low_sum = 0, mid_sum = 0, high_sum = 0;
 
   for (int i = 3; i < 8; i++)
   {
     uint32_t v = (uint32_t)lBufMagArray[i];
-    low_sum += v;
     if (v > low_max)
       low_max = v;
   }
   for (int i = 8; i < 77; i++)
   {
     uint32_t v = (uint32_t)lBufMagArray[i];
-    mid_sum += v;
     if (v > mid_max)
       mid_max = v;
   }
   for (int i = 77; i < 120; i++)
   {
     uint32_t v = (uint32_t)lBufMagArray[i];
-    high_sum += v;
     if (v > high_max)
       high_max = v;
   }
 
-  uint32_t low_avg = (uint32_t)(low_sum / 5);
-  uint32_t mid_avg = (uint32_t)(mid_sum / 69);
-  uint32_t high_avg = (uint32_t)(high_sum / 43);
+  uint32_t total_max = low_max + mid_max + high_max;
 
-  if (low_max + mid_max + high_max < AUTO_MUSIC_MIN_LEVEL)
+  if (total_max < AUTO_MUSIC_MIN_LEVEL)
     return 0;
 
-  /* 人声：中频峰值明显压过低频和高频，直接判成说话 */
-  if (mid_max * 2 > low_max * 3 && mid_max * 2 > high_max * 3)
+  /* 中频几乎没有能量：更像低频嗡声/环境噪声，不可能是有旋律的音乐 */
+  if (mid_max < AUTO_MUSIC_BAND_MIN)
     return 0;
 
-  /* 音乐：低频鼓点/贝斯明显强于中频，同时还有一点高频（排除纯工频嗡声）；
-   * 或者高频镲片/合成器明显强于中频。阈值按频段宽度做了补偿，
-   * 白噪声不会因为高频 bin 多、最大值大而被误判。 */
-  if (low_max > (mid_max * 3) / 2 && high_max * 16 > mid_max)
-    return 1;
-  if (high_max > mid_max * 2)
-    return 1;
-  if (low_avg > (mid_avg * 3) / 2 && high_avg * 16 > mid_avg)
-    return 1;
-  if (high_avg > (mid_avg * 3) / 2)
-    return 1;
+  /* 纯说话：中频峰值远远压过低频和高频，尤其 3k 以上几乎没有能量。
+   * 原来的 1.5 倍太容易把流行乐里正常的人声误判成说话，这里放宽到
+   * 中频 > 5 倍低频、> 16 倍高频才否决。 */
+  if (mid_max > low_max * 5 && mid_max > high_max * 16)
+    return 0;
+
+  /* 音乐：不再要求低频/高频“压过”中频，只要不弱太多就放行。
+   * 满足任意一条即可。 */
+  if (low_max >= AUTO_MUSIC_BAND_MIN &&
+      low_max * 4 >= mid_max * 3 && high_max * 16 >= mid_max)
+    return 1; /* 低频鼓点/贝斯够强，同时有一点高频，排除纯工频嗡声 */
+  if (high_max >= AUTO_MUSIC_BAND_MIN / 2 &&
+      high_max * 3 >= mid_max)
+    return 1; /* 高频镲片/合成器 */
+  if (low_max >= AUTO_MUSIC_BAND_MIN &&
+      high_max >= AUTO_MUSIC_BAND_MIN / 2 &&
+      low_max * 2 >= mid_max && high_max * 8 >= mid_max)
+    return 1; /* 低频和高频都有能量：宽带音乐 */
+  if (total_max >= AUTO_MUSIC_STRONG_LEVEL &&
+      mid_max >= AUTO_MUSIC_BAND_MIN * 2 &&
+      low_max >= AUTO_MUSIC_BAND_MIN &&
+      high_max >= AUTO_MUSIC_BAND_MIN / 2)
+    return 1; /* 响度足够，且低/中/高都有能量：大部分流行乐 */
 
   return 0;
 }
@@ -1072,34 +1103,48 @@ static void auto_mode_set(uint8_t on, uint32_t now)
 
   if (on)
   {
+    if (disp_mode == DISP_MODE_MENU)
+      layer = 0;
+    functionIsRunning = false;
+    opnEnter = opnExit = opnUp = opnDown = 0;
+    pending_rebuild = 0;
+
+    /* 落盘会让屏幕先变黑。这里保持送屏挂起：SaveInfo() 恢复扫描后
+     * 不要立刻把旧画面送回来，等 AUTO ON 提示的第一帧画好再恢复，
+     * 避免“黑屏 -> 正常画面闪一下 -> OSD”的中间帧。 */
+    mn11236_hold_send(1);
+
+    /* 开启 auto 后第一时间强制落盘：不走 UserInfo_AutoSave() 的首次建缓存，
+     * 确保刚打开 auto 就断电，重新上电仍然会进入自动模式。 */
+    UserInfo_SaveNow();
+
     auto_switch_tick = now;
     auto_detect_tick = now;
     auto_music_last = now;
     auto_music_votes = 0;
     auto_music_on = 0;
     auto_styles_left = FFT_STYLE_COUNT;
-
-    if (disp_mode == DISP_MODE_MENU)
-      layer = 0;
-    functionIsRunning = false;
-    opnEnter = opnExit = opnUp = opnDown = 0;
     disp_mode = DISP_MODE_MOTION;
     last_disp_mode = DISP_MODE_MOTION;
-    pending_rebuild = 0;
-    mn11236_hold_send(0); /* 如果正好在转场里，先恢复送屏 */
-
-    /* 自动模式开关本身要立刻落盘；自动切换的动画/风格先不写 FLASH，
-     * 等取消自动模式时由末尾的 UserInfo_AutoSave() 一次存好。 */
-    UserInfo_AutoSave();
   }
   else
   {
     /* 取消自动模式的那次按键已经被按键监视器吞掉；这里再清一次，
      * 防止同一轮里残留的按键动作继续触发翻页/进菜单。 */
     opnEnter = opnExit = opnUp = opnDown = 0;
+    /* 如果退出时正好有碎屏转场挂着，也取消掉，否则 pending_rebuild
+     * 会在 OSD 之前恢复送屏，又闪出一帧正常画面。 */
+    pending_rebuild = 0;
+
+    /* 和进入 auto 一样：落盘黑屏后挂起送屏，直接进入 AUTO OFF 提示 */
+    mn11236_hold_send(1);
+
+    /* 取消 auto 也立刻落盘：如果上电时本来就是 auto，UserInfo_AutoSave()
+     * 的首次调用只会建缓存；这里强制写，保证断电后不会又回到 auto。 */
+    UserInfo_SaveNow();
   }
-  /* 关闭时不在这里写 FLASH：AppGUI_Loop 末尾的自动保存会处理，
-   * 这样“取消自动模式”那一次按键如果还改了别的设置，只写一次。 */
+  /* 开关 auto 都在这里立即落盘；自动运行中每 3 分钟的动画/风格切换
+   * 不单独写 FLASH，取消时这一次强制写会把最新状态一起保存。 */
 }
 
 static void auto_mode_tick(uint32_t now)
@@ -1206,6 +1251,11 @@ static void auto_osd_show(const char *text, Color accent, int8_t dir)
   int xStart = (dir >= 0) ? -textW : VFD_WIDTH;
   int xOut = (dir >= 0) ? VFD_WIDTH : -textW;
   const int steps = 9;
+
+  /* 自动模式开关落盘时把送屏挂起了，屏幕现在是黑的。
+   * 快照已经保存好，这里恢复送屏，让 OSD 第一帧直接从黑场开始，
+   * 不会在中间闪出一帧正常画面。 */
+  mn11236_hold_send(0);
 
   set_g_maxGray(7);
   /* draw_str() 内部的 5x7 字模会按 g_clockWidth 放大；提示文字必须用 1 倍，
@@ -1504,7 +1554,7 @@ void AppGUI_Loop(uint8_t timer)
 
   /* 菜单里改的配置不当场写 FLASH：退出菜单时统一存一次（见下面两处退出）。
    * 自动模式运行中也不写：动画/风格每 3 分钟变一次，写 FLASH 太频繁；
-   * 开关自动模式时已经存过，取消时这里会再存一次最新状态。 */
+   * 开关自动模式时 auto_mode_set() 已经强制存过，取消时会把最新状态一起写盘。 */
   if (disp_mode != DISP_MODE_MENU && !pUserInfo->automode)
     UserInfo_AutoSave();
 
