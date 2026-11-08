@@ -186,7 +186,7 @@ void EasyUIKeyActionMonitor() // Interrupt trigger, No EasyUIDelay_ms(xx)
 #endif
 }
 
-char *EasyUIVersion = "Ver. 3.5.0";
+char *EasyUIVersion = "Ver. 3.6.0";
 void PageAbout(EasyUIPage_t *page)
 {
   static uint8_t pageIndex = 0;
@@ -761,7 +761,8 @@ static const char *const gameNames[GAME_COUNT] = {"Snake", "Tetris", "Tanks"};
  * FFT Style 标题结束在 x=65，最多 7 个字符；Clock Theme 结束在 x=77，最多 5 个；
  * Default Func 结束在 x=83，最多 4 个。 */
 static const char *const fftStyleNames[FFT_STYLE_COUNT] = {
-    "Bars", "Mirror", "Curve", "Dots", "Water", "Spark", "VU", "Split"};
+    "Bars", "Mirror", "Curve", "Dots", "Water", "Spark", "VU", "Split",
+    "Fire", "Matrix", "Scope", "P-Bars", "Spiral", "Bounce", "Tunnel", "Firewrk"};
 static const char *const fftColorNames[FFT_COLOR_COUNT] = {
     "CyanRed", "CyanWht", "Red", "RedWht", "WhtRed", "WhtCyan"};
 static const char *const clockThemeNames[CLOCK_THEME_COUNT] = {

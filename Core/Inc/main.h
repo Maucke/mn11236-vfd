@@ -106,7 +106,7 @@ void Error_Handler(void);
 		uint8_t screen_on_hour;   
 		uint8_t screen_off_hour;  
     uint8_t valid;
-    uint8_t musiccolor;   /* FFT 配色 0..5，与 musictheme（风格 0..7）独立 */
+    uint8_t musiccolor;   /* FFT 配色 0..5，与 musictheme（风格 0..15）独立 */
   } UserInfo_t;
 /* USER CODE END Private defines */
 
