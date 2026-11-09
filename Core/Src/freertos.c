@@ -39,6 +39,7 @@
 #include "stmflash.h"
 #include "stdbool.h"
 #include "gui.h"
+#include "bootui.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -64,7 +65,7 @@
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
   .name = "defaultTask",
-  .stack_size = 128 * 4,
+  .stack_size = 256 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for displayTask */
@@ -154,35 +155,39 @@ __weak void StartDefaultTask(void *argument)
   /* init code for USB_DEVICE */
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN StartDefaultTask */
+  uint32_t led_tick;
+
   osDelay(200);
-	GUI_Init();
-	GUI_ClearBuffer();
-	GUI_ShowStr(5, 1, "Connect USB to PC");
-	GUI_ShowStr(2, 1 + 8, "Drop file to Udisk");
-	GUI_SendBuffer();
+  bootui_init();
+
+  led_tick = HAL_GetTick();
+
   /* Infinite loop */
   for (;;)
   {
-    osDelay(30);
-    extern uint8_t isUpgraded;
-    if(isUpgraded)
+    bootui_poll();
+
+    /* 升级完成：让屏幕把结果亮一会儿再重启进 APP */
+    if (bootui_is_finished())
     {
-			GUI_ClearBuffer();
-			GUI_SetColor(GUI_DEFAULT_ACTCOLOR, 0);
-			GUI_ShowStr(10, 1, "Upgrade");
-			GUI_ShowStr(10, 1 + 8, "Complete");
-			GUI_SendBuffer();
-      MX_USB_DEVICE_DeInit();
-      for(int i = 0; i < 80; i++)
+      for (int i = 0; i < 16; i++)
       {
         HAL_GPIO_TogglePin(SYS_LED_GPIO_Port, SYS_LED_Pin);
-        osDelay(50);
+        bootui_poll();
+        osDelay(125);
       }
-//      JumpToApplication();
-			NVIC_SystemReset();
+
+      MX_USB_DEVICE_DeInit();
+      NVIC_SystemReset();
     }
-    osDelay(500);
-    HAL_GPIO_TogglePin(SYS_LED_GPIO_Port, SYS_LED_Pin);
+
+    if (HAL_GetTick() - led_tick >= 500)
+    {
+      led_tick = HAL_GetTick();
+      HAL_GPIO_TogglePin(SYS_LED_GPIO_Port, SYS_LED_Pin);
+    }
+
+    osDelay(20);
   }
   /* USER CODE END StartDefaultTask */
 }

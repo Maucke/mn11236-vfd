@@ -23,6 +23,7 @@
 
 /* USER CODE BEGIN INCLUDE */
 #include "bootloader.h"
+#include "bootui.h"
 /* USER CODE END INCLUDE */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -63,8 +64,6 @@
   */
 
 #define STORAGE_LUN_NBR                  1
-#define STORAGE_BLK_NBR                  0x10000
-#define STORAGE_BLK_SIZ                  0x200
 
 /* USER CODE BEGIN PRIVATE_DEFINES */
 #define STORAGE_BLK_NBR                  0x180
@@ -165,37 +164,44 @@ uint8_t upgradeFunc(uint8_t* buf, uint32_t addr, uint16_t len)
   static uint8_t isUpgard = 0;
   if(isUpgradeHeader(buf) == 0)
   {
-    HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_SET);
+    uint8_t skip;
+
+    /* 先认版本再擦，头不对就什么都不动 */
+    if(buf[11] == '1')
+      skip = 16;
+    else if(buf[11] == '2')
+      skip = 32;
+    else
+    {
+      isUpgard = 0;
+      bootui_msc_error();
+      return 1;
+    }
+
     isUpgard = 1;
-//    dbmsg("start of erase");
+    upgradedStartAddr = addr + skip;
+    bootui_msc_begin();
+
+    /* 擦 64K 扇区时 CPU 会停住秒级，VFD 会一直亮在同一行，擦的时候先关显示 */
+    HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_SET);
     Flash_Erase();
-		if(buf[11] == '1')
-		{
-			upgradedStartAddr = addr + 16;//skip header
-			Flash_Write(0, buf + 16, len - 16);
-			buf[15] = 0;
-//			dbmsg("%s",buf);
-		}
-		else if(buf[11] == '2')
-		{
-			upgradedStartAddr = addr + 32;//skip header
-			Flash_Write(0, buf + 32, len - 32);
-			buf[31] = 0;
-//			dbmsg("%s",buf);
-		}
+    HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_RESET);
+
+    Flash_Write(0, buf + skip, len - skip);
+    buf[skip - 1] = 0;
+    bootui_msc_progress(len - skip);
   }
   else if(addr > upgradedStartAddr && isUpgard)
   {
     Flash_Write(addr - upgradedStartAddr, buf, len);
-//    dbmsg("flashing addr:%X", addr - upgradedStartAddr + 0x08010000);
+    bootui_msc_progress(addr - upgradedStartAddr + len);
 		HAL_GPIO_TogglePin(SYS_LED_GPIO_Port, SYS_LED_Pin);
   }
   else if(addr < upgradedStartAddr && isUpgard)
   {
-    HAL_GPIO_WritePin(VFD_BK_GPIO_Port, VFD_BK_Pin, GPIO_PIN_RESET);
     isUpgard = 0;
-//    dbmsg("flashed");
     isUpgraded = 1;
+    bootui_msc_end();
   }
 	return 1;
 }

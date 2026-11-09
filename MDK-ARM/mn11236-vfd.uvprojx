@@ -422,6 +422,11 @@
               <FilePath>../Core/Src/freertos.c</FilePath>
             </File>
             <File>
+              <FileName>bootui.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Core/Src/bootui.c</FilePath>
+            </File>
+            <File>
               <FileName>adc.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Core/Src/adc.c</FilePath>
