@@ -107,7 +107,7 @@ void clock_pet_trigger(uint32_t now, uint8_t allow_right);
 void clock_pet_draw(uint32_t now, int right_limit, uint8_t allow_right, Color color);
 
 void refrash_gram(void);
-#define FFT_STYLE_COUNT 8
+#define FFT_STYLE_COUNT 16
 #define FFT_COLOR_COUNT 6
 
 void draw_fft(long *fft_result, int len, int delta, uint8_t style, Color bar, Color dot);

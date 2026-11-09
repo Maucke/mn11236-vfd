@@ -349,6 +349,7 @@ int main(void)
 
     userInfo.motion = 0;
     userInfo.game = 0;
+    userInfo.automode = 0;
     STMFLASH_Write(FLASH_SAVE_ADDR, (uint32_t *)&userInfo, sizeof(UserInfo_t) / sizeof(uint32_t));
   }
 
@@ -358,6 +359,9 @@ int main(void)
   userInfo.musiccolor %= FFT_COLOR_COUNT;
   userInfo.motion %= ANIM_COUNT;
   userInfo.game %= GAME_COUNT;
+  /* 旧配置里这个字节可能是 0xFF，只有明确的 0/1 才认 */
+  if (userInfo.automode > 1)
+    userInfo.automode = 0;
   HAL_NVIC_SetPriority(DMA1_Stream4_IRQn, 1, 0); // 让扫描中断不被打断
 
   HAL_NVIC_SetPriority(DMA2_Stream2_IRQn, 0, 0);

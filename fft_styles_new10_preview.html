@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MN11236 · 10 种全新 FFT 频谱风格</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0b0e0f;
+    --panel: #111718;
+    --line: #233032;
+    --text: #d9e2df;
+    --muted: #7d8d89;
+    --cyan: #52e2f4;
+    --red: #ff5856;
+    --white: #f2efe9;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  body {
+    margin: 0; padding: 26px 28px 48px;
+    background:
+      radial-gradient(900px 420px at 50% -80px, rgba(82,226,244,.07), transparent 65%),
+      radial-gradient(700px 400px at 85% 10%, rgba(255,88,86,.045), transparent 70%),
+      var(--bg);
+    color: var(--text);
+    font: 13px/1.65 "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+  }
+  h1 { margin: 0 0 6px; font-size: 22px; letter-spacing: .5px; font-weight: 650; color: #f4f7f5; }
+  h1 span { color: var(--cyan); font-weight: 500; }
+  .sub { margin: 0 0 18px; color: var(--muted); font-size: 12.5px; max-width: 980px; }
+  .sub b { color: #b8c7c2; font-weight: 600; }
+  .badges { display: flex; flex-wrap: wrap; gap: 7px; margin: 14px 0 18px; }
+  .badge {
+    border: 1px solid var(--line); background: rgba(17,23,24,.75); color: #9fb0ab;
+    border-radius: 999px; padding: 3px 10px; font-size: 11.5px; letter-spacing: .2px;
+  }
+  .badge.cyan { border-color: rgba(82,226,244,.38); color: #8cebf6; }
+  .badge.red { border-color: rgba(255,88,86,.35); color: #ff918f; }
+
+  .toolbar {
+    position: sticky; top: 0; z-index: 10;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 18px;
+    margin: 0 0 20px; padding: 11px 14px;
+    background: rgba(13,18,19,.92); border: 1px solid var(--line);
+    border-radius: 8px; backdrop-filter: blur(10px);
+  }
+  .toolbar label { display: flex; align-items: center; gap: 7px; color: var(--muted); user-select: none; }
+  .toolbar .grow { flex: 1; }
+  button, select, input[type=range] { font: inherit; }
+  button, select {
+    background: #1a2223; color: #e6eeeb; border: 1px solid #314042;
+    border-radius: 5px; padding: 5px 11px; cursor: pointer;
+  }
+  button:hover, select:hover { background: #223031; border-color: #405456; }
+  button.primary { border-color: rgba(82,226,244,.42); color: #b9f4fa; }
+  input[type=range] { accent-color: var(--cyan); width: 90px; }
+
+  #grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(520px, 1fr));
+    gap: 18px; align-items: start;
+  }
+  .card {
+    position: relative; min-width: 0; padding: 14px 14px 13px;
+    background: linear-gradient(180deg, rgba(23,31,32,.92), rgba(14,19,20,.96));
+    border: 1px solid var(--line); border-radius: 9px;
+    box-shadow: 0 14px 34px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.025);
+    transition: border-color .18s, transform .18s;
+  }
+  .card:hover { border-color: #334849; transform: translateY(-1px); }
+  .card.new { border-color: rgba(255,88,86,.28); }
+  .card-head { display: flex; align-items: baseline; gap: 9px; margin-bottom: 2px; }
+  .idx { color: #536663; font: 600 11px/1 ui-monospace, Consolas, monospace; letter-spacing: .8px; }
+  .name { margin: 0; font-size: 15px; font-weight: 650; color: #edf4f1; }
+  .tag {
+    font-size: 10.5px; line-height: 1; padding: 3px 7px; border-radius: 999px;
+    border: 1px solid #354345; color: #93a5a0; white-space: nowrap;
+  }
+  .tag.new { color: #ffaaa8; border-color: rgba(255,88,86,.4); background: rgba(255,88,86,.07); }
+  .desc { margin: 5px 0 10px; color: #8fa09b; font-size: 12px; min-height: 34px; }
+  .screen {
+    position: relative; overflow: hidden; border-radius: 4px; background: #080b0b;
+    border: 1px solid #1d292a; box-shadow: inset 0 0 28px rgba(0,0,0,.7);
+  }
+  .screen::after {
+    content: ""; pointer-events: none; position: absolute; inset: 0;
+    background: repeating-linear-gradient(0deg, rgba(255,255,255,.018) 0 1px, transparent 1px 5px);
+    mix-blend-mode: screen;
+  }
+  canvas {
+    display: block; width: 100%; height: auto; image-rendering: pixelated;
+    filter: saturate(1.08) brightness(1.03);
+  }
+  .meta {
+    display: flex; justify-content: space-between; gap: 12px;
+    margin-top: 9px; color: #667874; font-size: 11px;
+    font-family: ui-monospace, Consolas, monospace;
+  }
+  .meta .dotline { color: #3d4d4b; }
+  .note {
+    margin: 26px 0 0; padding: 16px 18px; border: 1px solid var(--line);
+    border-radius: 9px; background: rgba(17,23,24,.7);
+  }
+  .note h2 { margin: 0 0 6px; font-size: 14px; color: #e3ebe8; font-weight: 650; }
+  .note p { margin: 0 0 12px; color: #879994; font-size: 12px; }
+  .note table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  .note th, .note td { padding: 6px 8px; border-top: 1px solid #1f2b2d; text-align: left; vertical-align: top; }
+  .note th { color: #637571; font-weight: 600; background: rgba(255,255,255,.018); }
+  .note td:first-child { color: #b9c8c3; white-space: nowrap; }
+  .note code { color: #9edfe7; font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
+  .foot { margin-top: 18px; color: #54645f; font-size: 11px; }
+  @media (max-width: 620px) {
+    body { padding: 18px 14px 32px; }
+    #grid { grid-template-columns: 1fr; }
+    .toolbar { gap: 10px; }
+  }
+</style>
+</head>
+<body>
+  <h1>MN11236 <span>· 10 种全新 FFT 频谱风格</span></h1>
+  <p class="sub">
+    这一页是<b>全新方案</b>：不包含现有 8 种，也不复用上一页的 09 Blocks / 10 Radar。
+    同样受 112 × 18 点阵、8 级灰度、R / B / W 三色 VFD 约束，并用同一段模拟音乐横向比较。
+  </p>
+  <div class="badges">
+    <span class="badge cyan">112 × 18</span>
+    <span class="badge cyan">20 FPS</span>
+    <span class="badge">8 级灰度</span>
+    <span class="badge red">10 种全新，不含现有</span>
+    <span class="badge">固件已集成 8 种（不含 07/10）</span>
+  </div>
+
+  <div class="toolbar">
+    <button id="play" class="primary">暂停</button>
+    <button id="reset">重播</button>
+    <label>速度 <input id="speed" type="range" min="0.5" max="2" step="0.25" value="1"><span id="speedLabel">1.0×</span></label>
+    <label>频率映射
+      <select id="mapping">
+        <option value="log" selected>对数（推荐）</option>
+        <option value="linear">线性</option>
+      </select>
+    </label>
+    <label>配色
+      <select id="palette">
+        <option value="0" selected>青柱 / 红点</option>
+        <option value="1">红柱 / 青点</option>
+        <option value="2">白柱 / 青点</option>
+        <option value="3">红柱 / 白点</option>
+        <option value="4">青白 / 红点</option>
+      </select>
+    </label>
+    <span class="grow"></span>
+    <span id="clock" style="color:#5f716d;font-family:ui-monospace,Consolas,monospace;font-size:11px">00:00.0</span>
+  </div>
+
+  <div id="grid"></div>
+
+  <section class="note">
+    <h2>落地评估（按 112×18、8 级灰度估算）</h2>
+    <p>这 10 种都不在现有固件中，也不包含上一页的 Blocks / Radar。它们复用现有 FFT 数据，不增加音频链路开销；网页端已改用离屏缓冲渲染，并去掉逐帧随机跳变，避免清屏重绘造成的闪烁。</p>
+    <table>
+      <thead><tr><th>风格</th><th>几何 / 数据</th><th>额外 RAM</th><th>额外 Flash</th><th>风险</th></tr></thead>
+      <tbody>
+        <tr><td>01 Fire</td><td>112 列火焰波形，火舌摆动 + 白色火尖</td><td>0 B</td><td>≈350 B</td><td>中，全新</td></tr>
+        <tr><td>02 Matrix</td><td>28 列下落点阵雨，频谱控制速度和拖尾</td><td>≈224 B</td><td>≈400 B</td><td>中，全新</td></tr>
+        <tr><td>03 Scope</td><td>带网格的移动示波器波形</td><td>0 B</td><td>≈250 B</td><td>低，全新</td></tr>
+        <tr><td>04 P-Bars</td><td>16 根带顶面 / 侧面的立体柱阵</td><td>0 B</td><td>≈300 B</td><td>中，全新</td></tr>
+        <tr><td>05 Spiral</td><td>椭圆螺旋星系，3 条旋臂旋转</td><td>0 B</td><td>≈350 B</td><td>低，全新</td></tr>
+        <tr><td>06 Bounce</td><td>14 个弹簧 / 重力小球，高度对应频段</td><td>≈56 B</td><td>≈200 B</td><td>低，全新</td></tr>
+        <tr><td>07 Digits</td><td>8 个超大 3×5 字体数字，对应 8 个频段</td><td>0 B</td><td>≈350 B</td><td>低，全新</td></tr>
+        <tr><td>08 Tunnel</td><td>椭圆隧道环 + 放射线，随低频脉冲</td><td>0 B</td><td>≈250 B</td><td>低，全新</td></tr>
+        <tr><td>09 Fireworks</td><td>节拍触发的火箭 + 径向爆炸粒子</td><td>≈330 B</td><td>≈500 B</td><td>中，全新</td></tr>
+        <tr><td>10 Harp</td><td>6 根横向激光弦，按频段振动</td><td>0 B</td><td>≈300 B</td><td>低，全新</td></tr>
+      </tbody>
+    </table>
+    <p class="foot">说明：网页用 112×18 的低分辨率画布再放大，颗粒感与点阵间隙接近 VFD；实际亮度、余辉和颜色混合仍需上机确认。所有页面都采用离屏画布整帧提交，正常情况下不会出现清屏白闪或半帧撕裂。</p>
+  </section>
+
+<script src="fft_styles_new10_preview.js"></script>
+</body>
+</html>

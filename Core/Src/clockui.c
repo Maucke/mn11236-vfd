@@ -5499,6 +5499,28 @@ static const uint16_t fft_bin_x16[BAR_COUNT] = {
 #define FFT_WF_ROW_BYTES ((FFT_WF_COLS * 2 + 7) / 8) /* 每行 14 字节，2bit/格 */
 #define FFT_SPARK_MAX 20
 
+#define FFT_MATRIX_COLS 28
+#define FFT_BOUNCE_BALLS 14
+#define FFT_FW_MAX 24
+#define FFT_FW_ROCKETS 3
+#define FFT_FW_SCALE 256.0f
+#define FFT_FW_GRAVITY 8.0f /* 像素/秒² */
+
+typedef struct
+{
+    int16_t x, y;   /* 1/256 像素 */
+    int16_t vx, vy; /* 1/256 像素/秒 */
+    uint16_t life;  /* 剩余毫秒 */
+    uint8_t col;    /* 0=bar 1=dot 2=white */
+} FFTFireworkParticle_t;
+
+typedef struct
+{
+    int16_t x, y;   /* 1/256 像素 */
+    int16_t vy;     /* 1/256 像素/秒 */
+    uint8_t ty;     /* 爆炸高度（像素） */
+} FFTFireworkRocket_t;
+
 static union
 {
     struct
@@ -5511,6 +5533,25 @@ static union
         int8_t vx[FFT_SPARK_MAX], vy[FFT_SPARK_MAX]; /* 1/4 像素/帧 */
         uint8_t life[FFT_SPARK_MAX];
     } sp;
+    struct
+    {
+        float y[FFT_MATRIX_COLS];
+        uint8_t len[FFT_MATRIX_COLS];
+        uint8_t init;
+    } mx;
+    struct
+    {
+        float y[FFT_BOUNCE_BALLS];
+        float vy[FFT_BOUNCE_BALLS];
+        uint8_t init;
+    } bn;
+    struct
+    {
+        FFTFireworkParticle_t p[FFT_FW_MAX];
+        FFTFireworkRocket_t r[FFT_FW_ROCKETS];
+        uint8_t pn, rn, init;
+        uint32_t last, seed, tick;
+    } fw;
 } fft_ram;
 
 static uint8_t fft_spark_n = 0;
@@ -5534,6 +5575,8 @@ static struct
 #define FFT_AGC_MIN 0.002f /* 最多压 500 倍 */
 
 static float fft_agc = 1.0f;
+/* 安静环境软抑制：0=完全压掉底噪，1=正常显示。带 50ms 平滑，避免闪。 */
+static float fft_squelch = 0.0f;
 
 /* VU 刻度弧：相对 (cx, cy) 的偏移，-62° ~ +62° 分 21 档 */
 static const int8_t fft_vu_arc[21][2] = {
@@ -5553,6 +5596,7 @@ void fft_style_reset(void)
     fft_vu.needle = 0.0f;
     fft_vu.peak = 0.0f;
     fft_vu.hold = 0;
+    fft_squelch = 0.0f; /* 新风格从静音开始，避免切页瞬间把底噪放出来 */
 }
 
 void update_display(FFTDisplay_t *fft, float target, float dt)
@@ -5593,6 +5637,59 @@ static inline uint8_t fft_lv(int j, int h)
     int v = 2 + (j + 1) * 5 / h;
 
     return (uint8_t)(v > 7 ? 7 : v);
+}
+
+/* 取一段柱子的平均值 / 峰值，供新增风格使用 */
+static inline float fft_band_avg(int from, int to)
+{
+    float sum = 0.0f;
+    int n = 0;
+
+    if (from < 0)
+        from = 0;
+    if (to >= BAR_COUNT)
+        to = BAR_COUNT - 1;
+    if (to < from)
+        return 0.0f;
+
+    for (int i = from; i <= to; i++)
+    {
+        sum += bars[i].output;
+        n++;
+    }
+
+    return n ? sum / (float)n : 0.0f;
+}
+
+static inline float fft_band_max(int from, int to)
+{
+    float v = 0.0f;
+
+    if (from < 0)
+        from = 0;
+    if (to >= BAR_COUNT)
+        to = BAR_COUNT - 1;
+    if (to < from)
+        return 0.0f;
+
+    for (int i = from; i <= to; i++)
+    {
+        if (bars[i].output > v)
+            v = bars[i].output;
+    }
+
+    return v;
+}
+
+static inline uint32_t fft_rand(uint32_t *state)
+{
+    *state = *state * 1664525u + 1013904223u;
+    return *state;
+}
+
+static inline Color fft_fw_color(uint8_t c, Color bar, Color dot)
+{
+    return (c == 0) ? bar : (c == 1) ? dot : White;
 }
 
 /* ① 经典柱状：柱身渐变 + 柱顶高光 + 峰值点 */
@@ -5927,6 +6024,577 @@ static void fft_draw_split(Color bar, Color dot)
     }
 }
 
+/* ⑨ 火焰：底部点燃，火舌摆动、顶部白色火尖 */
+static void fft_draw_fire(Color bar, Color dot)
+{
+    float t = clock_anim_tick() * 0.001f;
+    int phase = (int)(t * 8.0f);
+
+    (void)bar;
+    (void)dot;
+
+    for (int x = 0; x < BAR_COUNT; x++)
+    {
+        float v = bars[x].output / (float)(BAR_MAX - 1);
+        float base = 2.0f + v * 9.0f;
+        float sway = sinf(t * 3.4f + x * 0.20f) * 1.3f +
+                     sinf(t * 6.1f + x * 0.47f + 1.2f) * 0.7f;
+        int h = (int)(base + sway * (0.35f + v * 0.8f) + 0.5f);
+        int top;
+
+        if (h < 1)
+            h = 1;
+        if (h > MAX_Y - 1)
+            h = MAX_Y - 1;
+        top = MAX_Y - 1 - h;
+
+        for (int y = MAX_Y - 1; y >= top; y--)
+        {
+            int d = MAX_Y - 1 - y;
+            float edge = (float)d / (float)h;
+            float flick = sinf(x * 0.63f + y * 1.27f + t * 7.2f) +
+                          sinf(x * 0.21f - y * 0.71f - t * 4.4f);
+
+            if (edge > 0.28f && flick < -1.15f)
+                continue;
+
+            {
+                int lv = 7 - (int)(edge * 4.0f);
+
+                if (lv < 1)
+                    lv = 1;
+                if (lv > 7)
+                    lv = 7;
+                draw_point_gray(x, y, edge > 0.68f ? White : Red, (uint8_t)lv);
+            }
+        }
+
+        if (h > 2)
+        {
+            draw_point(x, top, White);
+            draw_point_gray(x, top + 1, White, 3);
+        }
+    }
+
+    for (int x = 0; x < BAR_COUNT; x++)
+    {
+        draw_point_gray(x, MAX_Y - 1, Red, 4);
+        if ((x + phase) % 7 == 0)
+            draw_point_gray(x, MAX_Y - 2, White, 3);
+    }
+}
+
+/* ⑩ 矩阵雨：28 列下落点阵，频谱控制速度和拖尾 */
+static void fft_draw_matrix(Color bar, Color dot)
+{
+    for (int c = 0; c < FFT_MATRIX_COLS; c++)
+    {
+        float v = fft_band_max(c * 4, c * 4 + 3) / (float)(BAR_MAX - 1);
+        int len;
+        int head;
+
+        if (!fft_ram.mx.init)
+        {
+            fft_ram.mx.y[c] = (float)((c * 5) % MAX_Y);
+            fft_ram.mx.len[c] = (uint8_t)(4 + (c % 5));
+        }
+
+        fft_ram.mx.y[c] += 0.09f + v * 0.30f;
+        if (fft_ram.mx.y[c] - (float)fft_ram.mx.len[c] > (float)(MAX_Y + 2))
+        {
+            fft_ram.mx.y[c] = -2.0f - (float)(c % 4);
+            fft_ram.mx.len[c] = (uint8_t)(3.0f + v * 7.0f);
+        }
+
+        len = (int)fft_ram.mx.len[c];
+        if (len < 2)
+            len = 2;
+        head = (int)(fft_ram.mx.y[c] + 0.5f);
+
+        for (int k = 0; k < len; k++)
+        {
+            int yy = head - k;
+            int lv;
+            Color rgb;
+
+            if (yy < 0 || yy >= MAX_Y)
+                continue;
+
+            lv = (k == 0) ? 7 : 6 - (k * 62) / 100;
+            if (lv < 1)
+                lv = 1;
+            rgb = (k == 0 && v > 0.72f) ? dot : bar;
+
+            for (int dx = 0; dx < 3; dx++)
+                draw_point_gray(c * 4 + dx, yy, rgb, (uint8_t)lv);
+        }
+
+        if (head >= 0 && head < MAX_Y)
+        {
+            draw_point(c * 4, head, White);
+            draw_point(c * 4 + 1, head, White);
+        }
+    }
+
+    for (int c = 0; c < FFT_MATRIX_COLS; c++)
+    {
+        for (int y = (c * 3) % 4; y < MAX_Y; y += 4)
+        {
+            if ((c * 7 + y * 5) % 13 == 0)
+                draw_point_gray(c * 4 + 1, y, bar, 1);
+        }
+    }
+
+    for (int x = 0; x < BAR_COUNT; x++)
+        draw_point_gray(x, MAX_Y - 1, bar, 1);
+
+    if (!fft_ram.mx.init)
+        fft_ram.mx.init = 1;
+}
+
+/* ⑪ 示波器：带网格的移动波形 */
+static void fft_draw_scope(Color bar, Color dot)
+{
+    float t = clock_anim_tick() * 0.001f;
+    float phase = t * 5.0f;
+    int prev = MAX_Y / 2;
+    int cursor = (int)(t * 28.0f) % BAR_COUNT;
+
+    for (int x = 0; x < BAR_COUNT; x += 14)
+        for (int y = 0; y < MAX_Y; y++)
+            draw_point_gray(x, y, bar, 1);
+
+    for (int y = 2; y < MAX_Y; y += 4)
+        for (int x = 0; x < BAR_COUNT; x++)
+            draw_point_gray(x, y, bar, 1);
+
+    for (int x = 0; x < BAR_COUNT; x++)
+    {
+        float v = bars[x].output / (float)(BAR_MAX - 1);
+        float amp = 1.2f + v * 4.4f;
+        int y = (int)(9.0f - sinf(phase + x * 0.26f) * amp -
+                      sinf(phase * 1.7f + x * 0.09f) * 1.2f + 0.5f);
+        int lo;
+        int hi;
+
+        if (y < 1)
+            y = 1;
+        if (y > MAX_Y - 2)
+            y = MAX_Y - 2;
+
+        lo = (prev < y) ? prev : y;
+        hi = (prev > y) ? prev : y;
+
+        for (int yy = lo; yy <= hi; yy++)
+            draw_point_gray(x, yy, (v > 0.66f) ? White : bar,
+                            (uint8_t)((yy == y) ? 7 : 5));
+
+        if ((x % 7) == 0 && y > 1)
+            draw_point_gray(x, y - 1, dot, 3);
+
+        prev = y;
+    }
+
+    for (int y = 1; y < MAX_Y - 1; y++)
+        draw_point_gray(cursor, y, dot, 2);
+    draw_point(cursor, 0, White);
+    draw_point(cursor, MAX_Y - 1, White);
+}
+
+/* ⑫ 透视柱阵：16 根带顶面/侧面的立体柱 */
+static void fft_draw_pbars(Color bar, Color dot)
+{
+    const int vpX = BAR_COUNT / 2;
+    const int vpY = 6;
+
+    for (int gx = 0; gx < BAR_COUNT; gx += 14)
+    {
+        for (int k = 1; k <= 10; k++)
+        {
+            float u = (float)k / 10.0f;
+            int px = vpX + (int)((gx - vpX) * u + (gx >= vpX ? 0.5f : -0.5f));
+            int py = vpY + (int)((MAX_Y - 1 - vpY) * u + 0.5f);
+
+            draw_point_gray(px, py, bar, 1);
+        }
+    }
+
+    for (int y = 10; y < MAX_Y; y += 2)
+        for (int x = 0; x < BAR_COUNT; x++)
+            draw_point_gray(x, y, bar, 1);
+
+    for (int x = 0; x < BAR_COUNT; x++)
+        draw_point_gray(x, vpY, bar, 2);
+
+    for (int c = 0; c < 16; c++)
+    {
+        int bi = c * 7;
+        float v = fft_band_max(bi, bi + 6) / (float)(BAR_MAX - 1);
+        int x = 6 + c * 6;
+        int h = (int)(v * 10.0f + 0.5f);
+
+        if (h <= 0)
+            continue;
+        if (h > 10)
+            h = 10;
+
+        for (int yy = 0; yy < h; yy++)
+        {
+            int y = MAX_Y - 1 - yy;
+            int lv = 2 + (yy * 4) / h;
+
+            if (lv > 6)
+                lv = 6;
+            for (int xx = 0; xx < 5; xx++)
+                draw_point_gray(x + xx, y, bar, (uint8_t)lv);
+        }
+
+        draw_point_gray(x + 4, MAX_Y - 1 - h, bar, 3);
+        for (int xx = 1; xx <= 4; xx++)
+            draw_point(x + xx, MAX_Y - 2 - h, White);
+        for (int xx = 2; xx <= 4; xx++)
+            draw_point_gray(x + xx, MAX_Y - 3 - h, White, 3);
+        draw_point(x + 2, MAX_Y - 3 - h, dot);
+    }
+}
+
+/* ⑬ 螺旋星系：两条旋臂 + 星尘，频谱控制亮度 */
+static void fft_draw_spiral(Color bar, Color dot)
+{
+    const int cx = BAR_COUNT / 2;
+    const int cy = MAX_Y / 2;
+    float t = clock_anim_tick() * 0.001f;
+
+    for (int i = 0; i < 30; i++)
+    {
+        int x = (i * 43 + 7) % BAR_COUNT;
+        int y = (i * 17 + 3) % MAX_Y;
+        float tw = 0.5f + 0.5f * sinf(t * 1.6f + i * 1.37f);
+        int lv = 1 + (int)(tw * 2.0f + 0.5f);
+
+        if (lv > 3)
+            lv = 3;
+        draw_point_gray(x, y, (i % 5 == 0) ? dot : bar, (uint8_t)lv);
+    }
+
+    for (int arm = 0; arm < 2; arm++)
+    {
+        for (int i = 0; i < 80; i++)
+        {
+            float u = (float)i / 80.0f;
+            float r = 0.12f + 0.88f * u;
+            float ang = u * 5.6f + (float)arm * 3.14159265f + t * 0.8f;
+            float v = bars[(int)(u * (float)(BAR_COUNT - 1))].output /
+                      (float)(BAR_MAX - 1);
+            int x = cx + (int)(sinf(ang) * 50.0f * r + 0.5f);
+            int y = cy - (int)(cosf(ang) * 8.2f * r + 0.5f);
+            int lv = 2 + (int)(v * 5.0f);
+            Color rgb = (u < 0.3f) ? Cyan : (u < 0.7f) ? Red : White;
+
+            if (lv > 7)
+                lv = 7;
+
+            draw_point_gray(x, y, rgb, (uint8_t)lv);
+
+            /* 旋臂拖尾，让点连成弧线 */
+            for (int d = 1; d <= 2; d++)
+            {
+                float ta = ang - (float)d * 0.075f;
+                int tx = cx + (int)(sinf(ta) * 50.0f * r + 0.5f);
+                int ty = cy - (int)(cosf(ta) * 8.2f * r + 0.5f);
+
+                draw_point_gray(tx, ty, rgb, (uint8_t)((d == 1) ? 3 : 1));
+            }
+        }
+    }
+
+    for (int y = -1; y <= 1; y++)
+        for (int x = -1; x <= 1; x++)
+            draw_point(cx + x, cy + y, White);
+}
+
+/* ⑭ 弹跳球：14 颗球随频段上下弹跳，落地有回弹 */
+static void fft_draw_bounce(Color bar, Color dot)
+{
+    (void)dot;
+
+    if (!fft_ram.bn.init)
+    {
+        for (int i = 0; i < FFT_BOUNCE_BALLS; i++)
+        {
+            fft_ram.bn.y[i] = (float)(MAX_Y - 1);
+            fft_ram.bn.vy[i] = 0.0f;
+        }
+        fft_ram.bn.init = 1;
+    }
+
+    for (int i = 0; i < FFT_BOUNCE_BALLS; i++)
+    {
+        float v = fft_band_max(i * 8, i * 8 + 7) / (float)(BAR_MAX - 1);
+        float target = (float)(MAX_Y - 1) - v * 12.0f;
+        int x = 6 + i * 7;
+        int y;
+        Color c = (i < 5) ? Cyan : (i < 10) ? Red : White;
+
+        /* 弹簧 + 阻尼；碰到底/顶时反弹 */
+        fft_ram.bn.vy[i] += (target - fft_ram.bn.y[i]) * 0.17f;
+        fft_ram.bn.vy[i] *= 0.80f;
+        fft_ram.bn.y[i] += fft_ram.bn.vy[i];
+
+        if (fft_ram.bn.y[i] > (float)(MAX_Y - 1))
+        {
+            fft_ram.bn.y[i] = (float)(MAX_Y - 1);
+            if (fft_ram.bn.vy[i] > 0.0f)
+                fft_ram.bn.vy[i] = -fft_ram.bn.vy[i] * 0.34f;
+        }
+        else if (fft_ram.bn.y[i] < 0.0f)
+        {
+            fft_ram.bn.y[i] = 0.0f;
+            if (fft_ram.bn.vy[i] < 0.0f)
+                fft_ram.bn.vy[i] = fabsf(fft_ram.bn.vy[i]) * 0.30f;
+        }
+
+        y = (int)(fft_ram.bn.y[i] + 0.5f);
+        if (y < 0)
+            y = 0;
+        if (y > MAX_Y - 1)
+            y = MAX_Y - 1;
+
+        for (int dy = -1; dy <= 1; dy++)
+        {
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                int yy = y + dy;
+
+                if (yy < 0 || yy >= MAX_Y)
+                    continue;
+                draw_point_gray(x + dx, yy, c, 7);
+            }
+        }
+
+        draw_point(x, y, White);
+        draw_point_gray(x, MAX_Y - 1, bar, 2);
+    }
+}
+
+/* ⑮ 隧道：同心环 + 放射线，低频让隧道变宽 */
+static void fft_draw_tunnel(Color bar, Color dot)
+{
+    const int cx = BAR_COUNT / 2;
+    const int cy = MAX_Y / 2;
+    float t = clock_anim_tick() * 0.001f;
+    float bass = fft_band_avg(0, 24) / (float)(BAR_MAX - 1);
+
+    for (int s = 0; s < 12; s++)
+    {
+        float a = (float)s / 12.0f * 6.2831853f;
+
+        for (int k = 2; k <= 12; k++)
+        {
+            float r = (float)k / 12.0f;
+            int x = cx + (int)(sinf(a) * 54.0f * r + 0.5f);
+            int y = cy - (int)(cosf(a) * 8.2f * r + 0.5f);
+
+            draw_point_gray(x, y, bar, 1);
+        }
+    }
+
+    for (int k = 0; k < 8; k++)
+    {
+        float z = (float)k / 8.0f + t * 0.22f;
+        float scale;
+        int lv;
+        Color rgb = (k % 3 == 0) ? dot : bar;
+
+        z -= floorf(z);
+        scale = (0.15f + z * 0.85f) * (0.94f + bass * 0.12f);
+        lv = (int)(7.0f * (1.0f - z));
+        if (lv < 1)
+            lv = 1;
+        if (lv > 7)
+            lv = 7;
+
+        for (int s = 0; s < 80; s++)
+        {
+            float a = (float)s / 80.0f * 6.2831853f;
+            int x = cx + (int)(sinf(a) * 54.0f * scale + 0.5f);
+            int y = cy - (int)(cosf(a) * 8.2f * scale + 0.5f);
+
+            draw_point_gray(x, y, rgb, (uint8_t)lv);
+        }
+    }
+
+    for (int y = -1; y <= 1; y++)
+        for (int x = -1; x <= 1; x++)
+            draw_point(cx + x, cy + y, White);
+}
+
+/* ⑯ 烟花：火箭升空后炸成彩色粒子，粒子受重力下落 */
+static void fft_draw_fireworks(Color bar, Color dot)
+{
+    uint32_t now = clock_anim_tick();
+    uint32_t dt_ms;
+    uint32_t interval;
+    float dt;
+    float t = now * 0.001f;
+    float bass = fft_band_max(0, 24) / (float)(BAR_MAX - 1);
+
+    if (!fft_ram.fw.init)
+    {
+        fft_ram.fw.pn = 0;
+        fft_ram.fw.rn = 0;
+        fft_ram.fw.last = now - 1000u; /* 第一帧就发一枚，别等太久 */
+        fft_ram.fw.tick = now;
+        fft_ram.fw.seed = 0x1234567u;
+
+        for (int n = 0; n < 14 && fft_ram.fw.pn < FFT_FW_MAX; n++)
+        {
+            uint32_t r = fft_rand(&fft_ram.fw.seed);
+            float a = (float)(r % 6283u) * 0.001f;
+            float sp = 3.5f + (float)((r >> 8) % 5u); /* 3.5~7.5 px/s */
+            FFTFireworkParticle_t *p = &fft_ram.fw.p[fft_ram.fw.pn++];
+
+            p->x = (int16_t)((BAR_COUNT / 2) * 256);
+            p->y = (int16_t)(7 * 256);
+            p->vx = (int16_t)(cosf(a) * sp * FFT_FW_SCALE);
+            p->vy = (int16_t)(sinf(a) * sp * FFT_FW_SCALE);
+            p->life = (uint16_t)(900 + (r >> 16) % 500u);
+            p->col = (n % 5 == 0) ? 2 : 0;
+        }
+        fft_ram.fw.init = 1;
+    }
+
+    /* 所有运动按毫秒计算，避免高刷屏下烟花一闪就没 */
+    dt_ms = now - fft_ram.fw.tick;
+    if (dt_ms > 100u)
+        dt_ms = 100u;
+    fft_ram.fw.tick = now;
+    dt = (float)dt_ms * 0.001f;
+
+    /* 背景星点 */
+    for (int i = 0; i < 22; i++)
+    {
+        int x = (i * 37 + 5) % BAR_COUNT;
+        int y = (i * 11 + 2) % (MAX_Y - 4);
+        float tw = 0.5f + 0.5f * sinf(t * 1.4f + i * 1.37f);
+        int lv = 1 + (int)(tw * 2.0f);
+
+        if (lv > 3)
+            lv = 3;
+        draw_point_gray(x, y, (i % 6 == 0) ? dot : bar, (uint8_t)lv);
+    }
+
+    /* 低频越强，火箭越密；最多 3 发同时在空中 */
+    interval = (uint32_t)(360.0f - bass * 180.0f);
+    if ((uint32_t)(now - fft_ram.fw.last) >= interval &&
+        fft_ram.fw.rn < FFT_FW_ROCKETS)
+    {
+        uint32_t r = fft_rand(&fft_ram.fw.seed);
+        FFTFireworkRocket_t *rk = &fft_ram.fw.r[fft_ram.fw.rn++];
+
+        rk->x = (int16_t)((12 + (int)((r >> 16) % (BAR_COUNT - 24))) * 256);
+        rk->y = (int16_t)((MAX_Y - 1) * 256);
+        rk->vy = (int16_t)(-(18 + (int)((r >> 8) % 9u)) * 256);
+        rk->ty = (uint8_t)(3 + (int)((r >> 4) % 5u));
+        fft_ram.fw.last = now;
+    }
+
+    /* 火箭上升，到达目标高度后爆炸 */
+    for (int i = 0; i < fft_ram.fw.rn;)
+    {
+        FFTFireworkRocket_t *rk = &fft_ram.fw.r[i];
+        int px;
+        int py;
+        int exploded = 0;
+
+        rk->y += (int16_t)((float)rk->vy * dt);
+        rk->vy += (int16_t)(FFT_FW_GRAVITY * FFT_FW_SCALE * dt);
+        if (rk->y <= (int16_t)(rk->ty * 256))
+            exploded = 1;
+
+        px = rk->x >> 8;
+        py = rk->y >> 8;
+
+        if (exploded)
+        {
+            int count = 10 + (int)(fft_rand(&fft_ram.fw.seed) % 6u);
+
+            for (int n = 0; n < count && fft_ram.fw.pn < FFT_FW_MAX; n++)
+            {
+                uint32_t rr = fft_rand(&fft_ram.fw.seed);
+                float a = (float)(rr % 6283u) * 0.001f;
+                float sp = 3.5f + (float)((rr >> 8) % 5u); /* 3.5~7.5 px/s */
+                FFTFireworkParticle_t *p = &fft_ram.fw.p[fft_ram.fw.pn++];
+
+                p->x = rk->x;
+                p->y = rk->y;
+                p->vx = (int16_t)(cosf(a) * sp * FFT_FW_SCALE);
+                p->vy = (int16_t)(sinf(a) * sp * FFT_FW_SCALE);
+                p->life = (uint16_t)(850 + (rr >> 16) % 500u);
+                p->col = (n % 5 == 0) ? 2 : (n % 3 == 0) ? 1 : 0;
+            }
+
+            fft_ram.fw.r[i] = fft_ram.fw.r[--fft_ram.fw.rn];
+            continue;
+        }
+
+        if (px >= 0 && px < BAR_COUNT && py >= 0 && py < MAX_Y)
+        {
+            draw_point(px, py, White);
+            if (py + 1 < MAX_Y)
+                draw_point_gray(px, py + 1, dot, 2);
+            if (py + 2 < MAX_Y)
+                draw_point_gray(px, py + 2, bar, 1);
+        }
+        i++;
+    }
+
+    /* 粒子：慢速扩散 + 轻微重力 + 拖尾 */
+    for (int i = 0; i < fft_ram.fw.pn;)
+    {
+        FFTFireworkParticle_t *p = &fft_ram.fw.p[i];
+        int px;
+        int py;
+        int dead = 0;
+
+        p->x += (int16_t)((float)p->vx * dt);
+        p->y += (int16_t)((float)p->vy * dt);
+        p->vy += (int16_t)(FFT_FW_GRAVITY * FFT_FW_SCALE * dt);
+
+        if (p->life <= dt_ms)
+            dead = 1;
+        else
+            p->life -= (uint16_t)dt_ms;
+
+        px = (p->x < 0) ? -1 : (p->x >> 8);
+        py = (p->y < 0) ? -1 : (p->y >> 8);
+
+        if (dead || px < 0 || px >= BAR_COUNT || py >= MAX_Y)
+        {
+            fft_ram.fw.p[i] = fft_ram.fw.p[--fft_ram.fw.pn];
+            continue;
+        }
+
+        {
+            Color c = fft_fw_color(p->col, bar, dot);
+            int lv;
+
+            if (p->life > 700u)
+                c = White;
+            lv = (p->life > 500u) ? 7 : (p->life > 200u) ? 4 : 2;
+
+            if (py >= 0)
+                draw_point_gray(px, py, c, (uint8_t)lv);
+            if (px - 1 >= 0 && p->life > 300u)
+                draw_point_gray(px - 1, py, c, 2);
+        }
+        i++;
+    }
+
+    for (int x = 0; x < BAR_COUNT; x++)
+        draw_point_gray(x, MAX_Y - 1, bar, 1);
+}
+
 /* 柱顶软限幅：接近屏幕顶时慢慢收口（渐近 BAR_MAX-1），不硬削成一条直线。
  * 14 根以下原样返回，所以正常音量下画面不变。 */
 static inline float fft_soft_top(float t)
@@ -5943,14 +6611,70 @@ static inline float fft_soft_top(float t)
     return knee + span * x / (x + span * 0.6f);
 }
 
+/* ---------------- 高频抬升（频谱斜率） ----------------
+ * 音乐能量天然集中在低频，右半边（约 1k~5k）经常只剩贴着底线的 1~2 根，
+ * 看起来像右边没波形。这里在 AGC 之后乘一条只抬高频的曲线：
+ * 最左 1 倍，最右 FFT_TILT_MAX 倍，越靠右抬得越多。
+ * AGC 仍按原始峰值工作，所以低音该顶格还是顶格，不会因为抬高频而整体变暗。
+ * 曲线用 t^2：左边保持原样，右三分之一抬到 3~6 倍。
+ *
+ * 另外加一道门限：安静环境 / 只有低频嗡声时，禁止抬高频，否则会把底噪
+ * 放大成一排柱子。门限只看 150Hz 以上（跳过 bin 0~3），这样 50Hz 工频
+ * 再大也不会误开。 */
+#define FFT_TILT_MAX 6.0f
+#define FFT_TILT_GATE_OFF 2.0f /* 150Hz 以上峰值不到 2 根柱子：完全不抬 */
+#define FFT_TILT_GATE_ON 7.0f  /* 超过 7 根柱子：完全打开 */
+
+/* ---------------- 安静环境软抑制 ----------------
+ * 安静时 FFT 底噪会铺成一排 1/3 高度左右的小柱子。这里按 150Hz 以上
+ * 的峰值做一道软静噪：
+ *   峰值 <= 5 根柱子 -> 完全压掉
+ *   峰值 >= 11 根柱子 -> 完全放开
+ * 中间平滑过渡，再乘到高频抬升门上。这样安静时既没有底噪，
+ * 有音乐时右半边该抬的还是抬。 */
+#define FFT_SQUELCH_OFF 5.0f
+#define FFT_SQUELCH_ON 11.0f
+
+static inline float fft_squelch_curve(float peak)
+{
+    float x;
+
+    if (peak <= FFT_SQUELCH_OFF)
+        return 0.0f;
+    if (peak >= FFT_SQUELCH_ON)
+        return 1.0f;
+
+    x = (peak - FFT_SQUELCH_OFF) / (FFT_SQUELCH_ON - FFT_SQUELCH_OFF);
+
+    return x * x * (3.0f - 2.0f * x);
+}
+
+static inline float fft_band_gain(int i, float gate)
+{
+    float t = (float)i / (float)(BAR_COUNT - 1);
+
+    return 1.0f + (FFT_TILT_MAX - 1.0f) * t * t * gate;
+}
+
 void draw_fft(long *fft_result, int len, int delta, uint8_t style, Color bar, Color dot)
 {
     static uint32_t last_time = 0;
+    static uint8_t last_style = 0xFF;
     uint32_t current_time = clock_anim_tick();
     float dt = (current_time - last_time) / 1000.0f;
+    float tilt_gate = 0.0f;
+    float squelch = 1.0f;
     int cols;
 
     last_time = current_time;
+
+    /* 从菜单直接改风格时没有走转场重置，这里兜底清一次，
+     * 避免新风格读到上一种风格残留的私有缓冲。 */
+    if (style != last_style)
+    {
+        last_style = style;
+        fft_style_reset();
+    }
 
     /* 确保有足够的数据点（至少3个才能排除首尾） */
     if (len <= 2)
@@ -5963,6 +6687,7 @@ void draw_fft(long *fft_result, int len, int delta, uint8_t style, Color bar, Co
     {
         dt = 0.05f;
         fft_agc = 1.0f; /* 隔了很久才回到频谱页：别拿上次的增益开始 */
+        fft_squelch = 0.0f; /* 也先压住底噪，等确认有信号再慢慢放开 */
     }
 
     cols = (style == 1) ? (BAR_COUNT / 2) : BAR_COUNT;
@@ -5970,16 +6695,48 @@ void draw_fft(long *fft_result, int len, int delta, uint8_t style, Color bar, Co
     /* ---- 自动增益：只压不放 ---- */
     {
         long top = 0;
+        long gate_top = 0;
         float peak, want = 1.0f;
 
-        /* 用最高那个频点当响度 */
+        /* 用最高那个频点当响度；gate_top 跳过低频，专门判断
+         * "是不是只有底噪/工频"，用来开关高频抬升。 */
         for (int i = 1; i < len - 1; i++)
         {
-            if (fft_result[i] > top)
-                top = fft_result[i];
+            long v = fft_result[i];
+
+            if (v > top)
+                top = v;
+            if (i >= 4 && v > gate_top)
+                gate_top = v;
         }
 
         peak = (float)top / (float)delta; /* 换算成柱高 */
+
+        {
+            float gate_peak = (float)gate_top / (float)delta;
+            float want_sq;
+            float sq_k;
+
+            if (gate_peak <= FFT_TILT_GATE_OFF)
+                tilt_gate = 0.0f;
+            else if (gate_peak >= FFT_TILT_GATE_ON)
+                tilt_gate = 1.0f;
+            else
+                tilt_gate = (gate_peak - FFT_TILT_GATE_OFF) /
+                            (FFT_TILT_GATE_ON - FFT_TILT_GATE_OFF);
+
+            /* 安静环境软抑制：按 150Hz 以上的峰值决定压多少。
+             * 有音乐时快速打开；音乐间隙慢一点关，避免一拍一开造成闪烁。 */
+            want_sq = fft_squelch_curve(gate_peak);
+            sq_k = (want_sq > fft_squelch) ? (dt * 20.0f) : (dt * 3.0f);
+            if (sq_k > 1.0f)
+                sq_k = 1.0f;
+            fft_squelch += (want_sq - fft_squelch) * sq_k;
+            squelch = fft_squelch;
+
+            /* 安静时连高频抬升一起关掉，免得把残余底噪放大到右半边 */
+            tilt_gate *= squelch;
+        }
 
         if (peak > FFT_AGC_ON)
         {
@@ -6010,7 +6767,8 @@ void draw_fft(long *fft_result, int len, int delta, uint8_t style, Color bar, Co
 
     for (int i = 0; i < cols; i++)
     {
-        int pos16 = fft_bin_x16[(style == 1) ? (i * 2) : i];
+        int bi = (style == 1) ? (i * 2) : i;
+        int pos16 = fft_bin_x16[bi];
         int idx = pos16 >> 4;
         int frac = pos16 & 15;
         long v;
@@ -6024,7 +6782,10 @@ void draw_fft(long *fft_result, int len, int delta, uint8_t style, Color bar, Co
         if (frac && (idx + 1 < len - 1))
             v = (v * (16 - frac) + fft_result[idx + 1] * frac) / 16;
 
-        update_display(&bars[i], fft_soft_top(((float)v / (float)delta) * fft_agc), dt);
+        update_display(&bars[i],
+                       fft_soft_top(((float)v / (float)delta) * fft_agc * squelch *
+                                    fft_band_gain(bi, tilt_gate)),
+                       dt);
     }
 
     switch (style)
@@ -6049,6 +6810,30 @@ void draw_fft(long *fft_result, int len, int delta, uint8_t style, Color bar, Co
         break;
     case 7:
         fft_draw_split(bar, dot);
+        break;
+    case 8:
+        fft_draw_fire(bar, dot);
+        break;
+    case 9:
+        fft_draw_matrix(bar, dot);
+        break;
+    case 10:
+        fft_draw_scope(bar, dot);
+        break;
+    case 11:
+        fft_draw_pbars(bar, dot);
+        break;
+    case 12:
+        fft_draw_spiral(bar, dot);
+        break;
+    case 13:
+        fft_draw_bounce(bar, dot);
+        break;
+    case 14:
+        fft_draw_tunnel(bar, dot);
+        break;
+    case 15:
+        fft_draw_fireworks(bar, dot);
         break;
     case 0:
     default:
