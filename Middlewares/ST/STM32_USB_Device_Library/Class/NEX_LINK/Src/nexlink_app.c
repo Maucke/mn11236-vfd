@@ -11,6 +11,7 @@
 #include "mn11236.h"
 #include "easy_ui_user_app.h"
 #include "bootreq.h"
+#include "fwupdate.h"
 
 #define NEXLINK_LOG_MAX_LEN 96
 
@@ -378,7 +379,7 @@ static void handle_cmd(nl_packet_t *pkt)
         send_resp_ok(pkt->cmd, pkt->seq, NULL, 0);
 				mn11236_scan_stop();
         BootReq_Request();
-        BootReq_Request();
+				BootReq_Request();
         HAL_NVIC_SystemReset();
         break;
 
@@ -442,6 +443,81 @@ static void handle_cmd(nl_packet_t *pkt)
     case CMD_GET_DISPLAY_INFO:
         send_resp_ok(pkt->cmd, pkt->seq, &g_display_info, sizeof g_display_info);
         break;
+
+    case CMD_FW_BEGIN:
+    {
+        uint8_t target;
+        uint32_t total;
+        nl_err_t err;
+
+        if (pkt->length < 5)
+        {
+            send_resp_err(pkt->cmd, pkt->seq, NL_ERR_INVALID_PARAM);
+            break;
+        }
+
+        target = pkt->payload[0];
+        memcpy(&total, pkt->payload + 1, 4);
+
+        err = (nl_err_t)FwUpdate_Begin(target, total);
+
+        if (err == NL_ERR_OK)
+				{
+						mn11236_scan_stop();
+            send_resp_ok(pkt->cmd, pkt->seq, NULL, 0);
+				}
+        else
+            send_resp_err(pkt->cmd, pkt->seq, err);
+        break;
+    }
+
+    case CMD_FW_DATA:
+    {
+        uint32_t offset;
+        nl_err_t err;
+
+        if (pkt->length <= 4)
+        {
+            send_resp_err(pkt->cmd, pkt->seq, NL_ERR_INVALID_PARAM);
+            break;
+        }
+
+        memcpy(&offset, pkt->payload, 4);
+
+        /* 第一块会在这条命令里擦 3 个扇区（约 0.8s），上位机把超时放宽就行 */
+        err = (nl_err_t)FwUpdate_Data(offset, pkt->payload + 4,
+                                      (uint16_t)(pkt->length - 4));
+
+        if (err == NL_ERR_OK)
+            send_resp_ok(pkt->cmd, pkt->seq, NULL, 0);
+        else
+            send_resp_err(pkt->cmd, pkt->seq, err);
+        break;
+    }
+
+    case CMD_FW_END:
+    {
+        uint32_t crc = 0;
+        nl_err_t err;
+
+        if (pkt->length >= 4)
+            memcpy(&crc, pkt->payload, 4);
+
+        err = (nl_err_t)FwUpdate_End(crc);
+
+        if (err != NL_ERR_OK)
+        {
+            send_resp_err(pkt->cmd, pkt->seq, err);
+            break;
+        }
+
+        /* 先把 RESP 送出去（TX 任务优先级高于 RX，osDelay 一让出就发完），再复位 */
+        send_resp_ok(pkt->cmd, pkt->seq, NULL, 0);
+        nexlink_log("bootloader flashed, restarting...");
+        osDelay(300);
+        HAL_NVIC_SystemReset();
+        break;
+    }
 
     case CMD_FRAME_BEGIN:
         handle_frame_start(pkt);

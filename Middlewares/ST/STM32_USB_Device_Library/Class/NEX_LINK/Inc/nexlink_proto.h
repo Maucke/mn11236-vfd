@@ -8,7 +8,7 @@
 
 #define NL_VERSION_MAJOR  1
 #define NL_VERSION_MINOR  2
-#define NL_VERSION_PATCH  4
+#define NL_VERSION_PATCH  5
 #define NL_VERSION_BUILD  0
 
 /* CMD */
@@ -25,6 +25,12 @@ typedef enum
     CMD_ENTER_BOOT          = 0x0005,
     CMD_KEY                 = 0x0010,
     CMD_GET_DISPLAY_INFO    = 0x0011,
+
+    /* 固件升级（见 fwupdate.c）。BEGIN 只登记目标/长度，
+     * 第一块 DATA 里校验向量表通过后才擦 flash；END 校验 CRC 并复位 */
+    CMD_FW_BEGIN            = 0x0020,   /* u8 target + u32 total_len */
+    CMD_FW_DATA             = 0x0021,   /* u32 offset + data[] */
+    CMD_FW_END              = 0x0022,   /* u32 crc32(payload) */
 
     EVT_LOG                 = 0x0100,
     EVT_WARN                = 0x0101,
@@ -79,6 +85,7 @@ typedef enum
     NL_ERR_NOT_READY       = 0x04,
     NL_ERR_NO_MEM          = 0x05,
     NL_ERR_TIMEOUT         = 0x06,
+    NL_ERR_CRC             = 0x07,
     NL_ERR_INTERNAL        = 0x0F,
 
     /* =========================

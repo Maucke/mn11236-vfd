@@ -417,6 +417,11 @@
               <FilePath>..\Core\Src\bootreq.c</FilePath>
             </File>
             <File>
+              <FileName>fwupdate.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\fwupdate.c</FilePath>
+            </File>
+            <File>
               <FileName>clockui.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Core\Src\clockui.c</FilePath>
@@ -1507,6 +1512,11 @@
               <FileName>bootreq.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Core\Src\bootreq.c</FilePath>
+            </File>
+            <File>
+              <FileName>fwupdate.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\fwupdate.c</FilePath>
             </File>
             <File>
               <FileName>clockui.c</FileName>
